@@ -232,6 +232,22 @@
   .course-item .ci-delete:hover { color: var(--danger); }
   .course-item.selected { border-color: var(--green); background: #f0faf5; }
 
+  /* Scramble team buttons */
+  .team-btn {
+    padding: 4px 10px; border-radius: 6px; border: 1.5px solid var(--border);
+    font-size: 0.78rem; font-weight: 700; cursor: pointer; background: white;
+    color: var(--muted); transition: all 0.15s; line-height: 1.4;
+  }
+  .team-btn.team-a { background: #dbeafe; border-color: #3b82f6; color: #1e40af; }
+  .team-btn.team-b { background: #fce7f3; border-color: #ec4899; color: #9d174d; }
+  .team-info-card {
+    border-radius: 10px; padding: 12px 14px; margin-bottom: 8px;
+    font-size: 0.85rem;
+  }
+  .team-info-card.team-a { background: #eff6ff; border: 1.5px solid #93c5fd; }
+  .team-info-card.team-b { background: #fdf2f8; border: 1.5px solid #f9a8d4; }
+  .team-info-card strong { font-size: 0.95rem; }
+
   /* Save toast */
   #saveToast {
     position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%) translateY(80px);
@@ -494,7 +510,18 @@
         <button class="toggle-btn" id="btnP4" onclick="setNumPlayers(4)">4</button>
       </div>
 
+      <div id="gameModeRow" class="hidden" style="margin-top:14px;">
+        <label style="margin-top:0;">Spelform</label>
+        <div class="toggle-row">
+          <button class="toggle-btn active" id="btnModeIndividual" onclick="setGameMode('individual')">Individuellt</button>
+          <button class="toggle-btn" id="btnModeScramble" onclick="setGameMode('scramble')">Scramble (2 lag)</button>
+        </div>
+      </div>
+
       <div id="playerCardsContainer" style="margin-top:14px;"></div>
+
+      <!-- Scramble lagöversikt -->
+      <div id="scrambleTeamInfo" class="hidden" style="margin-top:4px;"></div>
     </div>
 
     <div style="display:flex; gap:10px;">
@@ -917,19 +944,43 @@ function calcPlayingHandicap(hi, slope, cr, par, holes) {
 
 function setNumPlayers(n) {
   state.numPlayers = n;
-  [1,2,3,4].forEach(i => {
-    document.getElementById(`btnP${i}`).classList.toggle('active', i === n);
-  });
+  [1,2,3,4].forEach(i =>
+    document.getElementById(`btnP${i}`).classList.toggle('active', i === n));
+  // Show/hide game mode selector
+  document.getElementById('gameModeRow').classList.toggle('hidden', n !== 4);
+  if (n !== 4 && state.gameMode === 'scramble') setGameMode('individual');
+  buildPlayerCards();
+}
+
+function setGameMode(mode) {
+  state.gameMode = mode;
+  document.getElementById('btnModeIndividual').classList.toggle('active', mode === 'individual');
+  document.getElementById('btnModeScramble').classList.toggle('active', mode === 'scramble');
+  // Default team assignments: 0,1 → A; 2,3 → B
+  if (mode === 'scramble' && (!state.teamAssign || state.teamAssign.length !== 4)) {
+    state.teamAssign = ['A','A','B','B'];
+  }
   buildPlayerCards();
 }
 
 function buildPlayerCards() {
   const container = document.getElementById('playerCardsContainer');
   container.innerHTML = '';
+  const isScramble = state.gameMode === 'scramble' && state.numPlayers === 4;
+
   for (let p = 0; p < state.numPlayers; p++) {
     const existing = state.players[p] || {};
-    const nameVal = existing.name || '';
-    const hiVal   = existing.hi !== undefined ? existing.hi : '';
+    const nameVal  = existing.name || '';
+    const hiVal    = existing.hi !== undefined ? existing.hi : '';
+    const team     = isScramble ? (state.teamAssign[p] || 'A') : null;
+
+    const teamBtns = isScramble ? `
+      <div style="display:flex;gap:6px;margin-top:8px;align-items:center;">
+        <span style="font-size:0.75rem;color:var(--muted);">Lag:</span>
+        <button class="team-btn${team==='A'?' team-a':''}" onclick="assignTeam(${p},'A')">A</button>
+        <button class="team-btn${team==='B'?' team-b':''}" onclick="assignTeam(${p},'B')">B</button>
+      </div>` : '';
+
     container.innerHTML += `
       <div class="player-card" id="playerCard_${p}">
         <div class="player-card-title">Spelare ${p+1}</div>
@@ -945,17 +996,54 @@ function buildPlayerCards() {
               value="${hiVal}" oninput="onPlayerInput(${p})" inputmode="decimal">
           </div>
         </div>
+        ${teamBtns}
         <div class="ph-display" id="phDisplay_${p}"></div>
       </div>`;
   }
-  // Refresh displays for existing players
-  for (let p = 0; p < state.numPlayers; p++) {
-    updatePlayerPH(p);
+  for (let p = 0; p < state.numPlayers; p++) updatePlayerPH(p);
+  if (isScramble) buildTeamInfo();
+}
+
+function assignTeam(playerIdx, team) {
+  state.teamAssign[playerIdx] = team;
+  buildPlayerCards();
+}
+
+function calcScrambleHandicap(hi1, hi2) {
+  const lo = Math.min(hi1, hi2);
+  const hi = Math.max(hi1, hi2);
+  return Math.round(lo * 0.5 + hi * 0.4);
+}
+
+function buildTeamInfo() {
+  const el = document.getElementById('scrambleTeamInfo');
+  if (!el) return;
+  const teams = { A: [], B: [] };
+  for (let p = 0; p < 4; p++) {
+    const hi  = parseFloat(document.getElementById(`phi_${p}`)?.value);
+    const name = document.getElementById(`pname_${p}`)?.value.trim() || `Spelare ${p+1}`;
+    const t   = state.teamAssign[p] || 'A';
+    teams[t].push({ name, hi });
   }
+  ['A','B'].forEach(t => {
+    const members = teams[t];
+    const his = members.map(m => m.hi).filter(h => !isNaN(h));
+    const ph  = his.length === 2 ? calcScrambleHandicap(his[0], his[1]) : '–';
+    const cls = t === 'A' ? 'team-a' : 'team-b';
+    el.innerHTML = (el.innerHTML || '').replace(`<!-- team${t} -->`, '');
+    el.querySelector(`#teamBox${t}`)?.remove();
+    const div = document.createElement('div');
+    div.id = `teamBox${t}`;
+    div.className = `team-info-card ${cls}`;
+    div.innerHTML = `<strong>Lag ${t}</strong>: ${members.map(m=>m.name).join(' & ')} · Spelhandicap: <strong>${ph}</strong>`;
+    el.appendChild(div);
+  });
+  el.classList.remove('hidden');
 }
 
 function onPlayerInput(p) {
   updatePlayerPH(p);
+  if (state.gameMode === 'scramble') buildTeamInfo();
 }
 
 function updatePlayerPH(p) {
@@ -982,7 +1070,6 @@ function strokesOnHole(ph, si, totalHoles) {
 }
 
 function goToStep4Score() {
-  // Collect and validate players
   const players = [];
   for (let p = 0; p < state.numPlayers; p++) {
     const nameEl = document.getElementById(`pname_${p}`);
@@ -998,102 +1085,103 @@ function goToStep4Score() {
   }
   state.players = players;
 
-  // Initialize scores array: scores[playerIdx][holeIdx]
-  state.scores = players.map(() => new Array(state.holes).fill(''));
+  if (state.gameMode === 'scramble') {
+    // Build 2 teams
+    const teamNames = { A: [], B: [] };
+    players.forEach((pl, p) => {
+      const t = state.teamAssign[p] || 'A';
+      teamNames[t].push(pl);
+    });
+    state.teams = ['A','B'].map(t => {
+      const members = teamNames[t];
+      const his = members.map(m => m.hi);
+      const ph  = his.length === 2 ? calcScrambleHandicap(his[0], his[1])
+                : his.length === 1 ? calcPlayingHandicap(his[0], state.slope, state.cr, state.par, state.holes)
+                : 0;
+      return { name: `Lag ${t}`, members, playingHandicap: ph };
+    });
+    state.scores = state.teams.map(() => new Array(state.holes).fill(''));
+  } else {
+    state.teams = null;
+    state.scores = players.map(() => new Array(state.holes).fill(''));
+  }
 
   buildScoreTable();
   goToStep(4);
 }
 
+function numColumns() {
+  return state.gameMode === 'scramble' ? state.teams.length : state.players.length;
+}
+
 function buildScoreTable() {
   const thead = document.getElementById('scoreTableHead');
   const tbody = document.getElementById('scoreTableBody');
+  const isScramble = state.gameMode === 'scramble';
+  const cols = isScramble ? state.teams : state.players;
 
-  // Build header
-  let headHtml = '<tr><th>Hål</th><th>Par</th><th>Hcp</th>';
-  state.players.forEach((pl, p) => {
-    headHtml += `<th style="min-width:52px;">${pl.name}<span class="ph-header-badge">+${pl.playingHandicap}</span></th>`;
+  // Header
+  let hd = '<tr><th>Hål</th><th>Par</th><th>Hcp</th>';
+  cols.forEach(c => {
+    const label = isScramble ? c.name : c.name;
+    const ph    = c.playingHandicap;
+    hd += `<th style="min-width:52px;">${label}<span class="ph-header-badge">+${ph}</span></th>`;
   });
-  headHtml += '</tr>';
-  thead.innerHTML = headHtml;
+  thead.innerHTML = hd + '</tr>';
 
-  // Build body
   tbody.innerHTML = '';
   for (let i = 0; i < state.holes; i++) {
     const h   = i + 1;
     const par = state.hpar[i] || 4;
     const si  = state.si[i] || h;
+    let rowClass = state.holes === 18 && i === 9 ? ' class="half-divider"' : '';
 
-    let rowClass = '';
-    if (state.holes === 18 && i === 9) rowClass = ' class="half-divider"';
-
-    let cells = `
-      <td class="hole-num">${h}</td>
-      <td class="par">${par}</td>
-      <td class="si">${si}</td>`;
-
-    state.players.forEach((pl, p) => {
+    let cells = `<td class="hole-num">${h}</td><td class="par">${par}</td><td class="si">${si}</td>`;
+    cols.forEach((c, p) => {
       const val = state.scores[p] && state.scores[p][i] !== '' ? state.scores[p][i] : '';
-      cells += `<td>
-        <input type="number" class="score-input${val !== '' ? ' has-value' : ''}" id="score_${p}_${i}"
-          min="1" max="15" inputmode="numeric" value="${val}"
-          oninput="onScoreInput(${p},${i},this)"
-          onkeydown="scoreKeyDown(event,${p},${i})">
-      </td>`;
+      cells += `<td><input type="number" class="score-input${val ? ' has-value' : ''}" id="score_${p}_${i}"
+        min="1" max="15" inputmode="numeric" value="${val}"
+        oninput="onScoreInput(${p},${i},this)" onkeydown="scoreKeyDown(event,${p},${i})"></td>`;
     });
-
     tbody.innerHTML += `<tr${rowClass}>${cells}</tr>`;
   }
-
-  // Auto-focus first input
-  setTimeout(() => {
-    const first = document.getElementById('score_0_0');
-    if (first) first.focus();
-  }, 100);
+  setTimeout(() => document.getElementById('score_0_0')?.focus(), 100);
 }
 
 function onScoreInput(p, i, el) {
   el.classList.toggle('has-value', el.value !== '');
   if (!state.scores[p]) state.scores[p] = new Array(state.holes).fill('');
   state.scores[p][i] = el.value === '' ? '' : parseInt(el.value);
-
-  // Auto-advance: next player on same hole, then next hole
   if (el.value !== '') {
+    const n = numColumns();
     const nextP = p + 1;
-    if (nextP < state.numPlayers) {
-      setTimeout(() => {
-        const next = document.getElementById(`score_${nextP}_${i}`);
-        if (next) next.focus();
-      }, 50);
-    } else if (i < state.holes - 1) {
-      setTimeout(() => {
-        const next = document.getElementById(`score_0_${i+1}`);
-        if (next) next.focus();
-      }, 50);
-    }
+    setTimeout(() => {
+      const next = nextP < n
+        ? document.getElementById(`score_${nextP}_${i}`)
+        : document.getElementById(`score_0_${i+1}`);
+      if (next) next.focus();
+    }, 50);
   }
 }
 
 function scoreKeyDown(event, p, i) {
   if (event.key === 'Tab' || event.key === 'Enter') {
     event.preventDefault();
+    const n = numColumns();
     const nextP = p + 1;
-    if (nextP < state.numPlayers) {
-      const next = document.getElementById(`score_${nextP}_${i}`);
-      if (next) next.focus();
-    } else if (i < state.holes - 1) {
-      const next = document.getElementById(`score_0_${i+1}`);
-      if (next) next.focus();
-    }
+    const next = nextP < n
+      ? document.getElementById(`score_${nextP}_${i}`)
+      : document.getElementById(`score_0_${i+1}`);
+    if (next) next.focus();
   }
 }
 
 // ============================================================
-// STEP 5 – Calculate all players
+// STEP 5 – Beräkna
 // ============================================================
 function calculateAll() {
-  // Read all scores from DOM
-  for (let p = 0; p < state.numPlayers; p++) {
+  const n = numColumns();
+  for (let p = 0; p < n; p++) {
     if (!state.scores[p]) state.scores[p] = new Array(state.holes).fill('');
     for (let i = 0; i < state.holes; i++) {
       const el = document.getElementById(`score_${p}_${i}`);
@@ -1101,56 +1189,60 @@ function calculateAll() {
     }
   }
 
-  // Verify at least one score entered
   const anyScore = state.scores.some(ps => ps.some(s => s !== null && s > 0));
   if (!anyScore) { alert('Mata in minst ett hålresultat.'); return; }
 
-  // Build per-player results
-  const playerResults = state.players.map((pl, p) => {
-    const ph = pl.playingHandicap;
+  const isScramble = state.gameMode === 'scramble';
+  const subjects   = isScramble ? state.teams : state.players;
+
+  const results = subjects.map((subj, p) => {
+    const ph = subj.playingHandicap;
     let totalPoints = 0, totalBrutto = 0;
     const rows = [];
-
     for (let i = 0; i < state.holes; i++) {
-      const score = state.scores[p][i];
-      const par = state.hpar[i] || 4;
-      const si  = state.si[i] || (i + 1);
+      const score   = state.scores[p][i];
+      const par     = state.hpar[i] || 4;
+      const si      = state.si[i] || (i + 1);
       const strokes = strokesOnHole(ph, si, state.holes);
-
-      if (score === null || score === 0) {
-        rows.push({ h: i+1, par, si, score: '–', netto: '–', strokes, pts: 0, skipped: true });
+      if (!score) {
+        rows.push({ h: i+1, par, si, strokes, score: '–', netto: '–', pts: 0, skipped: true });
         continue;
       }
       const netto = score - strokes;
       const pts   = Math.max(0, par + 2 - netto);
       totalPoints += pts;
       totalBrutto += score;
-      rows.push({ h: i+1, par, si, score, netto, strokes, pts, skipped: false });
+      rows.push({ h: i+1, par, si, strokes, score, netto, pts, skipped: false });
     }
-
-    return { player: pl, ph, totalPoints, totalBrutto, rows };
+    return { subj, ph, totalPoints, totalBrutto, rows, isScramble };
   });
 
-  renderResults(playerResults);
+  renderResults(results);
   goToStep(5);
 }
 
 function renderResults(playerResults) {
   // Sort for ranking (higher points = better)
-  const sorted = playerResults.slice().sort((a, b) => b.totalPoints - a.totalPoints);
-  const medals = ['🥇', '🥈', '🥉', '🪙'];
+  const results = playerResults; // alias (passed from calculateAll)
+  const sorted  = results.slice().sort((a, b) => b.totalPoints - a.totalPoints);
+  const medals  = ['🥇', '🥈', '🥉', '🪙'];
+  const isScramble = results[0]?.isScramble;
 
-  // Ranking cards
+  // Ranking
   const rankContainer = document.getElementById('rankingContainer');
   rankContainer.innerHTML = '';
   sorted.forEach((r, rank) => {
     const holesPlayed = r.rows.filter(row => !row.skipped).length;
+    const name     = isScramble ? r.subj.name : r.subj.name;
+    const subLabel = isScramble
+      ? `Spelhandicap +${r.ph} · ${r.subj.members.map(m=>m.name).join(' & ')}`
+      : `HI ${r.subj.hi} · Spelhandicap +${r.ph} · ${holesPlayed} hål`;
     rankContainer.innerHTML += `
       <div class="ranking-card">
         <div class="rank-medal">${medals[rank] || ''}</div>
         <div class="rank-info">
-          <div class="rank-name">${r.player.name}</div>
-          <div class="rank-sub">HI ${r.player.hi} · Spelhandicap +${r.ph} · ${holesPlayed} hål</div>
+          <div class="rank-name">${name}</div>
+          <div class="rank-sub">${subLabel}</div>
         </div>
         <div style="text-align:right;">
           <div class="rank-pts">${r.totalPoints}</div>
@@ -1159,78 +1251,58 @@ function renderResults(playerResults) {
       </div>`;
   });
 
-  // Per-player detailed tables
+  // Per-subject detail table
   const prContainer = document.getElementById('playerResultsContainer');
   prContainer.innerHTML = '';
 
-  playerResults.forEach((r) => {
+  results.forEach(r => {
     const holesPlayed = r.rows.filter(row => !row.skipped).length;
     let front9pts = 0, back9pts = 0, front9brutto = 0, back9brutto = 0;
     let rtbodyHtml = '';
 
     r.rows.forEach((row, i) => {
       if (state.holes === 18 && i === 9) {
-        rtbodyHtml += `
-          <tr class="total-row">
-            <td colspan="3">Ut (1–9)</td>
-            <td>${front9brutto}</td><td></td><td></td>
-            <td>${front9pts}</td>
-          </tr>`;
+        rtbodyHtml += `<tr class="total-row">
+          <td colspan="3">Ut (1–9)</td><td>${front9brutto}</td><td></td><td></td><td>${front9pts}</td></tr>`;
       }
       const ptsClass = row.skipped ? '' : `pts-${Math.min(row.pts, 4)}`;
-      const ptsStr   = row.skipped ? '–' : row.pts;
-      const nettoStr = row.skipped ? '–' : row.netto;
       const divClass = (state.holes === 18 && i === 9) ? ' class="half-row"' : '';
-
       rtbodyHtml += `
         <tr${divClass}>
-          <td>${row.h}</td>
-          <td>${row.par}</td>
-          <td>${row.si}</td>
+          <td>${row.h}</td><td>${row.par}</td><td>${row.si}</td>
           <td>${row.score}</td>
           <td>${row.skipped ? '–' : row.score + (row.strokes > 0 ? `<small style="color:var(--green)"> -${row.strokes}</small>` : '')}</td>
-          <td>${nettoStr}</td>
-          <td class="${ptsClass}" style="font-weight:700">${ptsStr}</td>
+          <td>${row.skipped ? '–' : row.netto}</td>
+          <td class="${ptsClass}" style="font-weight:700">${row.skipped ? '–' : row.pts}</td>
         </tr>`;
-
       if (!row.skipped) {
         if (i < 9) { front9pts += row.pts; front9brutto += row.score; }
-        else { back9pts += row.pts; back9brutto += row.score; }
+        else        { back9pts  += row.pts; back9brutto  += row.score; }
       }
     });
 
     if (state.holes === 18) {
-      rtbodyHtml += `
-        <tr class="total-row">
-          <td colspan="3">In (10–18)</td>
-          <td>${back9brutto}</td><td></td><td></td>
-          <td>${back9pts}</td>
-        </tr>`;
+      rtbodyHtml += `<tr class="total-row">
+        <td colspan="3">In (10–18)</td><td>${back9brutto}</td><td></td><td></td><td>${back9pts}</td></tr>`;
     }
-    rtbodyHtml += `
-      <tr class="total-row${state.holes === 9 ? '' : ' half-row'}">
-        <td colspan="3"><strong>Totalt</strong></td>
-        <td>${r.totalBrutto}</td><td></td><td></td>
-        <td>${r.totalPoints}</td>
-      </tr>`;
+    rtbodyHtml += `<tr class="total-row${state.holes===9?'':' half-row'}">
+      <td colspan="3"><strong>Totalt</strong></td><td>${r.totalBrutto}</td><td></td><td></td><td>${r.totalPoints}</td></tr>`;
+
+    const subLabel = isScramble
+      ? `Spelhandicap +${r.ph} · ${r.subj.members.map(m=>m.name).join(' & ')}`
+      : `Spelhandicap +${r.ph} · Brutto ${r.totalBrutto} · ${holesPlayed} hål`;
 
     prContainer.innerHTML += `
-      <div class="player-result-section">
-        <div class="card">
-          <div class="card-title"><span class="icon">📊</span> ${r.player.name} · ${r.totalPoints} poäng</div>
-          <div style="font-size:0.8rem; color:var(--muted); margin-bottom:10px;">
-            Spelhandicap +${r.ph} · Brutto ${r.totalBrutto} · ${holesPlayed} hål
-          </div>
-          <div style="overflow-x:auto;">
-            <table class="result-table">
-              <thead>
-                <tr><th>Hål</th><th>Par</th><th>Hcp</th><th>Slag</th><th>Score</th><th>Netto</th><th>Poäng</th></tr>
-              </thead>
-              <tbody>${rtbodyHtml}</tbody>
-            </table>
-          </div>
+      <div class="player-result-section"><div class="card">
+        <div class="card-title"><span class="icon">📊</span> ${r.subj.name} · ${r.totalPoints} poäng</div>
+        <div style="font-size:0.8rem;color:var(--muted);margin-bottom:10px;">${subLabel}</div>
+        <div style="overflow-x:auto;">
+          <table class="result-table">
+            <thead><tr><th>Hål</th><th>Par</th><th>Hcp</th><th>Slag</th><th>Score</th><th>Netto</th><th>Poäng</th></tr></thead>
+            <tbody>${rtbodyHtml}</tbody>
+          </table>
         </div>
-      </div>`;
+      </div></div>`;
   });
 }
 
@@ -1238,8 +1310,9 @@ function newRound() {
   state = {
     courseName: null, teeColor: null, holes: 18,
     slope: null, cr: null, par: null,
-  hpar: [], si: [],
-    numPlayers: 1, players: [], scores: []
+    hpar: [], si: [],
+    numPlayers: 1, players: [], scores: [],
+    gameMode: 'individual', teamAssign: ['A','A','B','B'], teams: null
   };
   resetCourseFields();
   try { document.getElementById('holeDataBody').innerHTML = ''; } catch(e) {}
@@ -1248,6 +1321,11 @@ function newRound() {
       const btn = document.getElementById(`btnP${i}`);
       if (btn) btn.classList.toggle('active', i === 1);
     });
+    document.getElementById('gameModeRow').classList.add('hidden');
+    document.getElementById('btnModeIndividual').classList.add('active');
+    document.getElementById('btnModeScramble').classList.remove('active');
+    document.getElementById('scrambleTeamInfo').classList.add('hidden');
+    document.getElementById('scrambleTeamInfo').innerHTML = '';
   } catch(e) {}
   setHoles(18);
   try { renderSavedCourses(); } catch(e) {}
