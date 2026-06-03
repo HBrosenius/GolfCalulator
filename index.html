@@ -1,0 +1,1277 @@
+<!DOCTYPE html>
+<html lang="sv">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<title>Poängbogey-kalkylator</title>
+<style>
+  :root {
+    --green: #2d6a4f;
+    --green-light: #40916c;
+    --green-dark: #1b4332;
+    --accent: #74c69d;
+    --bg: #f8fdf9;
+    --card: #ffffff;
+    --text: #1a1a2e;
+    --muted: #6c757d;
+    --border: #dee2e6;
+    --danger: #e63946;
+    --gold: #f4a261;
+    --shadow: 0 2px 12px rgba(0,0,0,0.08);
+    --radius: 12px;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+    padding-bottom: 40px;
+  }
+
+  header {
+    background: linear-gradient(135deg, var(--green-dark), var(--green));
+    color: white;
+    padding: 20px 16px 16px;
+    text-align: center;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+  }
+  header h1 { font-size: 1.5rem; font-weight: 700; letter-spacing: -0.5px; }
+  header p { font-size: 0.85rem; opacity: 0.85; margin-top: 4px; }
+
+  .step-indicator {
+    display: flex;
+    justify-content: center;
+    gap: 8px;
+    padding: 14px 16px 10px;
+    background: var(--green-dark);
+  }
+  .step-dot {
+    width: 28px; height: 28px;
+    border-radius: 50%;
+    background: rgba(255,255,255,0.2);
+    color: rgba(255,255,255,0.6);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 0.75rem; font-weight: 600;
+    transition: all 0.3s;
+  }
+  .step-dot.active { background: white; color: var(--green-dark); }
+  .step-dot.done { background: var(--accent); color: var(--green-dark); }
+
+  .container { max-width: 480px; margin: 0 auto; padding: 16px; }
+
+  .card {
+    background: var(--card);
+    border-radius: var(--radius);
+    padding: 20px;
+    box-shadow: var(--shadow);
+    margin-bottom: 16px;
+  }
+
+  .card-title {
+    font-size: 1rem;
+    font-weight: 700;
+    color: var(--green-dark);
+    margin-bottom: 16px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .card-title .icon { font-size: 1.2rem; }
+
+  label {
+    display: block;
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-bottom: 6px;
+    margin-top: 14px;
+  }
+  label:first-of-type { margin-top: 0; }
+
+  input[type="text"], input[type="number"], select {
+    width: 100%;
+    padding: 12px 14px;
+    border: 1.5px solid var(--border);
+    border-radius: 8px;
+    font-size: 1rem;
+    color: var(--text);
+    background: white;
+    transition: border-color 0.2s;
+    -webkit-appearance: none;
+    appearance: none;
+  }
+  input[type="text"]:focus, input[type="number"]:focus, select:focus {
+    outline: none;
+    border-color: var(--green);
+  }
+
+  select {
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%236c757d' d='M6 8L1 3h10z'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 12px center;
+    padding-right: 36px;
+  }
+
+
+  .toggle-row {
+    display: flex; gap: 8px; margin-top: 4px;
+  }
+  .toggle-btn {
+    flex: 1; padding: 10px; border: 1.5px solid var(--border);
+    border-radius: 8px; background: white; font-size: 0.9rem;
+    font-weight: 600; cursor: pointer; transition: all 0.2s; color: var(--muted);
+  }
+  .toggle-btn.active {
+    background: var(--green); border-color: var(--green); color: white;
+  }
+
+  .btn {
+    width: 100%; padding: 14px;
+    background: var(--green); color: white;
+    border: none; border-radius: 10px;
+    font-size: 1rem; font-weight: 700;
+    cursor: pointer; margin-top: 8px;
+    transition: background 0.2s, transform 0.1s;
+  }
+  .btn:active { transform: scale(0.98); }
+  .btn:hover { background: var(--green-light); }
+  .btn.secondary { background: white; color: var(--green); border: 1.5px solid var(--green); }
+  .btn.secondary:hover { background: var(--bg); }
+
+  /* Score table */
+  .score-table { width: 100%; border-collapse: collapse; }
+  .score-table thead th {
+    background: var(--green); color: white;
+    padding: 8px 4px; font-size: 0.72rem; text-align: center;
+    font-weight: 600; text-transform: uppercase; letter-spacing: 0.3px;
+  }
+  .score-table thead th:first-child { border-radius: 6px 0 0 0; }
+  .score-table thead th:last-child { border-radius: 0 6px 0 0; }
+  .score-table tbody tr:nth-child(even) { background: #f8fdf9; }
+  .score-table tbody td { padding: 4px 3px; text-align: center; vertical-align: middle; }
+  .score-table td.hole-num { font-weight: 700; color: var(--green-dark); font-size: 0.9rem; }
+  .score-table td.par { font-size: 0.85rem; color: var(--muted); }
+  .score-table td.si { font-size: 0.75rem; color: var(--muted); }
+
+  .score-input {
+    width: 48px; padding: 6px 2px;
+    border: 1.5px solid var(--border); border-radius: 6px;
+    font-size: 1rem; text-align: center; font-weight: 600;
+    -webkit-appearance: none; appearance: none;
+  }
+  .score-input:focus { outline: none; border-color: var(--green); background: #f0faf5; }
+  .score-input.has-value { border-color: var(--green-light); }
+
+  .half-divider td {
+    border-top: 2px solid var(--green); padding-top: 6px !important;
+  }
+
+  /* Hole data entry */
+  .hole-row {
+    display: grid;
+    grid-template-columns: 32px 1fr 88px;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 0;
+    border-bottom: 1px solid var(--border);
+  }
+  .hole-row:last-child { border-bottom: none; }
+  .hole-row.half-top { border-top: 2px solid var(--green); margin-top: 4px; padding-top: 12px; }
+  .hole-row .hole-num-badge {
+    width: 28px; height: 28px; border-radius: 50%;
+    background: var(--green); color: white;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 0.78rem; font-weight: 700; flex-shrink: 0;
+  }
+  .par-btns { display: flex; gap: 4px; }
+  .par-btn {
+    flex: 1; padding: 8px 0;
+    border: 1.5px solid var(--border); border-radius: 7px;
+    background: white; font-size: 1rem; font-weight: 700;
+    color: var(--muted); cursor: pointer; transition: all 0.15s;
+    line-height: 1;
+  }
+  .par-btn.selected-3 { background: #dff0ea; border-color: #52b788; color: #1b4332; }
+  .par-btn.selected-4 { background: #e8f5e9; border-color: var(--green); color: var(--green-dark); }
+  .par-btn.selected-5 { background: #fff8e1; border-color: #f4a261; color: #7a3e00; }
+  .idx-input {
+    width: 100%; padding: 8px 6px;
+    border: 1.5px solid var(--border); border-radius: 7px;
+    font-size: 1rem; font-weight: 700; text-align: center;
+    color: var(--text); background: white;
+    -webkit-appearance: none; appearance: none;
+  }
+  .idx-input:focus { outline: none; border-color: var(--green); background: #f0faf5; }
+  .idx-input.filled { border-color: var(--green-light); background: #f8fdf9; }
+
+  /* Saved courses list */
+  .course-item {
+    display: flex; align-items: center; gap: 10px;
+    padding: 12px 10px; border-radius: 9px; cursor: pointer;
+    border: 1.5px solid var(--border); margin-bottom: 8px;
+    background: white; transition: border-color 0.15s, background 0.15s;
+  }
+  .course-item:last-child { margin-bottom: 0; }
+  .course-item:active { background: var(--bg); border-color: var(--green); }
+  .course-item .ci-name { flex: 1; font-weight: 600; font-size: 0.95rem; }
+  .course-item .ci-meta { font-size: 0.75rem; color: var(--muted); margin-top: 2px; }
+  .course-item .ci-tee {
+    font-size: 0.75rem; font-weight: 700; padding: 3px 8px;
+    border-radius: 12px; background: #f0faf5; color: var(--green-dark);
+  }
+  .course-item .ci-delete {
+    background: none; border: none; cursor: pointer; color: var(--muted);
+    font-size: 1.1rem; padding: 4px; line-height: 1;
+    border-radius: 6px; transition: color 0.15s;
+  }
+  .course-item .ci-delete:hover { color: var(--danger); }
+  .course-item.selected { border-color: var(--green); background: #f0faf5; }
+
+  /* Save toast */
+  #saveToast {
+    position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%) translateY(80px);
+    background: var(--green-dark); color: white;
+    padding: 10px 20px; border-radius: 20px; font-size: 0.85rem; font-weight: 600;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.2); z-index: 999;
+    transition: transform 0.3s ease; pointer-events: none;
+  }
+  #saveToast.show { transform: translateX(-50%) translateY(0); }
+
+  /* Player cards */
+  .player-card {
+    background: #f8fdf9;
+    border: 1.5px solid var(--border);
+    border-radius: 10px;
+    padding: 14px;
+    margin-bottom: 10px;
+  }
+  .player-card-title {
+    font-size: 0.8rem;
+    font-weight: 700;
+    color: var(--green-dark);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-bottom: 10px;
+  }
+  .player-card .ph-display {
+    margin-top: 8px;
+    font-size: 0.82rem;
+    color: var(--green-dark);
+  }
+  .ph-badge {
+    display: inline-block;
+    background: var(--green);
+    color: white;
+    font-size: 0.72rem;
+    font-weight: 700;
+    padding: 2px 6px;
+    border-radius: 10px;
+    margin-left: 4px;
+    vertical-align: middle;
+  }
+  .ph-header-badge {
+    display: block;
+    background: var(--green);
+    color: white;
+    font-size: 0.65rem;
+    font-weight: 700;
+    padding: 1px 5px;
+    border-radius: 8px;
+    margin-top: 2px;
+    white-space: nowrap;
+  }
+
+  /* Results */
+  .result-hero {
+    text-align: center; padding: 24px 20px;
+    background: linear-gradient(135deg, var(--green-dark), var(--green));
+    border-radius: var(--radius); color: white; margin-bottom: 16px;
+    box-shadow: var(--shadow);
+  }
+  .result-hero .points-label { font-size: 0.85rem; opacity: 0.85; text-transform: uppercase; letter-spacing: 1px; }
+  .result-hero .points-value { font-size: 4rem; font-weight: 800; line-height: 1; margin: 8px 0; }
+  .result-hero .points-sub { font-size: 0.9rem; opacity: 0.9; }
+
+  .result-grid {
+    display: grid; grid-template-columns: 1fr 1fr;
+    gap: 10px; margin-bottom: 16px;
+  }
+  .result-stat {
+    background: white; border-radius: 10px; padding: 14px;
+    box-shadow: var(--shadow); text-align: center;
+  }
+  .result-stat .stat-value { font-size: 1.6rem; font-weight: 800; color: var(--green-dark); }
+  .result-stat .stat-label { font-size: 0.75rem; color: var(--muted); margin-top: 2px; }
+
+  .result-table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+  .result-table th {
+    background: var(--green); color: white;
+    padding: 7px 6px; text-align: center; font-size: 0.72rem;
+    text-transform: uppercase; letter-spacing: 0.3px;
+  }
+  .result-table td { padding: 6px; text-align: center; border-bottom: 1px solid var(--border); }
+  .result-table tr:last-child td { border-bottom: none; }
+  .result-table tr.total-row td { font-weight: 800; background: #f0faf5; }
+  .result-table tr.half-row td { border-top: 2px solid var(--green); }
+
+  .pts-0 { color: var(--danger); }
+  .pts-1 { color: var(--muted); }
+  .pts-2 { color: var(--text); }
+  .pts-3 { color: var(--green); font-weight: 700; }
+  .pts-4 { color: var(--gold); font-weight: 800; }
+
+  .info-box {
+    background: #e8f5e9; border-left: 3px solid var(--green);
+    border-radius: 0 8px 8px 0; padding: 10px 14px;
+    font-size: 0.82rem; color: var(--green-dark); margin-top: 12px;
+  }
+
+  /* Ranking card */
+  .ranking-card {
+    background: white; border-radius: 10px; padding: 14px 16px;
+    box-shadow: var(--shadow); margin-bottom: 10px;
+    display: flex; align-items: center; gap: 12px;
+  }
+  .rank-medal {
+    font-size: 1.8rem; flex-shrink: 0; width: 36px; text-align: center;
+  }
+  .rank-info { flex: 1; }
+  .rank-name { font-size: 1rem; font-weight: 700; color: var(--green-dark); }
+  .rank-sub { font-size: 0.78rem; color: var(--muted); margin-top: 2px; }
+  .rank-pts { font-size: 1.6rem; font-weight: 800; color: var(--green-dark); }
+  .rank-pts-label { font-size: 0.72rem; color: var(--muted); }
+
+  .player-result-section { margin-bottom: 20px; }
+  .player-result-title {
+    font-size: 0.9rem; font-weight: 700; color: var(--green-dark);
+    margin-bottom: 8px; display: flex; align-items: center; gap: 8px;
+  }
+
+  .hidden { display: none !important; }
+
+  @media (max-width: 360px) {
+    .result-grid { grid-template-columns: 1fr 1fr; }
+    .score-input { width: 40px; }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>⛳ Poängbogey</h1>
+  <p>Golfkalkylator</p>
+</header>
+
+<div class="step-indicator">
+  <div class="step-dot active" id="dot1">1</div>
+  <div class="step-dot" id="dot2">2</div>
+  <div class="step-dot" id="dot3">3</div>
+  <div class="step-dot" id="dot4">4</div>
+  <div class="step-dot" id="dot5">5</div>
+</div>
+
+<div id="lsBanner" class="hidden" style="background:#fff3cd;border-bottom:2px solid #f0ad4e;padding:12px 16px;font-size:0.85rem;color:#856404;text-align:center;">
+  ⚠️ <strong>Öppna filen i Safari eller Chrome</strong> för att kunna spara banor.<br>
+  Dubbelklicka på <code>index.html</code> i Finder — den fungerar utan server.
+</div>
+
+<div class="container">
+
+  <!-- STEG 1: Välj bana -->
+  <div id="step1">
+
+    <!-- Sparade banor + Lägg till ny bana (alltid synlig) -->
+    <div class="card">
+      <div class="card-title"><span class="icon">⛳</span> Välj bana</div>
+      <div id="savedCoursesList">
+        <p id="noCoursesTxt" style="font-size:0.85rem;color:var(--muted);text-align:center;padding:12px 0;">
+          Inga sparade banor ännu.
+        </p>
+      </div>
+      <button class="btn secondary" style="margin-top:10px;" onclick="showNewCourseForm(true)">+ Lägg till ny bana</button>
+      <div id="dbDebug" style="margin-top:8px;font-size:0.7rem;color:var(--muted);word-break:break-all;"></div>
+    </div>
+
+    <!-- Ny bana-formulär (gömt tills man klickar ovan) -->
+    <div id="newCourseCard" class="card hidden">
+      <div class="card-title"><span class="icon">🏌️</span> Ny bana</div>
+
+      <label>Bananamn</label>
+      <input type="text" id="customCourseName" placeholder="t.ex. Kalmar GK – Nya" autocomplete="off"
+        oninput="onCourseNameInput()">
+
+      <label>Antal hål</label>
+      <div class="toggle-row">
+        <button class="toggle-btn active" id="btn18" onclick="setHoles(18)">18 hål</button>
+        <button class="toggle-btn" id="btn9" onclick="setHoles(9)">9 hål</button>
+      </div>
+
+      <label>Tee</label>
+      <div class="toggle-row">
+        <button class="toggle-btn" id="teeGul" onclick="selectTee('Gul')">🟡 Gul</button>
+        <button class="toggle-btn" id="teeRod" onclick="selectTee('Röd')">🔴 Röd</button>
+      </div>
+
+      <div style="margin-top:14px; border-top:1px solid var(--border); padding-top:14px;">
+        <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px;">
+          <div>
+            <label>Slope</label>
+            <input type="number" id="manualSlope" placeholder="t.ex. 126" min="55" max="155" inputmode="numeric">
+          </div>
+          <div>
+            <label>CR (Course Rating)</label>
+            <input type="number" id="manualCR" placeholder="t.ex. 72.1" step="0.1" inputmode="decimal">
+          </div>
+        </div>
+        <div>
+          <label>Par (totalt)</label>
+          <input type="number" id="manualPar" placeholder="t.ex. 72" min="27" max="73" inputmode="numeric">
+        </div>
+        <div style="font-size:0.75rem;color:var(--muted);margin-top:6px;">Slope och CR hittar du på scorekortet.</div>
+      </div>
+    </div>
+
+
+    <div id="step1Error" class="hidden" style="background:#fdecea;border-left:3px solid var(--danger);border-radius:0 8px 8px 0;padding:10px 14px;font-size:0.9rem;color:var(--danger);margin-bottom:8px;"></div>
+    <button class="btn" onclick="goToStep2()">Nästa →</button>
+  </div>
+
+  <!-- STEG 2: Håldata -->
+  <div id="step2" class="hidden">
+    <div class="card">
+      <div class="card-title"><span class="icon">📋</span> Bandata från scorekortet</div>
+      <div id="step2CourseInfo" style="padding:10px 12px; background:#f0faf5; border-radius:8px; font-size:0.85rem; margin-bottom:14px;"></div>
+      <p style="font-size:0.82rem; color:var(--muted); margin-bottom:10px;">
+        Tryck på par (3/4/5) och ange Index per hål. Index hittar du i kolumnen <strong>Hcp</strong> eller <strong>Index</strong> på scorekortet — samma sak som SI.
+      </p>
+
+      <div id="savedDataBanner" class="hidden" style="background:#e8f5e9; border-left:3px solid var(--green); border-radius:0 8px 8px 0; padding:9px 12px; font-size:0.82rem; color:var(--green-dark); margin-bottom:10px;">
+        ✅ Håldata laddad från förra gången — kontrollera och justera vid behov.
+      </div>
+
+      <div style="display:flex; gap:8px; margin-bottom:10px;">
+        <button class="btn secondary" style="flex:1; margin:0; font-size:0.82rem; padding:9px 6px;" onclick="fillStandardData()">
+          Standardfördelning
+        </button>
+        <button class="btn secondary" style="flex:1; margin:0; font-size:0.82rem; padding:9px 6px;" onclick="clearHoleData()">
+          Rensa alla
+        </button>
+      </div>
+
+      <!-- Column headers -->
+      <div style="display:grid; grid-template-columns:32px 1fr 88px; gap:8px; padding:0 0 6px; border-bottom:2px solid var(--green); margin-bottom:4px;">
+        <div style="font-size:0.72rem; font-weight:700; color:var(--muted); text-align:center;">HÅL</div>
+        <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:4px; text-align:center; font-size:0.72rem; font-weight:700; color:var(--muted);">
+          <span>3</span><span>4</span><span>5</span>
+        </div>
+        <div style="font-size:0.72rem; font-weight:700; color:var(--muted); text-align:center;">HCP/INDEX</div>
+      </div>
+
+      <div id="holeDataBody"></div>
+    </div>
+
+    <div style="display:flex; gap:10px;">
+      <button class="btn secondary" onclick="goToStep(1)">← Tillbaka</button>
+      <button class="btn" onclick="goToStep3Players()">Nästa →</button>
+    </div>
+  </div>
+
+  <!-- STEG 3: Spelare -->
+  <div id="step3" class="hidden">
+    <div class="card">
+      <div class="card-title"><span class="icon">👥</span> Spelare</div>
+
+      <label style="margin-top:0;">Antal spelare</label>
+      <div class="toggle-row" id="numPlayersRow">
+        <button class="toggle-btn active" id="btnP1" onclick="setNumPlayers(1)">1</button>
+        <button class="toggle-btn" id="btnP2" onclick="setNumPlayers(2)">2</button>
+        <button class="toggle-btn" id="btnP3" onclick="setNumPlayers(3)">3</button>
+        <button class="toggle-btn" id="btnP4" onclick="setNumPlayers(4)">4</button>
+      </div>
+
+      <div id="playerCardsContainer" style="margin-top:14px;"></div>
+    </div>
+
+    <div style="display:flex; gap:10px;">
+      <button class="btn secondary" onclick="goToStep(2)">← Tillbaka</button>
+      <button class="btn" onclick="goToStep4Score()">Nästa →</button>
+    </div>
+  </div>
+
+  <!-- STEG 4: Score -->
+  <div id="step4" class="hidden">
+    <div class="card">
+      <div class="card-title"><span class="icon">📝</span> Mata in score</div>
+      <div style="font-size:0.8rem; color:var(--muted); margin-bottom:12px;">
+        <span style="color:var(--green);">Grön badge</span> = spelhandicap per spelare.
+      </div>
+      <div style="overflow-x:auto;">
+        <table class="score-table">
+          <thead id="scoreTableHead"></thead>
+          <tbody id="scoreTableBody"></tbody>
+        </table>
+      </div>
+    </div>
+    <div style="display:flex; gap:10px;">
+      <button class="btn secondary" onclick="goToStep(3)">← Tillbaka</button>
+      <button class="btn" onclick="calculateAll()">Beräkna ⛳</button>
+    </div>
+  </div>
+
+  <!-- STEG 5: Resultat -->
+  <div id="step5" class="hidden">
+    <div class="card">
+      <div class="card-title"><span class="icon">🏆</span> Resultat</div>
+      <div id="rankingContainer"></div>
+    </div>
+
+    <div id="playerResultsContainer"></div>
+
+    <div style="display:flex; gap:10px;">
+      <button class="btn secondary" onclick="goToStep(4)">← Ändra score</button>
+      <button class="btn" onclick="newRound()">Ny runda</button>
+    </div>
+  </div>
+
+</div><!-- /container -->
+<div id="saveToast">✅ Baninformation sparad</div>
+
+<script>
+// ============================================================
+// STATE
+// ============================================================
+let state = {
+  courseName: null, teeColor: null, holes: 18,
+  slope: null, cr: null, par: null,
+  hpar: [], si: [],
+  numPlayers: 1, players: [], scores: []
+};
+
+// ============================================================
+// SAVED COURSES
+// ============================================================
+// ── Enkel lagringsmodul – ett enda localStorage-objekt ───────
+const DB_KEY = 'golf_courses_db';
+
+// Test om localStorage fungerar
+let _lsOk = false;
+try {
+  localStorage.setItem('_test', '1');
+  _lsOk = localStorage.getItem('_test') === '1';
+  localStorage.removeItem('_test');
+} catch(e) { _lsOk = false; }
+
+function dbLoad() {
+  if (!_lsOk) return [];
+  try { return JSON.parse(localStorage.getItem(DB_KEY) || '[]'); }
+  catch(e) { return []; }
+}
+
+function dbSave(entries) {
+  if (!_lsOk) return false;
+  try {
+    const json = JSON.stringify(entries);
+    localStorage.setItem(DB_KEY, json);
+    // Verify it actually saved
+    return localStorage.getItem(DB_KEY) === json;
+  } catch(e) { return false; }
+}
+
+function dbFind(name, tee, holes) {
+  return dbLoad().find(e => e.name === name && e.tee === tee && e.holes === holes) || null;
+}
+
+function dbUpsert(entry) {
+  const entries = dbLoad();
+  const idx = entries.findIndex(e => e.name === entry.name && e.tee === entry.tee && e.holes === entry.holes);
+  if (idx >= 0) entries[idx] = { ...entries[idx], ...entry };
+  else entries.push(entry);
+  return dbSave(entries);
+}
+
+function dbDelete(name, tee, holes) {
+  return dbSave(dbLoad().filter(e => !(e.name === name && e.tee === tee && e.holes === holes)));
+}
+
+function getSavedCourses() {
+  return dbLoad()
+    .filter(e => e.slope) // only show complete entries
+    .sort((a, b) => a.name.localeCompare(b.name, 'sv'));
+}
+
+// In-memory list for click handlers
+let _savedCourses = [];
+
+function renderSavedCourses() {
+  _savedCourses = getSavedCourses();
+  // Debug
+  const dbg = document.getElementById('dbDebug');
+  if (dbg) {
+    const raw = _lsOk ? (localStorage.getItem(DB_KEY) || '(tom)') : '⚠ localStorage blockerat';
+    dbg.textContent = 'DB: ' + raw;
+  }
+  const list = document.getElementById('savedCoursesList');
+  const noTxt = document.getElementById('noCoursesTxt');
+
+  if (_savedCourses.length === 0) {
+    list.innerHTML = '';
+    if (noTxt) noTxt.classList.remove('hidden');
+    return;
+  }
+
+  // Hide new-course form when saved courses exist
+  document.getElementById('newCourseCard').classList.add('hidden');
+  if (noTxt) noTxt.classList.add('hidden');
+  list.innerHTML = _savedCourses.map((e, i) => `
+    <div class="course-item" data-i="${i}">
+      <div style="flex:1;pointer-events:none">
+        <div class="ci-name">${e.name}</div>
+        <div class="ci-meta">${e.holes} hål · Slope ${e.slope} · CR ${e.cr} · Par ${e.par}</div>
+      </div>
+      <span class="ci-tee" style="pointer-events:none">${e.tee === 'Gul' ? '🟡 Gul' : '🔴 Röd'}</span>
+      <button class="ci-delete" data-del="${i}" title="Ta bort">🗑</button>
+    </div>`).join('');
+}
+
+document.getElementById('savedCoursesList').addEventListener('click', function(e) {
+  // Delete button
+  const delBtn = e.target.closest('[data-del]');
+  if (delBtn) {
+    const entry = _savedCourses[+delBtn.dataset.del];
+    if (!confirm(`Ta bort ${entry.name} (${entry.tee})?`)) return;
+    dbDelete(entry.name, entry.tee, entry.holes);
+    renderSavedCourses();
+    return;
+  }
+  // Course row — load and go directly to step 2
+  const row = e.target.closest('[data-i]');
+  if (row) {
+    const entry = _savedCourses[+row.dataset.i];
+    loadSavedCourseAndAdvance(entry);
+  }
+});
+
+function loadSavedCourseAndAdvance(entry) {
+  clearStep1Error();
+  state.courseName = entry.name;
+  state.teeColor   = entry.tee;
+  state.holes      = entry.holes;
+  state.slope      = entry.slope;
+  state.cr         = entry.cr;
+  state.par        = entry.par;
+
+  document.getElementById('step2CourseInfo').innerHTML =
+    `<strong>${entry.name}</strong> · ${entry.tee}<br>
+     ${entry.holes} hål · Slope&nbsp;${entry.slope} · CR&nbsp;${entry.cr} · Par&nbsp;${entry.par}`;
+
+  state.hpar = new Array(state.holes).fill('');
+  state.si   = new Array(state.holes).fill('');
+  buildHoleDataTable();
+  goToStep(2);
+}
+
+function showNewCourseForm(show) {
+  document.getElementById('newCourseCard').classList.toggle('hidden', !show);
+  if (show) {
+    resetCourseFields();
+    document.getElementById('customCourseName').focus();
+  }
+}
+
+function resetCourseFields() {
+  state.courseName = null;
+  state.teeColor   = null;
+  document.getElementById('customCourseName').value = '';
+  document.getElementById('teeGul').classList.remove('active');
+  document.getElementById('teeRod').classList.remove('active');
+  document.getElementById('manualSlope').value = '';
+  document.getElementById('manualCR').value    = '';
+  document.getElementById('manualPar').value   = '';
+}
+
+function onCourseNameInput() {
+  state.courseName = document.getElementById('customCourseName').value.trim() || null;
+  state.teeColor   = null;
+  document.getElementById('teeGul').classList.remove('active');
+  document.getElementById('teeRod').classList.remove('active');
+  document.getElementById('manualSlope').value = '';
+  document.getElementById('manualCR').value    = '';
+  document.getElementById('manualPar').value   = '';
+}
+
+// ── Storage ──────────────────────────────────────────────────
+function saveCurrentCourseData(patch) {
+  if (!_lsOk) {
+    showStep1Error('⚠ Din webbläsare blockerar lagring. Prova att öppna sidan i vanligt läge (inte privat/inkognito).');
+    return false;
+  }
+  if (!state.courseName || !state.teeColor) return false;
+  const ok = dbUpsert({ name: state.courseName, tee: state.teeColor, holes: state.holes, ...patch });
+  if (ok) { showSaveToast(); renderSavedCourses(); }
+  else showStep1Error('⚠ Kunde inte spara — localStorage-fel.');
+  return ok;
+}
+
+function loadCurrentCourseData() {
+  if (!state.courseName || !state.teeColor) return null;
+  return dbFind(state.courseName, state.teeColor, state.holes);
+}
+
+let _toastTimer;
+function showSaveToast() {
+  const t = document.getElementById('saveToast');
+  if (!t) return;
+  t.classList.add('show');
+  clearTimeout(_toastTimer);
+  _toastTimer = setTimeout(() => t.classList.remove('show'), 2000);
+}
+
+function selectTee(color) {
+  state.teeColor = color;
+  document.getElementById('teeGul').classList.toggle('active', color === 'Gul');
+  document.getElementById('teeRod').classList.toggle('active', color === 'Röd');
+  // Pre-fill slope/CR/par if this course+tee has been saved before
+  const saved = loadCurrentCourseData();
+  if (saved && saved.slope) {
+    document.getElementById('manualSlope').value = saved.slope;
+    document.getElementById('manualCR').value    = saved.cr;
+    document.getElementById('manualPar').value   = saved.par;
+  } else {
+    document.getElementById('manualSlope').value = '';
+    document.getElementById('manualCR').value    = '';
+    document.getElementById('manualPar').value   = '';
+  }
+}
+
+function setHoles(n) {
+  state.holes = n;
+  document.getElementById('btn18').classList.toggle('active', n === 18);
+  document.getElementById('btn9').classList.toggle('active', n === 9);
+}
+
+function showStep1Error(msg) {
+  const el = document.getElementById('step1Error');
+  el.textContent = '⚠ ' + msg;
+  el.classList.remove('hidden');
+  el.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+}
+function clearStep1Error() {
+  document.getElementById('step1Error').classList.add('hidden');
+}
+
+function goToStep2() {
+  clearStep1Error();
+  try {
+  const courseName = state.courseName || document.getElementById('customCourseName').value.trim();
+  const teeColor   = state.teeColor;
+  const slopeVal   = parseFloat(document.getElementById('manualSlope').value);
+  const crVal      = parseFloat(document.getElementById('manualCR').value);
+  const parVal     = parseInt(document.getElementById('manualPar').value);
+
+  if (!courseName)                                          { showStep1Error('Ange ett bananamn.'); return; }
+  if (!teeColor)                                            { showStep1Error('Välj tee: Gul eller Röd.'); return; }
+  if (isNaN(slopeVal) || slopeVal < 55 || slopeVal > 155)  { showStep1Error('Ange Slope (55–155). Finns på scorekortet.'); return; }
+  if (isNaN(crVal)    || crVal < 50   || crVal > 85)        { showStep1Error('Ange Course Rating (50–85). Finns på scorekortet.'); return; }
+  if (isNaN(parVal)   || parVal < 27  || parVal > 73)       { showStep1Error('Ange Par (27–73).'); return; }
+
+  state.courseName = courseName;
+  state.slope      = slopeVal;
+  state.cr         = crVal;
+  state.par        = parVal;
+
+  saveCurrentCourseData({ slope: slopeVal, cr: crVal, par: parVal });
+
+  state.hpar = new Array(state.holes).fill('');
+  state.si   = new Array(state.holes).fill('');
+
+  document.getElementById('step2CourseInfo').innerHTML =
+    `<strong>${courseName}</strong> · ${teeColor}<br>
+     ${state.holes} hål · Slope&nbsp;${slopeVal} · CR&nbsp;${crVal} · Par&nbsp;${parVal}`;
+
+  buildHoleDataTable();
+  goToStep(2);
+  } catch(err) { showStep1Error('Tekniskt fel: ' + err.message); }
+}
+
+function buildHoleDataTable() {
+  const saved = loadCurrentCourseData();
+  const hasSavedHoles = saved && saved.hpar && saved.hpar.length === state.holes;
+  const container = document.getElementById('holeDataBody');
+  container.innerHTML = '';
+  document.getElementById('savedDataBanner').classList.toggle('hidden', !hasSavedHoles);
+
+  for (let i = 0; i < state.holes; i++) {
+    const h        = i + 1;
+    const savedPar = hasSavedHoles ? (saved.hpar[i] || 0) : 0;
+    const savedSI  = hasSavedHoles ? (saved.si[i]  || '') : '';
+    const halfTop  = (state.holes === 18 && i === 9) ? ' half-top' : '';
+
+    container.innerHTML += `
+      <div class="hole-row${halfTop}">
+        <div class="hole-num-badge">${h}</div>
+        <div class="par-btns">
+          ${[3,4,5].map(p => `
+            <button class="par-btn${savedPar==p?' selected-'+p:''}" id="parbtn_${i}_${p}"
+              onclick="selectPar(${i},${p})">${p}</button>
+          `).join('')}
+        </div>
+        <input type="number" class="idx-input${savedSI?'  filled':''}" id="si_${i}"
+          min="1" max="${state.holes}" inputmode="numeric"
+          placeholder="–" value="${savedSI}"
+          oninput="this.classList.toggle('filled', this.value!='')">
+      </div>`;
+  }
+}
+
+function selectPar(holeIdx, par) {
+  [3,4,5].forEach(p => {
+    const btn = document.getElementById(`parbtn_${holeIdx}_${p}`);
+    if (btn) btn.className = 'par-btn' + (p === par ? ' selected-'+p : '');
+  });
+}
+
+function getSelectedPar(holeIdx) {
+  for (const p of [3,4,5]) {
+    const btn = document.getElementById(`parbtn_${holeIdx}_${p}`);
+    if (btn && btn.className.includes('selected')) return p;
+  }
+  return 0;
+}
+
+function fillStandardData() {
+  const n = state.holes;
+  const parOrder18 = [4,5,3,4,5,4,3,4,4, 4,4,3,5,4,4,3,5,4];
+  const parOrder9  = [4,5,3,4,4,3,5,4,4];
+  const parArr = n === 18 ? parOrder18 : parOrder9;
+  const siArr  = [];
+  if (n === 18) {
+    for (let i = 0; i < 9; i++) { siArr.push(i+1); siArr.push(i+10); }
+  } else {
+    for (let i = 1; i <= 9; i++) siArr.push(i);
+  }
+  for (let i = 0; i < n; i++) {
+    selectPar(i, parArr[i]);
+    const siEl = document.getElementById(`si_${i}`);
+    if (siEl) { siEl.value = siArr[i]; siEl.classList.add('filled'); }
+  }
+}
+
+function clearHoleData() {
+  for (let i = 0; i < state.holes; i++) {
+    [3,4,5].forEach(p => {
+      const btn = document.getElementById(`parbtn_${i}_${p}`);
+      if (btn) btn.className = 'par-btn';
+    });
+    const siEl = document.getElementById(`si_${i}`);
+    if (siEl) { siEl.value = ''; siEl.classList.remove('filled'); }
+  }
+}
+
+function generateDefaultSI(holes) {
+  const out = [];
+  if (holes === 18) {
+    for (let i = 0; i < 9; i++) { out.push(i + 1); out.push(i + 10); }
+  } else {
+    for (let i = 1; i <= holes; i++) out.push(i);
+  }
+  return out;
+}
+
+// ============================================================
+// STEP 2 → STEP 3: validate hole data then go to players step
+// ============================================================
+function goToStep3Players() {
+  const hpar = [], si = [];
+  let missingPar = false, missingIdx = false;
+  for (let i = 0; i < state.holes; i++) {
+    const p = getSelectedPar(i);
+    const s = parseInt(document.getElementById(`si_${i}`) ? document.getElementById(`si_${i}`).value : '');
+    if (!p) missingPar = true;
+    if (!s || s < 1 || s > state.holes) missingIdx = true;
+    hpar.push(p || 4);
+    si.push(s || (i + 1));
+  }
+  // Spara alltid — använd standardvärden för tomma hål
+  state.hpar = hpar;
+  state.si   = si;
+  state.par  = hpar.reduce((a, b) => a + b, 0);
+  saveCurrentCourseData({ hpar, si });
+
+  buildPlayerCards();
+  goToStep(3);
+}
+
+// ============================================================
+// STEP 3 – Players
+// ============================================================
+function calcPlayingHandicap(hi, slope, cr, par, holes) {
+  let ph = hi * (slope / 113) + (cr - par);
+  if (holes === 9) ph = hi * (slope / 113) * 0.5 + (cr - par);
+  return Math.round(ph);
+}
+
+function setNumPlayers(n) {
+  state.numPlayers = n;
+  [1,2,3,4].forEach(i => {
+    document.getElementById(`btnP${i}`).classList.toggle('active', i === n);
+  });
+  buildPlayerCards();
+}
+
+function buildPlayerCards() {
+  const container = document.getElementById('playerCardsContainer');
+  container.innerHTML = '';
+  for (let p = 0; p < state.numPlayers; p++) {
+    const existing = state.players[p] || {};
+    const nameVal = existing.name || '';
+    const hiVal   = existing.hi !== undefined ? existing.hi : '';
+    container.innerHTML += `
+      <div class="player-card" id="playerCard_${p}">
+        <div class="player-card-title">Spelare ${p+1}</div>
+        <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px;">
+          <div>
+            <label style="margin-top:0;">Namn</label>
+            <input type="text" id="pname_${p}" placeholder="Spelare ${p+1}" value="${nameVal}"
+              oninput="onPlayerInput(${p})">
+          </div>
+          <div>
+            <label style="margin-top:0;">Handicapindex</label>
+            <input type="number" id="phi_${p}" placeholder="t.ex. 15.4" step="0.1" min="0" max="54"
+              value="${hiVal}" oninput="onPlayerInput(${p})" inputmode="decimal">
+          </div>
+        </div>
+        <div class="ph-display" id="phDisplay_${p}"></div>
+      </div>`;
+  }
+  // Refresh displays for existing players
+  for (let p = 0; p < state.numPlayers; p++) {
+    updatePlayerPH(p);
+  }
+}
+
+function onPlayerInput(p) {
+  updatePlayerPH(p);
+}
+
+function updatePlayerPH(p) {
+  const nameEl = document.getElementById(`pname_${p}`);
+  const hiEl   = document.getElementById(`phi_${p}`);
+  const dispEl = document.getElementById(`phDisplay_${p}`);
+  if (!nameEl || !hiEl || !dispEl) return;
+  const hi = parseFloat(hiEl.value);
+  if (isNaN(hi) || !state.slope || !state.cr || !state.par) {
+    dispEl.innerHTML = '';
+    return;
+  }
+  const ph = calcPlayingHandicap(hi, state.slope, state.cr, state.par, state.holes);
+  dispEl.innerHTML = `Spelhandicap: <span class="ph-badge">+${ph}</span>`;
+}
+
+// ============================================================
+// STEP 4 – Score table
+// ============================================================
+function strokesOnHole(ph, si, totalHoles) {
+  let s = Math.floor(ph / totalHoles);
+  if (si <= (ph % totalHoles)) s++;
+  return s;
+}
+
+function goToStep4Score() {
+  // Collect and validate players
+  const players = [];
+  for (let p = 0; p < state.numPlayers; p++) {
+    const nameEl = document.getElementById(`pname_${p}`);
+    const hiEl   = document.getElementById(`phi_${p}`);
+    const hi = parseFloat(hiEl ? hiEl.value : '');
+    if (isNaN(hi) || hi < 0) {
+      alert(`Ange ett giltigt handicapindex för spelare ${p+1}.`);
+      return;
+    }
+    const name = (nameEl && nameEl.value.trim()) ? nameEl.value.trim() : `Spelare ${p+1}`;
+    const ph = calcPlayingHandicap(hi, state.slope, state.cr, state.par, state.holes);
+    players.push({ name, hi, playingHandicap: ph });
+  }
+  state.players = players;
+
+  // Initialize scores array: scores[playerIdx][holeIdx]
+  state.scores = players.map(() => new Array(state.holes).fill(''));
+
+  buildScoreTable();
+  goToStep(4);
+}
+
+function buildScoreTable() {
+  const thead = document.getElementById('scoreTableHead');
+  const tbody = document.getElementById('scoreTableBody');
+
+  // Build header
+  let headHtml = '<tr><th>Hål</th><th>Par</th><th>Hcp</th>';
+  state.players.forEach((pl, p) => {
+    headHtml += `<th style="min-width:52px;">${pl.name}<span class="ph-header-badge">+${pl.playingHandicap}</span></th>`;
+  });
+  headHtml += '</tr>';
+  thead.innerHTML = headHtml;
+
+  // Build body
+  tbody.innerHTML = '';
+  for (let i = 0; i < state.holes; i++) {
+    const h   = i + 1;
+    const par = state.hpar[i] || 4;
+    const si  = state.si[i] || h;
+
+    let rowClass = '';
+    if (state.holes === 18 && i === 9) rowClass = ' class="half-divider"';
+
+    let cells = `
+      <td class="hole-num">${h}</td>
+      <td class="par">${par}</td>
+      <td class="si">${si}</td>`;
+
+    state.players.forEach((pl, p) => {
+      const val = state.scores[p] && state.scores[p][i] !== '' ? state.scores[p][i] : '';
+      cells += `<td>
+        <input type="number" class="score-input${val !== '' ? ' has-value' : ''}" id="score_${p}_${i}"
+          min="1" max="15" inputmode="numeric" value="${val}"
+          oninput="onScoreInput(${p},${i},this)"
+          onkeydown="scoreKeyDown(event,${p},${i})">
+      </td>`;
+    });
+
+    tbody.innerHTML += `<tr${rowClass}>${cells}</tr>`;
+  }
+
+  // Auto-focus first input
+  setTimeout(() => {
+    const first = document.getElementById('score_0_0');
+    if (first) first.focus();
+  }, 100);
+}
+
+function onScoreInput(p, i, el) {
+  el.classList.toggle('has-value', el.value !== '');
+  if (!state.scores[p]) state.scores[p] = new Array(state.holes).fill('');
+  state.scores[p][i] = el.value === '' ? '' : parseInt(el.value);
+
+  // Auto-advance: next player on same hole, then next hole
+  if (el.value !== '') {
+    const nextP = p + 1;
+    if (nextP < state.numPlayers) {
+      setTimeout(() => {
+        const next = document.getElementById(`score_${nextP}_${i}`);
+        if (next) next.focus();
+      }, 50);
+    } else if (i < state.holes - 1) {
+      setTimeout(() => {
+        const next = document.getElementById(`score_0_${i+1}`);
+        if (next) next.focus();
+      }, 50);
+    }
+  }
+}
+
+function scoreKeyDown(event, p, i) {
+  if (event.key === 'Tab' || event.key === 'Enter') {
+    event.preventDefault();
+    const nextP = p + 1;
+    if (nextP < state.numPlayers) {
+      const next = document.getElementById(`score_${nextP}_${i}`);
+      if (next) next.focus();
+    } else if (i < state.holes - 1) {
+      const next = document.getElementById(`score_0_${i+1}`);
+      if (next) next.focus();
+    }
+  }
+}
+
+// ============================================================
+// STEP 5 – Calculate all players
+// ============================================================
+function calculateAll() {
+  // Read all scores from DOM
+  for (let p = 0; p < state.numPlayers; p++) {
+    if (!state.scores[p]) state.scores[p] = new Array(state.holes).fill('');
+    for (let i = 0; i < state.holes; i++) {
+      const el = document.getElementById(`score_${p}_${i}`);
+      state.scores[p][i] = el && el.value !== '' ? parseInt(el.value) : null;
+    }
+  }
+
+  // Verify at least one score entered
+  const anyScore = state.scores.some(ps => ps.some(s => s !== null && s > 0));
+  if (!anyScore) { alert('Mata in minst ett hålresultat.'); return; }
+
+  // Build per-player results
+  const playerResults = state.players.map((pl, p) => {
+    const ph = pl.playingHandicap;
+    let totalPoints = 0, totalBrutto = 0;
+    const rows = [];
+
+    for (let i = 0; i < state.holes; i++) {
+      const score = state.scores[p][i];
+      const par = state.hpar[i] || 4;
+      const si  = state.si[i] || (i + 1);
+      const strokes = strokesOnHole(ph, si, state.holes);
+
+      if (score === null || score === 0) {
+        rows.push({ h: i+1, par, si, score: '–', netto: '–', strokes, pts: 0, skipped: true });
+        continue;
+      }
+      const netto = score - strokes;
+      const pts   = Math.max(0, par + 2 - netto);
+      totalPoints += pts;
+      totalBrutto += score;
+      rows.push({ h: i+1, par, si, score, netto, strokes, pts, skipped: false });
+    }
+
+    return { player: pl, ph, totalPoints, totalBrutto, rows };
+  });
+
+  renderResults(playerResults);
+  goToStep(5);
+}
+
+function renderResults(playerResults) {
+  // Sort for ranking (higher points = better)
+  const sorted = playerResults.slice().sort((a, b) => b.totalPoints - a.totalPoints);
+  const medals = ['🥇', '🥈', '🥉', '🪙'];
+
+  // Ranking cards
+  const rankContainer = document.getElementById('rankingContainer');
+  rankContainer.innerHTML = '';
+  sorted.forEach((r, rank) => {
+    const holesPlayed = r.rows.filter(row => !row.skipped).length;
+    rankContainer.innerHTML += `
+      <div class="ranking-card">
+        <div class="rank-medal">${medals[rank] || ''}</div>
+        <div class="rank-info">
+          <div class="rank-name">${r.player.name}</div>
+          <div class="rank-sub">HI ${r.player.hi} · Spelhandicap +${r.ph} · ${holesPlayed} hål</div>
+        </div>
+        <div style="text-align:right;">
+          <div class="rank-pts">${r.totalPoints}</div>
+          <div class="rank-pts-label">poäng</div>
+        </div>
+      </div>`;
+  });
+
+  // Per-player detailed tables
+  const prContainer = document.getElementById('playerResultsContainer');
+  prContainer.innerHTML = '';
+
+  playerResults.forEach((r) => {
+    const holesPlayed = r.rows.filter(row => !row.skipped).length;
+    let front9pts = 0, back9pts = 0, front9brutto = 0, back9brutto = 0;
+    let rtbodyHtml = '';
+
+    r.rows.forEach((row, i) => {
+      if (state.holes === 18 && i === 9) {
+        rtbodyHtml += `
+          <tr class="total-row">
+            <td colspan="3">Ut (1–9)</td>
+            <td>${front9brutto}</td><td></td><td></td>
+            <td>${front9pts}</td>
+          </tr>`;
+      }
+      const ptsClass = row.skipped ? '' : `pts-${Math.min(row.pts, 4)}`;
+      const ptsStr   = row.skipped ? '–' : row.pts;
+      const nettoStr = row.skipped ? '–' : row.netto;
+      const divClass = (state.holes === 18 && i === 9) ? ' class="half-row"' : '';
+
+      rtbodyHtml += `
+        <tr${divClass}>
+          <td>${row.h}</td>
+          <td>${row.par}</td>
+          <td>${row.si}</td>
+          <td>${row.score}</td>
+          <td>${row.skipped ? '–' : row.score + (row.strokes > 0 ? `<small style="color:var(--green)"> -${row.strokes}</small>` : '')}</td>
+          <td>${nettoStr}</td>
+          <td class="${ptsClass}" style="font-weight:700">${ptsStr}</td>
+        </tr>`;
+
+      if (!row.skipped) {
+        if (i < 9) { front9pts += row.pts; front9brutto += row.score; }
+        else { back9pts += row.pts; back9brutto += row.score; }
+      }
+    });
+
+    if (state.holes === 18) {
+      rtbodyHtml += `
+        <tr class="total-row">
+          <td colspan="3">In (10–18)</td>
+          <td>${back9brutto}</td><td></td><td></td>
+          <td>${back9pts}</td>
+        </tr>`;
+    }
+    rtbodyHtml += `
+      <tr class="total-row${state.holes === 9 ? '' : ' half-row'}">
+        <td colspan="3"><strong>Totalt</strong></td>
+        <td>${r.totalBrutto}</td><td></td><td></td>
+        <td>${r.totalPoints}</td>
+      </tr>`;
+
+    prContainer.innerHTML += `
+      <div class="player-result-section">
+        <div class="card">
+          <div class="card-title"><span class="icon">📊</span> ${r.player.name} · ${r.totalPoints} poäng</div>
+          <div style="font-size:0.8rem; color:var(--muted); margin-bottom:10px;">
+            Spelhandicap +${r.ph} · Brutto ${r.totalBrutto} · ${holesPlayed} hål
+          </div>
+          <div style="overflow-x:auto;">
+            <table class="result-table">
+              <thead>
+                <tr><th>Hål</th><th>Par</th><th>Hcp</th><th>Slag</th><th>Score</th><th>Netto</th><th>Poäng</th></tr>
+              </thead>
+              <tbody>${rtbodyHtml}</tbody>
+            </table>
+          </div>
+        </div>
+      </div>`;
+  });
+}
+
+function newRound() {
+  state = {
+    courseName: null, teeColor: null, holes: 18,
+    slope: null, cr: null, par: null,
+  hpar: [], si: [],
+    numPlayers: 1, players: [], scores: []
+  };
+  resetCourseFields();
+  try { document.getElementById('holeDataBody').innerHTML = ''; } catch(e) {}
+  try {
+    [1,2,3,4].forEach(i => {
+      const btn = document.getElementById(`btnP${i}`);
+      if (btn) btn.classList.toggle('active', i === 1);
+    });
+  } catch(e) {}
+  setHoles(18);
+  try { renderSavedCourses(); } catch(e) {}
+  goToStep(1);
+}
+
+// ============================================================
+// NAVIGATION
+// ============================================================
+function goToStep(n) {
+  [1,2,3,4,5].forEach(i => {
+    document.getElementById(`step${i}`).classList.toggle('hidden', i !== n);
+    const dot = document.getElementById(`dot${i}`);
+    dot.classList.remove('active', 'done');
+    if (i === n) dot.classList.add('active');
+    else if (i < n) dot.classList.add('done');
+  });
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+// Init
+if (!_lsOk) document.getElementById('lsBanner').classList.remove('hidden');
+try { renderSavedCourses(); } catch(e) {}
+goToStep(1);
+</script>
+</body>
+</html>
