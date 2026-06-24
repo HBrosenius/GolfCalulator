@@ -240,6 +240,35 @@
   }
   .cg-delete:hover { color: var(--danger); }
 
+  /* History */
+  .history-item {
+    border: 1.5px solid var(--border); border-radius: 10px;
+    margin-bottom: 8px; background: white; overflow: hidden;
+  }
+  .history-item:last-child { margin-bottom: 0; }
+  .hi-header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 10px 12px; cursor: pointer; gap: 8px;
+  }
+  .hi-header:active { background: var(--bg); }
+  .hi-date { font-size: 0.75rem; color: var(--muted); }
+  .hi-course { font-weight: 600; font-size: 0.9rem; }
+  .hi-meta { font-size: 0.75rem; color: var(--muted); margin-top: 1px; }
+  .hi-summary { font-size: 0.82rem; font-weight: 600; text-align: right; white-space: nowrap; }
+  .hi-chevron { color: var(--muted); font-size: 0.8rem; transition: transform 0.2s; }
+  .hi-chevron.open { transform: rotate(90deg); }
+  .hi-body { display: none; padding: 0 12px 12px; border-top: 1px solid var(--border); }
+  .hi-body.open { display: block; }
+  .hi-ranking { margin: 10px 0 8px; }
+  .hi-rank-row { display: flex; align-items: center; gap: 8px; padding: 5px 0;
+    border-bottom: 1px solid var(--border); font-size: 0.85rem; }
+  .hi-rank-row:last-child { border-bottom: none; }
+  .hi-rank-name { flex: 1; font-weight: 600; }
+  .hi-rank-pts { font-weight: 700; color: var(--green-dark); }
+  .hi-del { background: none; border: none; cursor: pointer; color: var(--muted);
+    font-size: 1rem; padding: 4px; flex-shrink: 0; }
+  .hi-del:hover { color: var(--danger); }
+
   /* Scramble team buttons */
   .team-btn {
     padding: 4px 10px; border-radius: 6px; border: 1.5px solid var(--border);
@@ -406,6 +435,17 @@
 
 <div class="container">
 
+  <!-- HISTORIK -->
+  <div id="historyView" class="hidden">
+    <div class="card">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;">
+        <div class="card-title" style="margin:0;"><span class="icon">📅</span> Sparade rundor</div>
+        <button onclick="closeHistory()" style="background:none;border:none;font-size:1.4rem;cursor:pointer;color:var(--muted);padding:0 4px;">✕</button>
+      </div>
+      <div id="historyList"><p style="font-size:0.85rem;color:var(--muted);text-align:center;padding:12px 0;">Inga sparade rundor.</p></div>
+    </div>
+  </div>
+
   <!-- STEG 1: Välj bana -->
   <div id="step1">
 
@@ -469,6 +509,7 @@
 
     <div id="step1Error" class="hidden" style="background:#fdecea;border-left:3px solid var(--danger);border-radius:0 8px 8px 0;padding:10px 14px;font-size:0.9rem;color:var(--danger);margin-bottom:8px;"></div>
     <button class="btn" onclick="goToStep2()">Nästa →</button>
+    <button class="btn secondary" style="margin-top:10px;" onclick="openHistory()">📅 Sparade rundor</button>
   </div>
 
   <!-- STEG 2: Håldata -->
@@ -1301,6 +1342,7 @@ function calculateAll() {
     return { subj, ph, totalPoints, totalBrutto, rows, isScramble };
   });
 
+  saveCurrentRound(results);
   renderResults(results);
   goToStep(5);
 }
@@ -1430,6 +1472,143 @@ function goToStep(n) {
   window.scrollTo({ top: 0, behavior: 'smooth' });
 }
 
+// ============================================================
+// ROUND HISTORY
+// ============================================================
+const ROUNDS_KEY = 'golf_rounds_db';
+
+function roundsLoad() {
+  if (!_lsOk) return [];
+  try { return JSON.parse(localStorage.getItem(ROUNDS_KEY) || '[]'); }
+  catch(e) { return []; }
+}
+
+function roundsSave(rounds) {
+  if (!_lsOk) return;
+  try { localStorage.setItem(ROUNDS_KEY, JSON.stringify(rounds)); } catch(e) {}
+}
+
+function roundSaveNew(roundData) {
+  const rounds = roundsLoad();
+  rounds.unshift(roundData); // newest first
+  roundsSave(rounds);
+}
+
+function roundDelete(id) {
+  roundsSave(roundsLoad().filter(r => r.id !== id));
+}
+
+function saveCurrentRound(playerResults) {
+  if (!_lsOk) return;
+  const now = new Date();
+  const dateStr = now.toLocaleDateString('sv-SE');
+  const isScramble = state.gameMode === 'scramble';
+  const subjects = playerResults.map(r => ({
+    name: r.subj.name,
+    hi: isScramble ? null : r.subj.hi,
+    ph: r.ph,
+    totalPoints: r.totalPoints,
+    totalBrutto: r.totalBrutto,
+    members: isScramble ? r.subj.members.map(m => m.name) : null,
+    rows: r.rows
+  }));
+  roundSaveNew({
+    id: now.getTime(),
+    date: dateStr,
+    courseName: state.courseName,
+    tee: state.teeColor,
+    holes: state.holes,
+    slope: state.slope,
+    cr: state.cr,
+    par: state.par,
+    gameMode: isScramble ? 'scramble' : 'individual',
+    subjects
+  });
+}
+
+function openHistory() {
+  renderHistoryList();
+  document.getElementById('step1').classList.add('hidden');
+  document.getElementById('historyView').classList.remove('hidden');
+}
+
+function closeHistory() {
+  document.getElementById('historyView').classList.add('hidden');
+  document.getElementById('step1').classList.remove('hidden');
+}
+
+function renderHistoryList() {
+  const rounds = roundsLoad();
+  const container = document.getElementById('historyList');
+  if (rounds.length === 0) {
+    container.innerHTML = '<p style="font-size:0.85rem;color:var(--muted);text-align:center;padding:12px 0;">Inga sparade rundor.</p>';
+    return;
+  }
+  container.innerHTML = rounds.map(r => {
+    const sorted = r.subjects.slice().sort((a, b) => b.totalPoints - a.totalPoints);
+    const medals = ['🥇','🥈','🥉','🪙'];
+    const topLine = sorted.map((s, i) => `${medals[i]||''} ${s.name} ${s.totalPoints}p`).join(' · ');
+    const rankRows = sorted.map((s, i) => `
+      <div class="hi-rank-row">
+        <span>${medals[i]||''}</span>
+        <span class="hi-rank-name">${s.name}${s.members ? ` <span style="font-weight:400;color:var(--muted)">(${s.members.join(' & ')})</span>` : ''}</span>
+        <span style="color:var(--muted);font-size:0.75rem;margin-right:6px;">HCP +${s.ph}</span>
+        <span class="hi-rank-pts">${s.totalPoints} p</span>
+      </div>`).join('');
+    const detailTables = r.subjects.map(s => {
+      const rows = s.rows.map(row => `
+        <tr>
+          <td>${row.h}</td><td>${row.par}</td><td>${row.si}</td>
+          <td>${row.score === '–' || row.score == null ? '–' : row.score}</td>
+          <td>${row.pts === 0 && row.skipped ? '–' : row.pts}</td>
+        </tr>`).join('');
+      return `
+        <div style="margin-top:10px;">
+          <div style="font-weight:600;font-size:0.85rem;margin-bottom:6px;">${s.name} · ${s.totalPoints} poäng</div>
+          <div style="overflow-x:auto;">
+            <table class="result-table">
+              <thead><tr><th>Hål</th><th>Par</th><th>Hcp</th><th>Slag</th><th>Poäng</th></tr></thead>
+              <tbody>${rows}</tbody>
+            </table>
+          </div>
+        </div>`;
+    }).join('');
+    return `
+      <div class="history-item" data-id="${r.id}">
+        <div class="hi-header" onclick="toggleHistoryItem(this)">
+          <div style="flex:1;min-width:0;">
+            <div class="hi-date">${r.date} · ${r.holes} hål · ${r.tee === 'Gul' ? '🟡' : '🔴'} ${r.tee}</div>
+            <div class="hi-course">${r.courseName}</div>
+            <div class="hi-meta">${topLine}</div>
+          </div>
+          <span class="hi-chevron">▶</span>
+          <button class="hi-del" data-del="${r.id}" title="Ta bort">🗑</button>
+        </div>
+        <div class="hi-body">
+          <div class="hi-ranking">${rankRows}</div>
+          ${detailTables}
+        </div>
+      </div>`;
+  }).join('');
+
+  container.addEventListener('click', function(e) {
+    const delBtn = e.target.closest('[data-del]');
+    if (delBtn) {
+      e.stopPropagation();
+      roundDelete(+delBtn.dataset.del);
+      renderHistoryList();
+    }
+  }, { once: true });
+}
+
+function toggleHistoryItem(header) {
+  const body = header.nextElementSibling;
+  const chevron = header.querySelector('.hi-chevron');
+  body.classList.toggle('open');
+  chevron.classList.toggle('open');
+}
+
+// ============================================================
 // Init
 if (!_lsOk) document.getElementById('lsBanner').classList.remove('hidden');
 try { seedDefaultCourses(); } catch(e) {}
