@@ -37,6 +37,10 @@ Laget spelar en gemensam score per hål. Resultatsidan visar vilket lag som vann
 
 > **Obs:** Öppna alltid via samma webbläsare för att bandata ska vara tillgänglig — sparning kräver `localStorage` och fungerar inte i privat/inkognito-läge.
 
+## Förinstallerade banor
+
+Appen levereras med kurs- och hålinformation för följande banor: Binga Golf, Kalmar GK (Gamla banan och Nya banan), Möre GK och Nybro GK. Data är hämtad från [mScorecard.com](https://www.mscorecard.com).
+
 ## Teknisk info
 
 - Ren HTML/CSS/JavaScript — inga beroenden eller byggsteg
