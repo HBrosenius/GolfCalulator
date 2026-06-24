@@ -211,27 +211,34 @@
   .idx-input.filled { border-color: var(--green-light); background: #f8fdf9; }
 
   /* Saved courses list */
-  .course-item {
-    display: flex; align-items: center; gap: 10px;
-    padding: 12px 10px; border-radius: 9px; cursor: pointer;
-    border: 1.5px solid var(--border); margin-bottom: 8px;
-    background: white; transition: border-color 0.15s, background 0.15s;
+  .course-group {
+    border: 1.5px solid var(--border); border-radius: 10px;
+    margin-bottom: 8px; background: white; overflow: hidden;
   }
-  .course-item:last-child { margin-bottom: 0; }
-  .course-item:active { background: var(--bg); border-color: var(--green); }
-  .course-item .ci-name { flex: 1; font-weight: 600; font-size: 0.95rem; }
-  .course-item .ci-meta { font-size: 0.75rem; color: var(--muted); margin-top: 2px; }
-  .course-item .ci-tee {
-    font-size: 0.75rem; font-weight: 700; padding: 3px 8px;
-    border-radius: 12px; background: #f0faf5; color: var(--green-dark);
+  .course-group:last-child { margin-bottom: 0; }
+  .cg-header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 10px 12px 6px;
   }
-  .course-item .ci-delete {
+  .cg-name { font-weight: 600; font-size: 0.95rem; }
+  .cg-holes { font-size: 0.75rem; color: var(--muted); margin-top: 1px; }
+  .cg-tees {
+    display: flex; gap: 6px; padding: 0 12px 10px; flex-wrap: wrap;
+  }
+  .cg-tee-btn {
+    display: flex; align-items: center; gap: 5px;
+    padding: 6px 12px; border-radius: 20px; border: 1.5px solid var(--border);
+    background: var(--bg); cursor: pointer; font-size: 0.82rem; font-weight: 600;
+    transition: border-color 0.15s, background 0.15s; color: var(--text);
+  }
+  .cg-tee-btn:active { background: #e8f5e9; border-color: var(--green); }
+  .cg-tee-meta { font-weight: 400; color: var(--muted); font-size: 0.75rem; }
+  .cg-delete {
     background: none; border: none; cursor: pointer; color: var(--muted);
-    font-size: 1.1rem; padding: 4px; line-height: 1;
+    font-size: 1rem; padding: 4px 6px; line-height: 1;
     border-radius: 6px; transition: color 0.15s;
   }
-  .course-item .ci-delete:hover { color: var(--danger); }
-  .course-item.selected { border-color: var(--green); background: #f0faf5; }
+  .cg-delete:hover { color: var(--danger); }
 
   /* Scramble team buttons */
   .team-btn {
@@ -676,22 +683,39 @@ function renderSavedCourses() {
     return;
   }
 
-  // Hide new-course form when saved courses exist
   document.getElementById('newCourseCard').classList.add('hidden');
   if (noTxt) noTxt.classList.add('hidden');
-  list.innerHTML = _savedCourses.map((e, i) => `
-    <div class="course-item" data-i="${i}">
-      <div style="flex:1;pointer-events:none">
-        <div class="ci-name">${e.name}</div>
-        <div class="ci-meta">${e.holes} hål · Slope ${e.slope} · CR ${e.cr} · Par ${e.par}</div>
+
+  // Group by course name + holes
+  const groups = [];
+  const seen = {};
+  _savedCourses.forEach((e, i) => {
+    const key = e.name + '|' + e.holes;
+    if (seen[key] === undefined) { seen[key] = groups.length; groups.push({ name: e.name, holes: e.holes, tees: [] }); }
+    groups[seen[key]].tees.push({ entry: e, i });
+  });
+
+  list.innerHTML = groups.map(g => `
+    <div class="course-group">
+      <div class="cg-header">
+        <div>
+          <div class="cg-name">${g.name}</div>
+          <div class="cg-holes">${g.holes} hål</div>
+        </div>
       </div>
-      <span class="ci-tee" style="pointer-events:none">${e.tee === 'Gul' ? '🟡 Gul' : '🔴 Röd'}</span>
-      <button class="ci-delete" data-del="${i}" title="Ta bort">🗑</button>
+      <div class="cg-tees">
+        ${g.tees.map(t => `
+          <button class="cg-tee-btn" data-i="${t.i}">
+            ${t.entry.tee === 'Gul' ? '🟡' : '🔴'} ${t.entry.tee}
+            <span class="cg-tee-meta">· S${t.entry.slope} CR${t.entry.cr}</span>
+          </button>
+          <button class="cg-delete" data-del="${t.i}" title="Ta bort">🗑</button>
+        `).join('')}
+      </div>
     </div>`).join('');
 }
 
 document.getElementById('savedCoursesList').addEventListener('click', function(e) {
-  // Delete button
   const delBtn = e.target.closest('[data-del]');
   if (delBtn) {
     const entry = _savedCourses[+delBtn.dataset.del];
@@ -700,11 +724,9 @@ document.getElementById('savedCoursesList').addEventListener('click', function(e
     renderSavedCourses();
     return;
   }
-  // Course row — load and go directly to step 2
-  const row = e.target.closest('[data-i]');
-  if (row) {
-    const entry = _savedCourses[+row.dataset.i];
-    loadSavedCourseAndAdvance(entry);
+  const btn = e.target.closest('[data-i]');
+  if (btn) {
+    loadSavedCourseAndAdvance(_savedCourses[+btn.dataset.i]);
   }
 });
 
