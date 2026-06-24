@@ -412,11 +412,18 @@
     <!-- Sparade banor + Lägg till ny bana (alltid synlig) -->
     <div class="card">
       <div class="card-title"><span class="icon">⛳</span> Välj bana</div>
+      <div id="courseSearchWrap" class="hidden" style="position:relative;margin-bottom:10px;">
+        <span style="position:absolute;left:11px;top:50%;transform:translateY(-50%);font-size:1rem;pointer-events:none;">🔍</span>
+        <input id="courseSearchInput" type="search" placeholder="Sök bana..." autocomplete="off"
+          style="width:100%;padding:9px 10px 9px 34px;border:1.5px solid var(--border);border-radius:8px;font-size:0.95rem;outline:none;"
+          oninput="filterCourses(this.value)">
+      </div>
       <div id="savedCoursesList">
         <p id="noCoursesTxt" style="font-size:0.85rem;color:var(--muted);text-align:center;padding:12px 0;">
           Inga sparade banor ännu.
         </p>
       </div>
+      <p id="noMatchTxt" class="hidden" style="font-size:0.85rem;color:var(--muted);text-align:center;padding:8px 0;">Ingen bana matchar sökningen.</p>
       <button class="btn secondary" style="margin-top:10px;" onclick="showNewCourseForm(true)">+ Lägg till ny bana</button>
     </div>
 
@@ -671,31 +678,21 @@ function seedDefaultCourses() {
 // In-memory list for click handlers
 let _savedCourses = [];
 
-function renderSavedCourses() {
-  _savedCourses = getSavedCourses();
+let _courseGroups = [];
 
-  const list = document.getElementById('savedCoursesList');
-  const noTxt = document.getElementById('noCoursesTxt');
-
-  if (_savedCourses.length === 0) {
-    list.innerHTML = '';
-    if (noTxt) noTxt.classList.remove('hidden');
-    return;
-  }
-
-  document.getElementById('newCourseCard').classList.add('hidden');
-  if (noTxt) noTxt.classList.add('hidden');
-
-  // Group by course name + holes
+function buildCourseGroups(courses) {
   const groups = [];
   const seen = {};
-  _savedCourses.forEach((e, i) => {
+  courses.forEach((e, i) => {
     const key = e.name + '|' + e.holes;
     if (seen[key] === undefined) { seen[key] = groups.length; groups.push({ name: e.name, holes: e.holes, tees: [] }); }
     groups[seen[key]].tees.push({ entry: e, i });
   });
+  return groups;
+}
 
-  list.innerHTML = groups.map(g => `
+function renderGroups(groups) {
+  return groups.map(g => `
     <div class="course-group">
       <div class="cg-header">
         <div>
@@ -713,6 +710,43 @@ function renderSavedCourses() {
         `).join('')}
       </div>
     </div>`).join('');
+}
+
+function filterCourses(query) {
+  const q = query.trim().toLowerCase();
+  const noMatch = document.getElementById('noMatchTxt');
+  const filtered = q
+    ? _courseGroups.filter(g => g.name.toLowerCase().includes(q))
+    : _courseGroups;
+  document.getElementById('savedCoursesList').innerHTML = renderGroups(filtered);
+  noMatch.classList.toggle('hidden', filtered.length > 0);
+}
+
+function renderSavedCourses() {
+  _savedCourses = getSavedCourses();
+
+  const list = document.getElementById('savedCoursesList');
+  const noTxt = document.getElementById('noCoursesTxt');
+  const searchWrap = document.getElementById('courseSearchWrap');
+  const noMatch = document.getElementById('noMatchTxt');
+
+  if (_savedCourses.length === 0) {
+    list.innerHTML = '';
+    searchWrap.classList.add('hidden');
+    noMatch.classList.add('hidden');
+    if (noTxt) noTxt.classList.remove('hidden');
+    return;
+  }
+
+  document.getElementById('newCourseCard').classList.add('hidden');
+  if (noTxt) noTxt.classList.add('hidden');
+  searchWrap.classList.remove('hidden');
+
+  _courseGroups = buildCourseGroups(_savedCourses);
+  // Reset search on re-render
+  document.getElementById('courseSearchInput').value = '';
+  noMatch.classList.add('hidden');
+  list.innerHTML = renderGroups(_courseGroups);
 }
 
 document.getElementById('savedCoursesList').addEventListener('click', function(e) {
