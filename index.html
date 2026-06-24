@@ -715,9 +715,12 @@ function renderGroups(groups) {
 function filterCourses(query) {
   const q = query.trim().toLowerCase();
   const noMatch = document.getElementById('noMatchTxt');
-  const filtered = q
-    ? _courseGroups.filter(g => g.name.toLowerCase().includes(q))
-    : _courseGroups;
+  if (!q) {
+    document.getElementById('savedCoursesList').innerHTML = '';
+    noMatch.classList.add('hidden');
+    return;
+  }
+  const filtered = _courseGroups.filter(g => g.name.toLowerCase().includes(q));
   document.getElementById('savedCoursesList').innerHTML = renderGroups(filtered);
   noMatch.classList.toggle('hidden', filtered.length > 0);
 }
@@ -743,10 +746,10 @@ function renderSavedCourses() {
   searchWrap.classList.remove('hidden');
 
   _courseGroups = buildCourseGroups(_savedCourses);
-  // Reset search on re-render
+  // Reset search on re-render — start with empty list
   document.getElementById('courseSearchInput').value = '';
   noMatch.classList.add('hidden');
-  list.innerHTML = renderGroups(_courseGroups);
+  list.innerHTML = '';
 }
 
 document.getElementById('savedCoursesList').addEventListener('click', function(e) {
