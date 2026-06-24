@@ -411,7 +411,6 @@
         </p>
       </div>
       <button class="btn secondary" style="margin-top:10px;" onclick="showNewCourseForm(true)">+ Lägg till ny bana</button>
-      <div id="dbDebug" style="margin-top:8px;font-size:0.7rem;color:var(--muted);word-break:break-all;"></div>
     </div>
 
     <!-- Ny bana-formulär (gömt tills man klickar ovan) -->
@@ -667,12 +666,7 @@ let _savedCourses = [];
 
 function renderSavedCourses() {
   _savedCourses = getSavedCourses();
-  // Debug
-  const dbg = document.getElementById('dbDebug');
-  if (dbg) {
-    const raw = _lsOk ? (localStorage.getItem(DB_KEY) || '(tom)') : '⚠ localStorage blockerat';
-    dbg.textContent = 'DB: ' + raw;
-  }
+
   const list = document.getElementById('savedCoursesList');
   const noTxt = document.getElementById('noCoursesTxt');
 
