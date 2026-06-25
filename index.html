@@ -158,6 +158,12 @@
   .score-table td.hole-num { font-weight: 700; color: var(--green-dark); font-size: 0.9rem; }
   .score-table td.par { font-size: 0.85rem; color: var(--muted); }
   .score-table td.si { font-size: 0.75rem; color: var(--muted); }
+  .live-pts { font-size: 0.7rem; font-weight: 700; margin-top: 2px; min-height: 12px; }
+  .live-pts.pts-0 { color: var(--muted); }
+  .live-pts.pts-1 { color: #e07b39; }
+  .live-pts.pts-2 { color: var(--green); }
+  .live-pts.pts-3 { color: #2196f3; }
+  .live-pts.pts-4 { color: #9c27b0; }
 
   .score-input {
     width: 48px; padding: 6px 2px;
@@ -1268,17 +1274,38 @@ function buildScoreTable() {
       const val = state.scores[p] && state.scores[p][i] !== '' ? state.scores[p][i] : '';
       cells += `<td><input type="number" class="score-input${val ? ' has-value' : ''}" id="score_${p}_${i}"
         min="1" max="15" inputmode="numeric" value="${val}"
-        oninput="onScoreInput(${p},${i},this)" onkeydown="scoreKeyDown(event,${p},${i})"></td>`;
+        oninput="onScoreInput(${p},${i},this)" onkeydown="scoreKeyDown(event,${p},${i})">
+        <div class="live-pts" id="pts_${p}_${i}"></div></td>`;
     });
     tbody.innerHTML += `<tr${rowClass}>${cells}</tr>`;
   }
   setTimeout(() => document.getElementById('score_0_0')?.focus(), 100);
 }
 
+function calcLivePts(p, i, score) {
+  const par = state.hpar[i] || 4;
+  const si  = state.si[i] || (i + 1);
+  const ph  = (state.gameMode === 'scramble' ? state.teams : state.players)[p].playingHandicap;
+  const strokes = strokesOnHole(ph, si, state.holes);
+  const netto = score - strokes;
+  return Math.max(0, par + 2 - netto);
+}
+
 function onScoreInput(p, i, el) {
   el.classList.toggle('has-value', el.value !== '');
   if (!state.scores[p]) state.scores[p] = new Array(state.holes).fill('');
   state.scores[p][i] = el.value === '' ? '' : parseInt(el.value);
+  const ptsEl = document.getElementById(`pts_${p}_${i}`);
+  if (ptsEl) {
+    if (el.value !== '') {
+      const pts = calcLivePts(p, i, parseInt(el.value));
+      ptsEl.textContent = pts + 'p';
+      ptsEl.className = `live-pts pts-${Math.min(pts, 4)}`;
+    } else {
+      ptsEl.textContent = '';
+      ptsEl.className = 'live-pts';
+    }
+  }
   if (el.value !== '') {
     const n = numColumns();
     const nextP = p + 1;
