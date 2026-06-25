@@ -1000,15 +1000,17 @@ function goToStep2() {
 
 function buildHoleDataTable() {
   const saved = loadCurrentCourseData();
-  const hasSavedHoles = saved && saved.hpar && saved.hpar.length === state.holes;
+  // Use state arrays if already populated (e.g. by setPlayMode), else fall back to DB
+  const stateHasData = state.hpar && state.hpar.length === state.holes && state.hpar.some(v => v);
+  const hasSavedHoles = stateHasData || (saved && saved.hpar && saved.hpar.length === state.holes);
   const container = document.getElementById('holeDataBody');
   container.innerHTML = '';
   document.getElementById('savedDataBanner').classList.toggle('hidden', !hasSavedHoles);
 
   for (let i = 0; i < state.holes; i++) {
     const h        = i + 1;
-    const savedPar = hasSavedHoles ? (saved.hpar[i] || 0) : 0;
-    const savedSI  = hasSavedHoles ? (saved.si[i]  || '') : '';
+    const savedPar = stateHasData ? (state.hpar[i] || 0) : (hasSavedHoles ? (saved.hpar[i] || 0) : 0);
+    const savedSI  = stateHasData ? (state.si[i]  || '') : (hasSavedHoles ? (saved.si[i]  || '') : '');
     const halfTop  = (state.holes === 18 && i === 9) ? ' half-top' : '';
 
     container.innerHTML += `
