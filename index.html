@@ -1053,7 +1053,6 @@ function goToStep3Players() {
   // Spara alltid — använd standardvärden för tomma hål
   state.hpar = hpar;
   state.si   = si;
-  state.par  = hpar.reduce((a, b) => a + b, 0);
   saveCurrentCourseData({ hpar, si });
 
   buildPlayerCards();
