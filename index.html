@@ -1584,7 +1584,7 @@ function renderHistoryList() {
             <div class="hi-meta">${topLine}</div>
           </div>
           <span class="hi-chevron">▶</span>
-          <button class="hi-del" data-del="${r.id}" title="Ta bort">🗑</button>
+          <button class="hi-del" onclick="event.stopPropagation();roundDelete(${r.id});renderHistoryList();" title="Ta bort">🗑</button>
         </div>
         <div class="hi-body">
           <div class="hi-ranking">${rankRows}</div>
@@ -1593,14 +1593,6 @@ function renderHistoryList() {
       </div>`;
   }).join('');
 
-  container.addEventListener('click', function(e) {
-    const delBtn = e.target.closest('[data-del]');
-    if (delBtn) {
-      e.stopPropagation();
-      roundDelete(+delBtn.dataset.del);
-      renderHistoryList();
-    }
-  }, { once: true });
 }
 
 function toggleHistoryItem(header) {
