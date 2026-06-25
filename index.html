@@ -1070,7 +1070,8 @@ function goToStep3Players() {
 // ============================================================
 function calcPlayingHandicap(hi, slope, cr, par, holes) {
   const ph = hi * (slope / 113) + (cr - par);
-  return Math.round(ph);
+  const ph18 = Math.round(ph);
+  return holes === 9 ? Math.round(ph18 / 2) : ph18;
 }
 
 function setNumPlayers(n) {
