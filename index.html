@@ -712,8 +712,10 @@ const SEED_COURSES = [
 function seedDefaultCourses() {
   if (!_lsOk) return;
   const existing = dbLoad();
-  if (existing.length > 0) return; // only seed on first run
-  SEED_COURSES.forEach(c => dbUpsert(c));
+  SEED_COURSES.forEach(c => {
+    const already = existing.find(e => e.name === c.name && e.tee === c.tee && e.holes === c.holes);
+    if (!already) dbUpsert(c);
+  });
 }
 
 // In-memory list for click handlers
