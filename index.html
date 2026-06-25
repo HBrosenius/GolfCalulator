@@ -522,7 +522,14 @@
   <div id="step2" class="hidden">
     <div class="card">
       <div class="card-title"><span class="icon">📋</span> Bandata från scorekortet</div>
-      <div id="step2CourseInfo" style="padding:10px 12px; background:#f0faf5; border-radius:8px; font-size:0.85rem; margin-bottom:14px;"></div>
+      <div id="step2CourseInfo" style="padding:10px 12px; background:#f0faf5; border-radius:8px; font-size:0.85rem; margin-bottom:10px;"></div>
+      <div id="playModeToggle" class="hidden" style="margin-bottom:12px;">
+        <label style="font-size:0.82rem;color:var(--muted);display:block;margin-bottom:6px;">Spelform</label>
+        <div class="toggle-row">
+          <button class="toggle-btn active" id="btnPlay9" onclick="setPlayMode(9)">9 hål</button>
+          <button class="toggle-btn" id="btnPlay18" onclick="setPlayMode(18)">18 hål (dubbel)</button>
+        </div>
+      </div>
       <p style="font-size:0.82rem; color:var(--muted); margin-bottom:10px;">
         Tryck på par (3/4/5) och ange Index per hål. Index hittar du i kolumnen <strong>Hcp</strong> eller <strong>Index</strong> på scorekortet — samma sak som SI.
       </p>
@@ -818,21 +825,52 @@ document.getElementById('savedCoursesList').addEventListener('click', function(e
 
 function loadSavedCourseAndAdvance(entry) {
   clearStep1Error();
-  state.courseName = entry.name;
-  state.teeColor   = entry.tee;
-  state.holes      = entry.holes;
-  state.slope      = entry.slope;
-  state.cr         = entry.cr;
-  state.par        = entry.par;
+  state.courseName    = entry.name;
+  state.teeColor      = entry.tee;
+  state.holes         = entry.holes;
+  state.baseHoles     = entry.holes; // original holes from course data
+  state.slope         = entry.slope;
+  state.cr            = entry.cr;
+  state.par           = entry.par;
 
   document.getElementById('step2CourseInfo').innerHTML =
     `<strong>${entry.name}</strong> · ${entry.tee}<br>
      ${entry.holes} hål · Slope&nbsp;${entry.slope} · CR&nbsp;${entry.cr} · Par&nbsp;${entry.par}`;
 
+  // Show play-mode toggle only for 9-hole courses
+  const toggle = document.getElementById('playModeToggle');
+  toggle.classList.toggle('hidden', entry.holes !== 9);
+  document.getElementById('btnPlay9').classList.add('active');
+  document.getElementById('btnPlay18').classList.remove('active');
+
   state.hpar = new Array(state.holes).fill('');
   state.si   = new Array(state.holes).fill('');
   buildHoleDataTable();
   goToStep(2);
+}
+
+function setPlayMode(n) {
+  // Only relevant for 9-hole courses
+  document.getElementById('btnPlay9').classList.toggle('active', n === 9);
+  document.getElementById('btnPlay18').classList.toggle('active', n === 18);
+
+  if (n === 18 && state.baseHoles === 9) {
+    // Double the course: 18 holes, same hpar twice, SI: odd for first 9, even for second 9
+    state.holes = 18;
+    const base = dbFind(state.courseName, state.teeColor, 9);
+    const baseHpar = base?.hpar?.length === 9 ? base.hpar : new Array(9).fill(4);
+    const baseSI   = base?.si?.length === 9   ? base.si   : [1,3,5,7,9,11,13,15,17];
+    state.hpar = [...baseHpar, ...baseHpar];
+    // Second 9 gets the even SI counterpart (+1) of the first 9
+    state.si = [...baseSI, ...baseSI.map(s => s + 1)];
+  } else {
+    // Revert to 9-hole
+    state.holes = 9;
+    const base = dbFind(state.courseName, state.teeColor, 9);
+    state.hpar = base?.hpar?.length === 9 ? [...base.hpar] : new Array(9).fill('');
+    state.si   = base?.si?.length === 9   ? [...base.si]   : new Array(9).fill('');
+  }
+  buildHoleDataTable();
 }
 
 function showNewCourseForm(show) {
@@ -953,6 +991,8 @@ function goToStep2() {
     `<strong>${courseName}</strong> · ${teeColor}<br>
      ${state.holes} hål · Slope&nbsp;${slopeVal} · CR&nbsp;${crVal} · Par&nbsp;${parVal}`;
 
+  state.baseHoles = state.holes;
+  document.getElementById('playModeToggle').classList.add('hidden');
   buildHoleDataTable();
   goToStep(2);
   } catch(err) { showStep1Error('Tekniskt fel: ' + err.message); }
