@@ -534,29 +534,34 @@
         Tryck på par (3/4/5) och ange Index per hål. Index hittar du i kolumnen <strong>Hcp</strong> eller <strong>Index</strong> på scorekortet — samma sak som SI.
       </p>
 
-      <div id="savedDataBanner" class="hidden" style="background:#e8f5e9; border-left:3px solid var(--green); border-radius:0 8px 8px 0; padding:9px 12px; font-size:0.82rem; color:var(--green-dark); margin-bottom:10px;">
-        ✅ Håldata laddad från förra gången — kontrollera och justera vid behov.
+      <!-- Collapsed view for saved courses -->
+      <div id="savedDataCollapsed" class="hidden" style="display:flex;align-items:center;justify-content:space-between;background:#e8f5e9;border-radius:8px;padding:10px 12px;margin-bottom:10px;">
+        <span style="font-size:0.85rem;color:var(--green-dark);">✅ Håldata laddad</span>
+        <button onclick="expandHoleData()" style="background:none;border:1px solid var(--green);border-radius:6px;padding:4px 10px;font-size:0.8rem;color:var(--green-dark);cursor:pointer;">Redigera</button>
       </div>
 
-      <div style="display:flex; gap:8px; margin-bottom:10px;">
-        <button class="btn secondary" style="flex:1; margin:0; font-size:0.82rem; padding:9px 6px;" onclick="fillStandardData()">
-          Standardfördelning
-        </button>
-        <button class="btn secondary" style="flex:1; margin:0; font-size:0.82rem; padding:9px 6px;" onclick="clearHoleData()">
-          Rensa alla
-        </button>
-      </div>
-
-      <!-- Column headers -->
-      <div style="display:grid; grid-template-columns:32px 1fr 88px; gap:8px; padding:0 0 6px; border-bottom:2px solid var(--green); margin-bottom:4px;">
-        <div style="font-size:0.72rem; font-weight:700; color:var(--muted); text-align:center;">HÅL</div>
-        <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:4px; text-align:center; font-size:0.72rem; font-weight:700; color:var(--muted);">
-          <span>3</span><span>4</span><span>5</span>
+      <!-- Full hole editor (hidden when data is pre-loaded) -->
+      <div id="holeDataEditor" class="hidden">
+        <div style="display:flex; gap:8px; margin-bottom:10px;">
+          <button class="btn secondary" style="flex:1; margin:0; font-size:0.82rem; padding:9px 6px;" onclick="fillStandardData()">
+            Standardfördelning
+          </button>
+          <button class="btn secondary" style="flex:1; margin:0; font-size:0.82rem; padding:9px 6px;" onclick="clearHoleData()">
+            Rensa alla
+          </button>
         </div>
-        <div style="font-size:0.72rem; font-weight:700; color:var(--muted); text-align:center;">HCP/INDEX</div>
-      </div>
 
-      <div id="holeDataBody"></div>
+        <!-- Column headers -->
+        <div style="display:grid; grid-template-columns:32px 1fr 88px; gap:8px; padding:0 0 6px; border-bottom:2px solid var(--green); margin-bottom:4px;">
+          <div style="font-size:0.72rem; font-weight:700; color:var(--muted); text-align:center;">HÅL</div>
+          <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:4px; text-align:center; font-size:0.72rem; font-weight:700; color:var(--muted);">
+            <span>3</span><span>4</span><span>5</span>
+          </div>
+          <div style="font-size:0.72rem; font-weight:700; color:var(--muted); text-align:center;">HCP/INDEX</div>
+        </div>
+
+        <div id="holeDataBody"></div>
+      </div>
     </div>
 
     <div style="display:flex; gap:10px;">
@@ -998,6 +1003,11 @@ function goToStep2() {
   } catch(err) { showStep1Error('Tekniskt fel: ' + err.message); }
 }
 
+function expandHoleData() {
+  document.getElementById('savedDataCollapsed').classList.add('hidden');
+  document.getElementById('holeDataEditor').classList.remove('hidden');
+}
+
 function buildHoleDataTable() {
   const saved = loadCurrentCourseData();
   // Use state arrays if already populated (e.g. by setPlayMode), else fall back to DB
@@ -1005,7 +1015,10 @@ function buildHoleDataTable() {
   const hasSavedHoles = stateHasData || (saved && saved.hpar && saved.hpar.length === state.holes);
   const container = document.getElementById('holeDataBody');
   container.innerHTML = '';
-  document.getElementById('savedDataBanner').classList.toggle('hidden', !hasSavedHoles);
+
+  // If data is pre-loaded, show collapsed view; otherwise show full editor
+  document.getElementById('savedDataCollapsed').classList.toggle('hidden', !hasSavedHoles);
+  document.getElementById('holeDataEditor').classList.toggle('hidden', hasSavedHoles);
 
   for (let i = 0; i < state.holes; i++) {
     const h        = i + 1;
