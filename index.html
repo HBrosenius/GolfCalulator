@@ -2008,7 +2008,7 @@ function importData(input) {
           else { existing.push(c); addedCourses++; }
         });
         dbSave(existing);
-        renderCourseList();
+        renderSavedCourses();
       }
 
       if (Array.isArray(payload.rounds)) {
