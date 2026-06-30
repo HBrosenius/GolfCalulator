@@ -513,12 +513,19 @@
   .player-history-meta { font-size: 0.78rem; color: var(--muted); margin-top: 2px; }
   .player-history-pts { font-size: 1.3rem; font-weight: 800; color: var(--green-dark); white-space: nowrap; }
   .player-history-pts-label { font-size: 0.7rem; color: var(--muted); text-align: right; }
-  .player-stat-row { display: flex; gap: 10px; margin-bottom: 14px; }
-  .player-stat-box {
-    flex: 1; background: #f0faf4; border-radius: 8px; padding: 8px 10px; text-align: center;
+  .player-stat-grid {
+    display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 16px;
   }
-  .player-stat-val { font-size: 1.3rem; font-weight: 800; color: var(--green-dark); }
-  .player-stat-lbl { font-size: 0.72rem; color: var(--muted); margin-top: 2px; }
+  .player-stat-box {
+    background: #f0faf4; border-radius: 8px; padding: 9px 6px; text-align: center;
+  }
+  .player-stat-val { font-size: 1.25rem; font-weight: 800; color: var(--green-dark); line-height: 1.1; }
+  .player-stat-lbl { font-size: 0.68rem; color: var(--muted); margin-top: 3px; }
+  .player-stat-icon { font-size: 1rem; display: block; margin-bottom: 2px; }
+  .player-stats-section-title {
+    font-size: 0.72rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em;
+    color: var(--muted); margin: 0 0 8px;
+  }
 
   .recent-course-btn {
     display: flex; align-items: center; gap: 10px;
@@ -2115,20 +2122,58 @@ function openPlayerHistory(id) {
   if (rounds.length === 0) {
     listEl.innerHTML = '<p style="font-size:0.85rem;color:var(--muted);text-align:center;padding:16px 0;">Inga spelade rundor hittades.</p>';
   } else {
-    // Summary stats
-    const allPts = rounds.map(r => {
-      const s = r.subjects.find(s => s.name === displayName || s.name === player.name);
-      return s ? s.totalPoints : 0;
+    // Collect all per-hole rows and round-level data for this player
+    let totalPts = 0, best = 0, wins = 0, totalHoles = 0;
+    let eagles = 0, birdies = 0, pars = 0, bogeys = 0, doubles = 0;
+
+    rounds.forEach(r => {
+      const subj = r.subjects.find(s => s.name === displayName || s.name === player.name);
+      if (!subj) return;
+      totalPts += subj.totalPoints;
+      if (subj.totalPoints > best) best = subj.totalPoints;
+
+      const sorted = [...r.subjects].sort((a, b) => b.totalPoints - a.totalPoints);
+      if ((sorted[0].name === displayName || sorted[0].name === player.name) && r.subjects.length > 1) wins++;
+
+      (subj.rows || []).forEach(row => {
+        if (row.skipped) return;
+        totalHoles++;
+        if (row.pts >= 4) eagles++;
+        else if (row.pts === 3) birdies++;
+        else if (row.pts === 2) pars++;
+        else if (row.pts === 1) bogeys++;
+        else doubles++;
+      });
     });
-    const avg = Math.round(allPts.reduce((a, b) => a + b, 0) / allPts.length);
-    const best = Math.max(...allPts);
+
+    const avg = (totalPts / rounds.length).toFixed(1);
+    const parOrBetter = totalHoles > 0 ? Math.round((eagles + birdies + pars) / totalHoles * 100) : 0;
+
+    const statBox = (icon, val, lbl) =>
+      `<div class="player-stat-box"><span class="player-stat-icon">${icon}</span><div class="player-stat-val">${val}</div><div class="player-stat-lbl">${lbl}</div></div>`;
 
     listEl.innerHTML = `
-      <div class="player-stat-row">
-        <div class="player-stat-box"><div class="player-stat-val">${rounds.length}</div><div class="player-stat-lbl">Rundor</div></div>
-        <div class="player-stat-box"><div class="player-stat-val">${best}p</div><div class="player-stat-lbl">Bäst</div></div>
-        <div class="player-stat-box"><div class="player-stat-val">${avg}p</div><div class="player-stat-lbl">Snitt</div></div>
-      </div>` +
+      <p class="player-stats-section-title">Översikt</p>
+      <div class="player-stat-grid">
+        ${statBox('🏌️', rounds.length, 'Rundor')}
+        ${statBox('🏆', wins, 'Vinster')}
+        ${statBox('🎯', parOrBetter + '%', 'Par el. bättre')}
+      </div>
+      <p class="player-stats-section-title">Poäng</p>
+      <div class="player-stat-grid">
+        ${statBox('⭐', best + 'p', 'Bästa runda')}
+        ${statBox('📊', avg + 'p', 'Snitt')}
+        ${statBox('⛳', totalHoles, 'Hål spelade')}
+      </div>
+      <p class="player-stats-section-title">Hålresultat</p>
+      <div class="player-stat-grid">
+        ${statBox('🦅', eagles, 'Eagles')}
+        ${statBox('🐦', birdies, 'Birdies')}
+        ${statBox('✅', pars, 'Pars')}
+        ${statBox('😬', bogeys, 'Bogeys')}
+        ${statBox('💀', doubles, 'Dubbel+')}
+      </div>
+      <p class="player-stats-section-title" style="margin-top:16px;">Rundor</p>` +
       rounds.map(r => {
         const subj = r.subjects.find(s => s.name === displayName || s.name === player.name);
         const pts = subj ? subj.totalPoints : '–';
