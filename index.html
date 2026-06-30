@@ -745,10 +745,6 @@
           <button class="toggle-btn" id="btnPlay18" onclick="setPlayMode(18)">18 hål (dubbel)</button>
         </div>
       </div>
-      <p style="font-size:0.82rem; color:var(--muted); margin-bottom:10px;">
-        Tryck på par (3/4/5) och ange Index per hål. Index hittar du i kolumnen <strong>Hcp</strong> eller <strong>Index</strong> på scorekortet — samma sak som SI.
-      </p>
-
       <!-- Collapsed view for saved courses -->
       <div id="savedDataCollapsed" class="hidden" style="display:flex;align-items:center;justify-content:space-between;background:#e8f5e9;border-radius:8px;padding:10px 12px;margin-bottom:10px;">
         <span style="font-size:0.85rem;color:var(--green-dark);">✅ Håldata laddad</span>
@@ -757,6 +753,9 @@
 
       <!-- Full hole editor (hidden when data is pre-loaded) -->
       <div id="holeDataEditor" class="hidden">
+        <p style="font-size:0.82rem; color:var(--muted); margin-bottom:10px;">
+          Tryck på par (3/4/5) och ange Index per hål. Index hittar du i kolumnen <strong>Hcp</strong> eller <strong>Index</strong> på scorekortet — samma sak som SI.
+        </p>
         <div style="display:flex; gap:8px; margin-bottom:10px;">
           <button class="btn secondary" style="flex:1; margin:0; font-size:0.82rem; padding:9px 6px;" onclick="fillStandardData()">
             Standardfördelning
