@@ -2163,6 +2163,37 @@ function openPlayerHistory(id) {
     const statBox = (icon, val, lbl) =>
       `<div class="player-stat-box"><span class="player-stat-icon">${icon}</span><div class="player-stat-val">${val}</div><div class="player-stat-lbl">${lbl}</div></div>`;
 
+    // Build bar chart for last 5 rounds (oldest → newest left to right)
+    const chartRounds = rounds.slice(0, 5).reverse();
+    const chartPts = chartRounds.map(r => {
+      const s = r.subjects.find(s => s.name === displayName || s.name === player.name);
+      return s ? s.totalPoints : 0;
+    });
+    const chartMax = Math.max(...chartPts, 1);
+    const W = 280, H = 90, PAD = 28, barGap = 8;
+    const barW = (W - PAD * 2 - barGap * (chartPts.length - 1)) / chartPts.length;
+    const avgVal = totalPts / rounds.length;
+
+    const bars = chartPts.map((pts, i) => {
+      const barH = Math.max(4, Math.round((pts / chartMax) * (H - 24)));
+      const x = PAD + i * (barW + barGap);
+      const y = H - barH - 16;
+      const isLast = i === chartPts.length - 1;
+      const fill = isLast ? '#2e7d32' : '#a5d6a7';
+      const label = chartRounds[i].date.slice(5); // MM-DD
+      return `
+        <rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${barW.toFixed(1)}" height="${barH}" rx="3" fill="${fill}"/>
+        <text x="${(x + barW/2).toFixed(1)}" y="${(y - 4).toFixed(1)}" text-anchor="middle" font-size="11" font-weight="700" fill="#1b5e20">${pts}</text>
+        <text x="${(x + barW/2).toFixed(1)}" y="${H - 2}" text-anchor="middle" font-size="9" fill="#888">${label}</text>`;
+    }).join('');
+
+    // Average line
+    const avgY = H - Math.round((avgVal / chartMax) * (H - 24)) - 16;
+    const avgLine = `<line x1="${PAD}" y1="${avgY.toFixed(1)}" x2="${(W - PAD).toFixed(1)}" y2="${avgY.toFixed(1)}" stroke="#ef9a9a" stroke-width="1.5" stroke-dasharray="4 3"/>
+      <text x="${(W - PAD + 2).toFixed(1)}" y="${(avgY + 4).toFixed(1)}" font-size="9" fill="#e53935">snitt</text>`;
+
+    const chart = `<svg viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:auto;display:block;">${bars}${avgLine}</svg>`;
+
     listEl.innerHTML = `
       <p class="player-stats-section-title">Översikt</p>
       <div class="player-stat-grid">
@@ -2184,7 +2215,9 @@ function openPlayerHistory(id) {
         ${statBox('😬', bogeys, 'Bogeys')}
         ${statBox('💀', doubles, 'Dubbel+')}
       </div>
-      <p class="player-stats-section-title" style="margin-top:16px;">Rundor</p>` +
+      ${chartPts.length >= 2 ? `<p class="player-stats-section-title" style="margin-top:16px;">Senaste ${chartPts.length} rundor</p>
+      <div style="background:#f0faf4;border-radius:10px;padding:10px 8px 4px;margin-bottom:16px;">${chart}</div>` : ''}
+      <p class="player-stats-section-title" style="margin-top:${chartPts.length >= 2 ? '0' : '16px'};">Rundor</p>` +
       rounds.map(r => {
         const subj = r.subjects.find(s => s.name === displayName || s.name === player.name);
         const pts = subj ? subj.totalPoints : '–';
