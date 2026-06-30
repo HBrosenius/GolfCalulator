@@ -502,6 +502,24 @@
   .crop-actions { display: flex; gap: 10px; }
   .crop-actions button { flex: 1; }
 
+  .player-history-row {
+    display: flex; align-items: center; gap: 10px;
+    padding: 10px 0; border-bottom: 1px solid var(--border); cursor: default;
+  }
+  .player-history-row:last-child { border-bottom: none; }
+  .player-history-medal { font-size: 1.3rem; width: 28px; text-align: center; flex-shrink: 0; }
+  .player-history-info { flex: 1; }
+  .player-history-course { font-weight: 600; font-size: 0.92rem; color: var(--green-dark); }
+  .player-history-meta { font-size: 0.78rem; color: var(--muted); margin-top: 2px; }
+  .player-history-pts { font-size: 1.3rem; font-weight: 800; color: var(--green-dark); white-space: nowrap; }
+  .player-history-pts-label { font-size: 0.7rem; color: var(--muted); text-align: right; }
+  .player-stat-row { display: flex; gap: 10px; margin-bottom: 14px; }
+  .player-stat-box {
+    flex: 1; background: #f0faf4; border-radius: 8px; padding: 8px 10px; text-align: center;
+  }
+  .player-stat-val { font-size: 1.3rem; font-weight: 800; color: var(--green-dark); }
+  .player-stat-lbl { font-size: 0.72rem; color: var(--muted); margin-top: 2px; }
+
   .recent-course-btn {
     display: flex; align-items: center; gap: 10px;
     width: 100%; background: #f0faf4; border: 1.5px solid var(--green);
@@ -626,6 +644,17 @@
         <button class="btn" style="margin-top:10px;width:100%;" onclick="addSavedPlayer()">+ Lägg till</button>
         <div id="addPlayerError" style="display:none;font-size:0.82rem;color:var(--danger);margin-top:6px;"></div>
       </div>
+    </div>
+  </div>
+
+  <!-- SPELARHISTORIK -->
+  <div id="playerHistoryView" class="hidden">
+    <div class="card">
+      <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;">
+        <button onclick="closePlayerHistory()" style="background:none;border:none;font-size:1.2rem;cursor:pointer;color:var(--muted);padding:0 4px;">←</button>
+        <div id="playerHistoryHeader" style="display:flex;align-items:center;gap:10px;flex:1;"></div>
+      </div>
+      <div id="playerHistoryList"></div>
     </div>
   </div>
 
@@ -2062,6 +2091,75 @@ function playersSave(list) {
   localStorage.setItem(PLAYERS_KEY, JSON.stringify(list));
 }
 
+function openPlayerHistory(id) {
+  const player = playersLoad().find(p => p.id === id);
+  if (!player) return;
+  const displayName = player.nick || player.name;
+  const medals = ['🥇','🥈','🥉','🪙'];
+
+  // Find all rounds this player participated in
+  const rounds = roundsLoad().filter(r =>
+    r.subjects.some(s => s.name === displayName || s.name === player.name)
+  ).sort((a, b) => b.id - a.id);
+
+  // Header with avatar + name
+  const headerEl = document.getElementById('playerHistoryHeader');
+  headerEl.innerHTML = `
+    ${avatarHtml(player.photo || null, 'avatar')}
+    <div>
+      <div style="font-weight:700;font-size:1rem;color:var(--green-dark);">${player.name}${player.nick ? ` <span style="font-weight:400;color:var(--muted);">"${player.nick}"</span>` : ''}</div>
+      <div style="font-size:0.78rem;color:var(--muted);">HCP-index: ${player.hi} · ${rounds.length} rundor</div>
+    </div>`;
+
+  const listEl = document.getElementById('playerHistoryList');
+
+  if (rounds.length === 0) {
+    listEl.innerHTML = '<p style="font-size:0.85rem;color:var(--muted);text-align:center;padding:16px 0;">Inga spelade rundor hittades.</p>';
+  } else {
+    // Summary stats
+    const allPts = rounds.map(r => {
+      const s = r.subjects.find(s => s.name === displayName || s.name === player.name);
+      return s ? s.totalPoints : 0;
+    });
+    const avg = Math.round(allPts.reduce((a, b) => a + b, 0) / allPts.length);
+    const best = Math.max(...allPts);
+
+    listEl.innerHTML = `
+      <div class="player-stat-row">
+        <div class="player-stat-box"><div class="player-stat-val">${rounds.length}</div><div class="player-stat-lbl">Rundor</div></div>
+        <div class="player-stat-box"><div class="player-stat-val">${best}p</div><div class="player-stat-lbl">Bäst</div></div>
+        <div class="player-stat-box"><div class="player-stat-val">${avg}p</div><div class="player-stat-lbl">Snitt</div></div>
+      </div>` +
+      rounds.map(r => {
+        const subj = r.subjects.find(s => s.name === displayName || s.name === player.name);
+        const pts = subj ? subj.totalPoints : '–';
+        const sorted = [...r.subjects].sort((a, b) => b.totalPoints - a.totalPoints);
+        const rank = sorted.findIndex(s => s.name === displayName || s.name === player.name);
+        const teeIcon = r.tee === 'Gul' ? '🟡' : '🔴';
+        return `
+          <div class="player-history-row">
+            <div class="player-history-medal">${medals[rank] || ''}</div>
+            <div class="player-history-info">
+              <div class="player-history-course">${r.courseName}</div>
+              <div class="player-history-meta">${r.date} · ${teeIcon} ${r.tee} · ${r.holes} hål</div>
+            </div>
+            <div>
+              <div class="player-history-pts">${pts}p</div>
+              <div class="player-history-pts-label">poäng</div>
+            </div>
+          </div>`;
+      }).join('');
+  }
+
+  document.getElementById('playersView').classList.add('hidden');
+  document.getElementById('playerHistoryView').classList.remove('hidden');
+}
+
+function closePlayerHistory() {
+  document.getElementById('playerHistoryView').classList.add('hidden');
+  document.getElementById('playersView').classList.remove('hidden');
+}
+
 function openPlayersView() {
   renderSavedPlayersList();
   document.getElementById('step1').classList.add('hidden');
@@ -2276,14 +2374,15 @@ function renderSavedPlayersList() {
     return;
   }
   el.innerHTML = players.map(p => `
-    <div class="saved-player-row">
+    <div class="saved-player-row" style="cursor:pointer;" onclick="openPlayerHistory(${p.id})">
       ${avatarHtml(p.photo || null, 'avatar')}
       <div class="saved-player-info">
         <div class="saved-player-name">${p.name}${p.nick ? ` <span style="font-weight:400;color:var(--muted);">"${p.nick}"</span>` : ''}</div>
         <div class="saved-player-hi">HCP-index: ${p.hi}</div>
       </div>
-      <button class="avatar-edit-btn" onclick="triggerPlayerPhotoEdit(${p.id})" title="Byt bild">📷</button>
-      <button class="saved-player-del" onclick="deleteSavedPlayer(${p.id})" title="Ta bort">🗑</button>
+      <button class="avatar-edit-btn" onclick="event.stopPropagation();triggerPlayerPhotoEdit(${p.id})" title="Byt bild">📷</button>
+      <button class="saved-player-del" onclick="event.stopPropagation();deleteSavedPlayer(${p.id})" title="Ta bort">🗑</button>
+      <span style="color:var(--muted);font-size:0.9rem;">›</span>
     </div>`).join('');
 }
 
