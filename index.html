@@ -636,6 +636,7 @@
       <button class="btn secondary" onclick="goToStep(4)">← Ändra score</button>
       <button class="btn" onclick="newRound()">Ny runda</button>
     </div>
+    <button class="btn secondary" style="margin-top:10px;" onclick="shareResult()">📤 Dela resultat</button>
   </div>
 
 </div><!-- /container -->
@@ -1698,6 +1699,63 @@ function toggleHistoryItem(header) {
 }
 
 // ============================================================
+// ============================================================
+// SHARE RESULT
+// ============================================================
+function buildShareText() {
+  const isScramble = state.gameMode === 'scramble';
+  const subjects = isScramble ? state.teams : state.players;
+  const medals = ['🥇','🥈','🥉','🪙'];
+  const results = subjects.map(s => ({ name: s.name, pts: s.playingHandicap !== undefined ? null : null, ph: s.playingHandicap }));
+
+  // Re-read from ranking cards in DOM for sorted results
+  const cards = document.querySelectorAll('#rankingContainer .ranking-card');
+  const lines = [];
+  cards.forEach((card, i) => {
+    const name = card.querySelector('.rank-name')?.textContent || '';
+    const pts  = card.querySelector('.rank-pts')?.textContent || '';
+    lines.push(`${medals[i]||''} ${name}: ${pts} poäng`);
+  });
+
+  const date = new Date().toLocaleDateString('sv-SE');
+  const teeIcon = state.teeColor === 'Gul' ? '🟡' : '🔴';
+  const header = `⛳ ${state.courseName} · ${teeIcon} ${state.teeColor} · ${state.holes} hål · ${date}`;
+  return [header, '', ...lines, '', '🏌️ Poängbogey-kalkylator'].join('\n');
+}
+
+async function shareResult() {
+  const text = buildShareText();
+  if (navigator.share) {
+    try {
+      await navigator.share({ text });
+      return;
+    } catch(e) {
+      if (e.name === 'AbortError') return; // user cancelled
+    }
+  }
+  // Fallback: copy to clipboard
+  try {
+    await navigator.clipboard.writeText(text);
+    showShareToast('📋 Kopierat till urklipp!');
+  } catch(e) {
+    showShareToast('Kunde inte kopiera — markera och kopiera manuellt.');
+  }
+}
+
+function showShareToast(msg) {
+  let t = document.getElementById('shareToast');
+  if (!t) {
+    t = document.createElement('div');
+    t.id = 'shareToast';
+    t.style.cssText = 'position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:#1b4332;color:white;padding:10px 20px;border-radius:20px;font-size:0.85rem;z-index:999;transition:opacity 0.3s;';
+    document.body.appendChild(t);
+  }
+  t.textContent = msg;
+  t.style.opacity = '1';
+  clearTimeout(t._timer);
+  t._timer = setTimeout(() => t.style.opacity = '0', 3000);
+}
+
 // Init
 if (!_lsOk) document.getElementById('lsBanner').classList.remove('hidden');
 try { seedDefaultCourses(); } catch(e) {}
