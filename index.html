@@ -872,6 +872,10 @@
       <div style="font-size:0.8rem; color:var(--muted); margin-bottom:12px;">
         <span style="color:var(--green);">Grön badge</span> = spelhandicap per spelare.
       </div>
+      <div id="honorBanner" style="display:none;align-items:center;gap:10px;background:#e8f5e9;border-radius:8px;padding:9px 12px;margin-bottom:10px;">
+        <div id="honorAvatar" style="width:32px;height:32px;border-radius:50%;background:#c8e6c9;border:2px solid var(--green);display:flex;align-items:center;justify-content:center;overflow:hidden;flex-shrink:0;font-size:1rem;"></div>
+        <div style="flex:1;font-size:0.85rem;color:var(--green-dark);" id="honorText"></div>
+      </div>
       <div style="overflow-x:auto;">
         <table class="score-table">
           <thead id="scoreTableHead"></thead>
@@ -1752,6 +1756,54 @@ function updateLiveLeader() {
   }
 }
 
+function updateHonorBanner() {
+  const banner = document.getElementById('honorBanner');
+  if (!banner) return;
+  const n = numColumns();
+  if (n < 2) { banner.style.display = 'none'; return; }
+
+  // Find last hole where ALL players have scored
+  let lastComplete = -1;
+  for (let i = 0; i < state.holes; i++) {
+    const allFilled = Array.from({length: n}, (_, p) => {
+      const el = document.getElementById(`score_${p}_${i}`);
+      return el && el.value !== '';
+    }).every(Boolean);
+    if (allFilled) lastComplete = i;
+  }
+
+  if (lastComplete < 0) { banner.style.display = 'none'; return; }
+  const nextHole = lastComplete + 2; // 1-indexed next hole
+  if (nextHole > state.holes) { banner.style.display = 'none'; return; }
+
+  // Find winner of that hole: most points, tie-break by fewest strokes
+  let best = null;
+  let bestPts = -1, bestStrokes = 999;
+  for (let p = 0; p < n; p++) {
+    const el = document.getElementById(`score_${p}_${lastComplete}`);
+    const strokes = parseInt(el.value);
+    const pts = calcLivePts(p, lastComplete, strokes);
+    if (pts > bestPts || (pts === bestPts && strokes < bestStrokes)) {
+      bestPts = pts; bestStrokes = strokes; best = p;
+    }
+  }
+
+  const player = state.players[best];
+  const playerName = (player && (player.nick || player.name)) || `Spelare ${best + 1}`;
+  const photo = _photoForName(player && player.name);
+
+  const avatarEl = document.getElementById('honorAvatar');
+  if (photo) {
+    avatarEl.innerHTML = `<img src="${photo}" style="width:100%;height:100%;object-fit:cover;">`;
+  } else {
+    avatarEl.textContent = playerName.charAt(0).toUpperCase();
+  }
+
+  document.getElementById('honorText').innerHTML =
+    `<strong>${playerName}</strong> har äran och startar hål ${nextHole} 🏌️`;
+  banner.style.display = 'flex';
+}
+
 function onScoreInput(p, i, el) {
   el.classList.toggle('has-value', el.value !== '');
   if (!state.scores[p]) state.scores[p] = new Array(state.holes).fill('');
@@ -1768,6 +1820,7 @@ function onScoreInput(p, i, el) {
     }
   }
   updateLiveLeader();
+  updateHonorBanner();
   if (el.value !== '') {
     const n = numColumns();
     const nextP = p + 1;
