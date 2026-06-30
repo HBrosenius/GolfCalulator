@@ -31,16 +31,28 @@ Laget spelar en gemensam score per hål. Resultatsidan visar vilket lag som vann
 
 Spara dina vanliga medspelare för snabb återanvändning:
 
-- **Namn, smeknamn och handicapindex** — smeknamnet visas i spelet om det är angivet
+- **Namn, efternamn, smeknamn och handicapindex** — smeknamnet visas i spelet om det är angivet
 - **Profilbild** — lägg till ett foto per spelare med inbyggd beskärningsfunktion (pan + zoom)
 - **Snabbval** — välj en sparad spelare från dropdown i spelarkorten vid rundan
+- **Inline-redigering** — ändra namn, efternamn, smeknamn och handicap direkt i registret
 - Profilbilderna visas på resultatsidan och i delad bild
+
+## Spelarstatistik och historik
+
+Klicka på en spelare i registret för att se spelhistorik och statistik:
+
+- **Översikt** — antal rundor, vinster och parsprocent
+- **Poäng** — bästa runda, snittpoäng och totalt spelade hål
+- **Hålresultat** — antal eagles, birdies, pars, bogeyn och dubbel+
+- **Poänggraf** — stapeldiagram över de senaste 5 rundorna
+- **Hall of Fame** — jämförelsestatistik mellan alla sparade spelare (bästa runda, flest vinster, flest birdies m.m.)
 
 ## Live-poäng och ledartavla
 
 - **Poäng per hål** visas direkt under scoreinmatningen (färgkodad: bogey/par/birdie/eagle)
 - **Ledare markeras** med grön kolumn i scoretabellen — uppdateras efter varje hål
 - **Poängtotal** visas i tabellens sidfot och uppdateras löpande
+- **Äran-banner** — efter varje avslutat hål visas vem som har äran och startar nästa hål, med spelarens profilbild
 
 ## Rundhistorik
 
@@ -72,6 +84,8 @@ Appen levereras med kurs- och hålinformation för följande banor:
 | Emmaboda Golf Club | Gul / Röd | 18 |
 | Links Golf Öland/Grönhögen | Gul / Röd | 18 |
 | Saxnäs GK | Gul / Röd | 18 |
+| Långe Erik, Ekerum | Gul / Röd | 18 |
+| Långe Jan, Ekerum | Gul / Röd | 18 |
 
 Data är hämtad från [mScorecard.com](https://www.mscorecard.com).
 
