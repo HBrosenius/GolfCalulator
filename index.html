@@ -271,6 +271,9 @@
   .hi-rank-row:last-child { border-bottom: none; }
   .hi-rank-name { flex: 1; font-weight: 600; }
   .hi-rank-pts { font-weight: 700; color: var(--green-dark); }
+  .hi-share { background: none; border: none; cursor: pointer; color: var(--muted);
+    font-size: 1rem; padding: 4px 6px; flex-shrink: 0; }
+  .hi-share:hover { color: var(--accent); }
   .hi-del { background: none; border: none; cursor: pointer; color: var(--muted);
     font-size: 1rem; padding: 4px; flex-shrink: 0; }
   .hi-del:hover { color: var(--danger); }
@@ -332,6 +335,25 @@
     border-radius: 10px;
     margin-left: 4px;
     vertical-align: middle;
+  }
+  .score-table tfoot .totals-row td {
+    padding: 5px 3px;
+    font-weight: 700;
+    font-size: 0.85rem;
+    text-align: center;
+    border-top: 2px solid var(--green);
+    background: #f0faf4;
+  }
+  .score-table tfoot .totals-row td.leader {
+    background: var(--green);
+    color: #fff;
+    border-radius: 4px;
+  }
+  .score-table thead th.leader-col {
+    background: #2e7d32;
+  }
+  .score-table tbody td.leader-col {
+    background: #e8f5e9;
   }
   .ph-header-badge {
     display: block;
@@ -399,6 +421,20 @@
   .rank-medal {
     font-size: 1.8rem; flex-shrink: 0; width: 36px; text-align: center;
   }
+  .rank-avatar {
+    width: 44px; height: 44px; border-radius: 50%;
+    background: #e8f5e9; border: 2px solid var(--green);
+    display: flex; align-items: center; justify-content: center;
+    overflow: hidden; flex-shrink: 0; font-size: 1.2rem;
+  }
+  .rank-avatar img { width: 100%; height: 100%; object-fit: cover; }
+  .result-section-avatar {
+    width: 32px; height: 32px; border-radius: 50%;
+    background: #e8f5e9; border: 2px solid var(--green);
+    display: flex; align-items: center; justify-content: center;
+    overflow: hidden; flex-shrink: 0; font-size: 0.9rem;
+  }
+  .result-section-avatar img { width: 100%; height: 100%; object-fit: cover; }
   .rank-info { flex: 1; }
   .rank-name { font-size: 1rem; font-weight: 700; color: var(--green-dark); }
   .rank-sub { font-size: 0.78rem; color: var(--muted); margin-top: 2px; }
@@ -409,6 +445,89 @@
   .player-result-title {
     font-size: 0.9rem; font-weight: 700; color: var(--green-dark);
     margin-bottom: 8px; display: flex; align-items: center; gap: 8px;
+  }
+
+  .avatar {
+    width: 48px; height: 48px; border-radius: 50%;
+    background: #e8f5e9; border: 2px solid var(--green);
+    display: flex; align-items: center; justify-content: center;
+    overflow: hidden; flex-shrink: 0;
+  }
+  .avatar-lg { width: 64px; height: 64px; }
+  .avatar img { width: 100%; height: 100%; object-fit: cover; }
+  .avatar-placeholder { font-size: 1.3rem; line-height: 1; }
+  .avatar-lg .avatar-placeholder { font-size: 1.6rem; }
+  .avatar-edit-btn {
+    background: none; border: none; cursor: pointer;
+    font-size: 1rem; padding: 4px 6px; color: var(--muted);
+  }
+  .avatar-edit-btn:hover { color: var(--green); }
+  .player-card-avatar {
+    width: 36px; height: 36px; border-radius: 50%;
+    background: #e8f5e9; border: 2px solid var(--green);
+    display: flex; align-items: center; justify-content: center;
+    overflow: hidden; flex-shrink: 0; font-size: 1rem;
+  }
+  .player-card-avatar img { width: 100%; height: 100%; object-fit: cover; }
+
+  /* ── Crop modal ──────────────────────────────────────── */
+  .crop-modal {
+    position: fixed; inset: 0; z-index: 9999;
+    background: rgba(0,0,0,0.75);
+    display: flex; align-items: center; justify-content: center;
+    padding: 16px;
+  }
+  .crop-sheet {
+    background: #fff; border-radius: 16px;
+    width: 100%; max-width: 340px;
+    padding: 16px; display: flex; flex-direction: column; gap: 12px;
+  }
+  .crop-sheet h3 { margin: 0; font-size: 1rem; text-align: center; color: var(--green-dark); }
+  .crop-viewport-wrap {
+    position: relative; width: 100%; aspect-ratio: 1;
+    border-radius: 50%; overflow: hidden;
+    border: 3px solid var(--green);
+    touch-action: none; cursor: grab; user-select: none;
+    background: #111;
+  }
+  .crop-viewport-wrap:active { cursor: grabbing; }
+  #cropCanvas { display: block; width: 100%; height: 100%; }
+  .crop-zoom-row {
+    display: flex; align-items: center; gap: 10px;
+  }
+  .crop-zoom-row input[type=range] {
+    flex: 1; accent-color: var(--green);
+  }
+  .crop-zoom-icon { font-size: 1rem; line-height: 1; }
+  .crop-actions { display: flex; gap: 10px; }
+  .crop-actions button { flex: 1; }
+
+  .recent-course-btn {
+    display: flex; align-items: center; gap: 10px;
+    width: 100%; background: #f0faf4; border: 1.5px solid var(--green);
+    border-radius: 10px; padding: 10px 12px; cursor: pointer; text-align: left;
+  }
+  .recent-course-btn:active { background: #e0f2e9; }
+  .recent-course-icon { font-size: 1.2rem; flex-shrink: 0; }
+  .recent-course-info { flex: 1; display: flex; flex-direction: column; gap: 1px; }
+  .recent-course-name { font-weight: 600; font-size: 0.95rem; color: var(--green-dark); }
+  .recent-course-sub { font-size: 0.78rem; color: var(--muted); }
+  .recent-course-arrow { color: var(--green); font-size: 1rem; flex-shrink: 0; }
+
+  .saved-player-row {
+    display: flex; align-items: center; gap: 10px;
+    padding: 8px 0; border-bottom: 1px solid var(--border);
+  }
+  .saved-player-row:last-child { border-bottom: none; }
+  .saved-player-info { flex: 1; }
+  .saved-player-name { font-weight: 600; font-size: 0.95rem; }
+  .saved-player-hi { font-size: 0.8rem; color: var(--muted); }
+  .saved-player-del { background: none; border: none; cursor: pointer; color: var(--muted); font-size: 1rem; padding: 4px 6px; }
+  .saved-player-del:hover { color: var(--danger); }
+  .player-picker-select {
+    width: 100%; padding: 6px 8px; border: 1.5px solid var(--border);
+    border-radius: 8px; font-size: 0.85rem; background: #f8fdf9;
+    color: var(--text); margin-bottom: 8px; cursor: pointer;
   }
 
   .hidden { display: none !important; }
@@ -450,10 +569,74 @@
       </div>
       <div id="historyList"><p style="font-size:0.85rem;color:var(--muted);text-align:center;padding:12px 0;">Inga sparade rundor.</p></div>
     </div>
+    <div class="card" style="margin-top:10px;">
+      <div class="card-title" style="margin-bottom:10px;"><span class="icon">💾</span> Exportera / importera data</div>
+      <p style="font-size:0.82rem;color:var(--muted);margin:0 0 10px;">Välj vad du vill exportera, eller importera från en tidigare export.</p>
+      <div style="display:flex;gap:16px;margin-bottom:12px;flex-wrap:wrap;">
+        <label style="display:flex;align-items:center;gap:6px;font-size:0.9rem;cursor:pointer;margin:0;">
+          <input type="checkbox" id="exportRounds" checked style="width:16px;height:16px;accent-color:var(--green);"> Rundor
+        </label>
+        <label style="display:flex;align-items:center;gap:6px;font-size:0.9rem;cursor:pointer;margin:0;">
+          <input type="checkbox" id="exportCourses" checked style="width:16px;height:16px;accent-color:var(--green);"> Banor
+        </label>
+        <label style="display:flex;align-items:center;gap:6px;font-size:0.9rem;cursor:pointer;margin:0;">
+          <input type="checkbox" id="exportPlayers" checked style="width:16px;height:16px;accent-color:var(--green);"> Spelare
+        </label>
+      </div>
+      <div style="display:flex;gap:10px;flex-wrap:wrap;">
+        <button class="btn" style="flex:1;" onclick="exportData()">⬇ Exportera</button>
+        <button class="btn secondary" style="flex:1;" onclick="document.getElementById('importFileInput').click()">⬆ Importera</button>
+      </div>
+      <input type="file" id="importFileInput" accept=".json" style="display:none;" onchange="importData(this)">
+      <div id="importResult" style="display:none;margin-top:10px;font-size:0.85rem;border-radius:8px;padding:8px 12px;"></div>
+    </div>
+  </div>
+
+  <!-- SPELARREGISTER -->
+  <div id="playersView" class="hidden">
+    <div class="card">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;">
+        <div class="card-title" style="margin:0;"><span class="icon">👤</span> Spelarregister</div>
+        <button onclick="closePlayersView()" style="background:none;border:none;font-size:1.4rem;cursor:pointer;color:var(--muted);padding:0 4px;">✕</button>
+      </div>
+      <div id="savedPlayersList"></div>
+      <div id="addPlayerForm" style="margin-top:14px;border-top:1px solid var(--border);padding-top:14px;">
+        <div class="player-card-title" style="margin-bottom:10px;">Lägg till spelare</div>
+        <div style="display:flex;align-items:center;gap:14px;margin-bottom:10px;">
+          <div id="newPlayerAvatarPreview" class="avatar avatar-lg" style="cursor:pointer;" onclick="document.getElementById('newPlayerPhotoInput').click()">
+            <span class="avatar-placeholder">📷</span>
+          </div>
+          <span style="font-size:0.8rem;color:var(--muted);">Tryck för att välja bild</span>
+          <input type="file" id="newPlayerPhotoInput" accept="image/*" style="display:none;" onchange="previewNewPlayerPhoto(this)">
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+          <div>
+            <label style="margin-top:0;">Namn</label>
+            <input type="text" id="newPlayerName" placeholder="Namn">
+          </div>
+          <div>
+            <label style="margin-top:0;">Handicapindex</label>
+            <input type="number" id="newPlayerHI" placeholder="t.ex. 15.4" step="0.1" min="0" max="54" inputmode="decimal">
+          </div>
+        </div>
+        <div style="margin-top:10px;">
+          <label style="margin-top:0;">Smeknamn <span style="font-size:0.78rem;color:var(--muted);">(valfritt, visas i spelet)</span></label>
+          <input type="text" id="newPlayerNick" placeholder="t.ex. Birdie-Bengt">
+        </div>
+        <button class="btn" style="margin-top:10px;width:100%;" onclick="addSavedPlayer()">+ Lägg till</button>
+        <div id="addPlayerError" style="display:none;font-size:0.82rem;color:var(--danger);margin-top:6px;"></div>
+      </div>
+    </div>
   </div>
 
   <!-- STEG 1: Välj bana -->
   <div id="step1">
+
+    <!-- Senaste banor (snabbval) -->
+    <div id="recentCoursesCard" class="card hidden" style="margin-bottom:10px;">
+      <div class="card-title" style="margin-bottom:10px;"><span class="icon">🕐</span> Senaste banor</div>
+      <div id="recentCoursesList" style="display:flex;flex-direction:column;gap:8px;"></div>
+    </div>
 
     <!-- Sparade banor + Lägg till ny bana (alltid synlig) -->
     <div class="card">
@@ -515,7 +698,10 @@
 
     <div id="step1Error" class="hidden" style="background:#fdecea;border-left:3px solid var(--danger);border-radius:0 8px 8px 0;padding:10px 14px;font-size:0.9rem;color:var(--danger);margin-bottom:8px;"></div>
     <button class="btn" onclick="goToStep2()">Nästa →</button>
-    <button class="btn secondary" style="margin-top:10px;" onclick="openHistory()">📅 Sparade rundor</button>
+    <div style="display:flex;gap:10px;margin-top:10px;">
+      <button class="btn secondary" style="flex:1;" onclick="openHistory()">📅 Sparade rundor</button>
+      <button class="btn secondary" style="flex:1;" onclick="openPlayersView()">👤 Spelare</button>
+    </div>
   </div>
 
   <!-- STEG 2: Håldata -->
@@ -640,6 +826,26 @@
   </div>
 
 </div><!-- /container -->
+
+<!-- CROP MODAL -->
+<div id="cropModal" class="crop-modal hidden">
+  <div class="crop-sheet">
+    <h3>Beskär bild</h3>
+    <div class="crop-viewport-wrap" id="cropViewport">
+      <canvas id="cropCanvas"></canvas>
+    </div>
+    <div class="crop-zoom-row">
+      <span class="crop-zoom-icon">🔍−</span>
+      <input type="range" id="cropZoomSlider" min="0" max="100" value="0" oninput="onCropZoomSlider(this.value)">
+      <span class="crop-zoom-icon">🔍+</span>
+    </div>
+    <div class="crop-actions">
+      <button class="btn secondary" onclick="cancelCrop()">Avbryt</button>
+      <button class="btn" onclick="confirmCrop()">Välj ✓</button>
+    </div>
+  </div>
+</div>
+
 <div id="saveToast">✅ Baninformation sparad</div>
 
 <script>
@@ -799,8 +1005,48 @@ function filterCourses(query) {
   noMatch.classList.toggle('hidden', filtered.length > 0);
 }
 
+function renderRecentCourses() {
+  const rounds = roundsLoad();
+  const card = document.getElementById('recentCoursesCard');
+  const list  = document.getElementById('recentCoursesList');
+  if (!card || !list) return;
+
+  // Count usage per course key (name + tee + holes)
+  const counts = {};
+  rounds.forEach(r => {
+    const key = `${r.courseName}||${r.tee}||${r.holes}`;
+    counts[key] = (counts[key] || 0) + 1;
+  });
+
+  const top3 = Object.entries(counts)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 3)
+    .map(([key]) => {
+      const [name, tee, holes] = key.split('||');
+      return dbFind(name, tee, parseInt(holes));
+    })
+    .filter(Boolean);
+
+  if (top3.length === 0) { card.classList.add('hidden'); return; }
+  card.classList.remove('hidden');
+
+  window._recentCourses = top3;
+  list.innerHTML = top3.map((c, idx) => {
+    const teeIcon = c.tee === 'Gul' ? '🟡' : '🔴';
+    return `<button class="recent-course-btn" onclick="loadSavedCourseAndAdvance(window._recentCourses[${idx}])">
+      <span class="recent-course-icon">${teeIcon}</span>
+      <span class="recent-course-info">
+        <span class="recent-course-name">${c.name}</span>
+        <span class="recent-course-sub">${c.tee} · ${c.holes} hål</span>
+      </span>
+      <span class="recent-course-arrow">→</span>
+    </button>`;
+  }).join('');
+}
+
 function renderSavedCourses() {
   _savedCourses = getSavedCourses();
+  renderRecentCourses();
 
   const list = document.getElementById('savedCoursesList');
   const noTxt = document.getElementById('noCoursesTxt');
@@ -1181,9 +1427,26 @@ function buildPlayerCards() {
         <button class="team-btn${team==='B'?' team-b':''}" onclick="assignTeam(${p},'B')">B</button>
       </div>` : '';
 
+    const savedPlayers = playersLoad();
+    const pickerOptions = savedPlayers.length
+      ? `<option value="">— Välj sparad spelare —</option>` +
+        savedPlayers.map(sp => `<option value="${sp.id}">${sp.name} (${sp.hi})</option>`).join('')
+      : null;
+    const pickerHtml = pickerOptions
+      ? `<select class="player-picker-select" onchange="pickSavedPlayer(${p}, this)">${pickerOptions}</select>`
+      : '';
+
+    const existingPlayer = savedPlayers.find(sp =>
+      sp.name && existing.name && sp.name === existing.name);
+    const cardPhoto = existingPlayer?.photo || null;
+
     container.innerHTML += `
       <div class="player-card" id="playerCard_${p}">
-        <div class="player-card-title">Spelare ${p+1}</div>
+        <div class="player-card-title" style="display:flex;align-items:center;gap:8px;">
+          ${avatarHtml(cardPhoto, 'player-card-avatar').replace('class="player-card-avatar"', `class="player-card-avatar" id="pcard_avatar_${p}"`)}
+          Spelare ${p+1}
+        </div>
+        ${pickerHtml}
         <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px;">
           <div>
             <label style="margin-top:0;">Namn</label>
@@ -1331,6 +1594,14 @@ function buildScoreTable() {
   });
   thead.innerHTML = hd + '</tr>';
 
+  // Totals footer
+  const tfoot = document.createElement('tfoot');
+  tfoot.id = 'scoreTfoot';
+  let ft = '<tr class="totals-row"><td colspan="3">Poäng</td>';
+  cols.forEach((_, p) => { ft += `<td id="tot_${p}">–</td>`; });
+  tfoot.innerHTML = ft + '</tr>';
+  document.querySelector('.score-table').appendChild(tfoot);
+
   tbody.innerHTML = '';
   for (let i = 0; i < state.holes; i++) {
     const h   = i + 1;
@@ -1360,6 +1631,43 @@ function calcLivePts(p, i, score) {
   return Math.max(0, par + 2 - netto);
 }
 
+function updateLiveLeader() {
+  const n = numColumns();
+  const totals = [];
+  for (let p = 0; p < n; p++) {
+    let sum = 0;
+    for (let i = 0; i < state.holes; i++) {
+      const el = document.getElementById(`score_${p}_${i}`);
+      if (el && el.value !== '') sum += calcLivePts(p, i, parseInt(el.value));
+    }
+    totals.push(sum);
+  }
+
+  const max = Math.max(...totals);
+  const anyScored = totals.some(t => t > 0);
+
+  // Update tfoot cells
+  for (let p = 0; p < n; p++) {
+    const td = document.getElementById(`tot_${p}`);
+    if (!td) continue;
+    td.textContent = anyScored ? totals[p] + 'p' : '–';
+    td.classList.toggle('leader', anyScored && totals[p] === max);
+  }
+
+  // Highlight leader column header and all body cells in that column
+  const headerCells = document.querySelectorAll('#scoreTableHead th');
+  const bodyRows = document.querySelectorAll('#scoreTableBody tr');
+  for (let p = 0; p < n; p++) {
+    const isLeader = anyScored && totals[p] === max;
+    const th = headerCells[3 + p];
+    if (th) th.classList.toggle('leader-col', isLeader);
+    bodyRows.forEach(row => {
+      const cell = row.cells[3 + p];
+      if (cell) cell.classList.toggle('leader-col', isLeader);
+    });
+  }
+}
+
 function onScoreInput(p, i, el) {
   el.classList.toggle('has-value', el.value !== '');
   if (!state.scores[p]) state.scores[p] = new Array(state.holes).fill('');
@@ -1375,6 +1683,7 @@ function onScoreInput(p, i, el) {
       ptsEl.className = 'live-pts';
     }
   }
+  updateLiveLeader();
   if (el.value !== '') {
     const n = numColumns();
     const nextP = p + 1;
@@ -1445,6 +1754,17 @@ function calculateAll() {
   goToStep(5);
 }
 
+function _photoForName(displayName) {
+  const saved = playersLoad();
+  const match = saved.find(p => (p.nick || p.name) === displayName || p.name === displayName);
+  return match?.photo || null;
+}
+
+function _resultAvatarHtml(photo, cls) {
+  if (photo) return `<div class="${cls}"><img src="${photo}" alt=""></div>`;
+  return `<div class="${cls}">🏌️</div>`;
+}
+
 function renderResults(playerResults) {
   // Sort for ranking (higher points = better)
   const results = playerResults; // alias (passed from calculateAll)
@@ -1457,13 +1777,15 @@ function renderResults(playerResults) {
   rankContainer.innerHTML = '';
   sorted.forEach((r, rank) => {
     const holesPlayed = r.rows.filter(row => !row.skipped).length;
-    const name     = isScramble ? r.subj.name : r.subj.name;
+    const name     = r.subj.name;
     const subLabel = isScramble
       ? `Spelhandicap +${r.ph} · ${r.subj.members.map(m=>m.name).join(' & ')}`
       : `HI ${r.subj.hi} · Spelhandicap +${r.ph} · ${holesPlayed} hål`;
+    const photo = _photoForName(name);
     rankContainer.innerHTML += `
       <div class="ranking-card">
         <div class="rank-medal">${medals[rank] || ''}</div>
+        ${_resultAvatarHtml(photo, 'rank-avatar')}
         <div class="rank-info">
           <div class="rank-name">${name}</div>
           <div class="rank-sub">${subLabel}</div>
@@ -1516,9 +1838,13 @@ function renderResults(playerResults) {
       ? `Spelhandicap +${r.ph} · ${r.subj.members.map(m=>m.name).join(' & ')}`
       : `Spelhandicap +${r.ph} · Brutto ${r.totalBrutto} · ${holesPlayed} hål`;
 
+    const sectionPhoto = _photoForName(r.subj.name);
     prContainer.innerHTML += `
       <div class="player-result-section"><div class="card">
-        <div class="card-title"><span class="icon">📊</span> ${r.subj.name} · ${r.totalPoints} poäng</div>
+        <div class="card-title" style="display:flex;align-items:center;gap:8px;">
+          ${_resultAvatarHtml(sectionPhoto, 'result-section-avatar')}
+          <span>📊 ${r.subj.name} · ${r.totalPoints} poäng</span>
+        </div>
         <div style="font-size:0.8rem;color:var(--muted);margin-bottom:10px;">${subLabel}</div>
         <div style="overflow-x:auto;">
           <table class="result-table">
@@ -1596,6 +1922,94 @@ function roundDelete(id) {
   roundsSave(roundsLoad().filter(r => r.id !== id));
 }
 
+function exportData() {
+  const inclRounds   = document.getElementById('exportRounds').checked;
+  const inclCourses  = document.getElementById('exportCourses').checked;
+  const inclPlayers  = document.getElementById('exportPlayers').checked;
+  if (!inclRounds && !inclCourses && !inclPlayers) {
+    const r = document.getElementById('importResult');
+    r.style.display = 'block';
+    r.style.background = '#fff8e1';
+    r.style.color = '#e65100';
+    r.textContent = '⚠️ Välj minst ett alternativ att exportera.';
+    return;
+  }
+  const payload = {
+    version: 1,
+    exportedAt: new Date().toISOString(),
+    courses:  inclCourses  ? dbLoad()        : [],
+    rounds:   inclRounds   ? roundsLoad()    : [],
+    players:  inclPlayers  ? playersLoad()   : []
+  };
+  const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  const date = new Date().toLocaleDateString('sv-SE').replace(/\//g, '-');
+  a.download = `golf-data-${date}.json`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+function importData(input) {
+  const file = input.files[0];
+  if (!file) return;
+  const resultEl = document.getElementById('importResult');
+  const reader = new FileReader();
+  reader.onload = e => {
+    try {
+      const payload = JSON.parse(e.target.result);
+      if (!payload.version || (!payload.courses && !payload.rounds)) throw new Error('Ogiltigt format');
+
+      let addedCourses = 0, addedRounds = 0;
+
+      if (Array.isArray(payload.courses)) {
+        const existing = dbLoad();
+        payload.courses.forEach(c => {
+          const idx = existing.findIndex(x => x.name === c.name && x.tee === c.tee && x.holes === c.holes);
+          if (idx >= 0) existing[idx] = { ...existing[idx], ...c };
+          else { existing.push(c); addedCourses++; }
+        });
+        dbSave(existing);
+        renderCourseList();
+      }
+
+      if (Array.isArray(payload.rounds)) {
+        const existing = roundsLoad();
+        const existingIds = new Set(existing.map(r => r.id));
+        payload.rounds.forEach(r => {
+          if (!existingIds.has(r.id)) { existing.push(r); addedRounds++; }
+        });
+        roundsSave(existing);
+        renderHistoryList();
+      }
+
+      let addedPlayers = 0;
+      if (Array.isArray(payload.players)) {
+        const existing = playersLoad();
+        const existingIds = new Set(existing.map(p => p.id));
+        payload.players.forEach(p => {
+          if (!existingIds.has(p.id)) { existing.push(p); addedPlayers++; }
+        });
+        playersSave(existing);
+        if (document.getElementById('savedPlayersList')) renderSavedPlayersList();
+      }
+
+      resultEl.style.display = 'block';
+      resultEl.style.background = '#e8f5e9';
+      resultEl.style.color = '#2e7d32';
+      resultEl.textContent = `✅ Importerat: ${addedCourses} nya banor, ${addedRounds} nya rundor, ${addedPlayers} nya spelare.`;
+    } catch(err) {
+      resultEl.style.display = 'block';
+      resultEl.style.background = '#fdecea';
+      resultEl.style.color = '#c62828';
+      resultEl.textContent = '❌ Kunde inte läsa filen — kontrollera att det är en giltig exportfil.';
+    }
+    input.value = '';
+  };
+  reader.readAsText(file);
+}
+
 function saveCurrentRound(playerResults) {
   if (!_lsOk) return;
   const now = new Date();
@@ -1622,6 +2036,295 @@ function saveCurrentRound(playerResults) {
     gameMode: isScramble ? 'scramble' : 'individual',
     subjects
   });
+}
+
+// ============================================================
+// SAVED PLAYERS
+// ============================================================
+const PLAYERS_KEY = 'golf_players_db';
+
+function playersLoad() {
+  if (!_lsOk) return [];
+  try { return JSON.parse(localStorage.getItem(PLAYERS_KEY) || '[]'); }
+  catch(e) { return []; }
+}
+
+function playersSave(list) {
+  if (!_lsOk) return;
+  localStorage.setItem(PLAYERS_KEY, JSON.stringify(list));
+}
+
+function openPlayersView() {
+  renderSavedPlayersList();
+  document.getElementById('step1').classList.add('hidden');
+  document.getElementById('playersView').classList.remove('hidden');
+}
+
+function closePlayersView() {
+  document.getElementById('playersView').classList.add('hidden');
+  document.getElementById('step1').classList.remove('hidden');
+  buildPlayerCards(); // refresh pickers in step 3 if already there
+}
+
+// ============================================================
+// CROP ENGINE
+// ============================================================
+let _newPlayerPhoto = null;
+
+const _crop = {
+  img: null, callback: null,
+  ox: 0, oy: 0,       // image centre offset from canvas centre (CSS px)
+  scale: 1,           // current scale (1 = fit-to-viewport)
+  minScale: 1, maxScale: 4,
+  drag: null,         // { startX, startY, ox0, oy0 }
+  pinch: null,        // { dist0, scale0 }
+  vpSize: 0,          // canvas CSS size (square)
+};
+
+function avatarHtml(photo, cls) {
+  if (photo) return `<div class="${cls}"><img src="${photo}" alt=""></div>`;
+  return `<div class="${cls}"><span class="avatar-placeholder">🏌️</span></div>`;
+}
+
+function openCropModal(file, callback) {
+  const img = new Image();
+  const url = URL.createObjectURL(file);
+  img.onload = () => {
+    URL.revokeObjectURL(url);
+    _crop.img = img;
+    _crop.callback = callback;
+    _crop.ox = 0; _crop.oy = 0; _crop.scale = 1;
+
+    const modal = document.getElementById('cropModal');
+    modal.classList.remove('hidden');
+
+    const vp = document.getElementById('cropViewport');
+    _crop.vpSize = vp.clientWidth || 280;
+
+    const canvas = document.getElementById('cropCanvas');
+    canvas.width = _crop.vpSize;
+    canvas.height = _crop.vpSize;
+
+    // fit image into viewport
+    const fit = Math.min(_crop.vpSize / img.width, _crop.vpSize / img.height);
+    _crop.minScale = fit;
+    _crop.maxScale = fit * 6;
+    _crop.scale = Math.max(fit, _crop.vpSize / Math.min(img.width, img.height));
+
+    document.getElementById('cropZoomSlider').value = 0;
+    _cropClampOffset();
+    _cropDraw();
+    _cropBindEvents();
+  };
+  img.src = url;
+}
+
+function _cropDraw() {
+  const { img, ox, oy, scale, vpSize } = _crop;
+  const canvas = document.getElementById('cropCanvas');
+  if (!canvas) return;
+  const ctx = canvas.getContext('2d');
+  ctx.clearRect(0, 0, vpSize, vpSize);
+  const w = img.width * scale;
+  const h = img.height * scale;
+  const cx = vpSize / 2 + ox;
+  const cy = vpSize / 2 + oy;
+  ctx.drawImage(img, cx - w / 2, cy - h / 2, w, h);
+}
+
+function _cropClampOffset() {
+  const { img, scale, vpSize } = _crop;
+  const w = img.width * scale;
+  const h = img.height * scale;
+  const maxOx = Math.max(0, (w - vpSize) / 2);
+  const maxOy = Math.max(0, (h - vpSize) / 2);
+  _crop.ox = Math.max(-maxOx, Math.min(maxOx, _crop.ox));
+  _crop.oy = Math.max(-maxOy, Math.min(maxOy, _crop.oy));
+}
+
+function _cropBindEvents() {
+  const vp = document.getElementById('cropViewport');
+  // remove old listeners by replacing node
+  const fresh = vp.cloneNode(true);
+  vp.parentNode.replaceChild(fresh, vp);
+  const fp = document.getElementById('cropViewport');
+
+  // mouse
+  fp.addEventListener('mousedown', e => {
+    e.preventDefault();
+    _crop.drag = { startX: e.clientX, startY: e.clientY, ox0: _crop.ox, oy0: _crop.oy };
+  });
+  window.addEventListener('mousemove', e => {
+    if (!_crop.drag) return;
+    _crop.ox = _crop.drag.ox0 + (e.clientX - _crop.drag.startX);
+    _crop.oy = _crop.drag.oy0 + (e.clientY - _crop.drag.startY);
+    _cropClampOffset(); _cropDraw();
+  });
+  window.addEventListener('mouseup', () => { _crop.drag = null; });
+
+  // touch
+  fp.addEventListener('touchstart', e => {
+    e.preventDefault();
+    if (e.touches.length === 1) {
+      const t = e.touches[0];
+      _crop.drag = { startX: t.clientX, startY: t.clientY, ox0: _crop.ox, oy0: _crop.oy };
+      _crop.pinch = null;
+    } else if (e.touches.length === 2) {
+      _crop.drag = null;
+      const dx = e.touches[0].clientX - e.touches[1].clientX;
+      const dy = e.touches[0].clientY - e.touches[1].clientY;
+      _crop.pinch = { dist0: Math.hypot(dx, dy), scale0: _crop.scale };
+    }
+  }, { passive: false });
+  fp.addEventListener('touchmove', e => {
+    e.preventDefault();
+    if (e.touches.length === 1 && _crop.drag) {
+      const t = e.touches[0];
+      _crop.ox = _crop.drag.ox0 + (t.clientX - _crop.drag.startX);
+      _crop.oy = _crop.drag.oy0 + (t.clientY - _crop.drag.startY);
+      _cropClampOffset(); _cropDraw();
+    } else if (e.touches.length === 2 && _crop.pinch) {
+      const dx = e.touches[0].clientX - e.touches[1].clientX;
+      const dy = e.touches[0].clientY - e.touches[1].clientY;
+      const dist = Math.hypot(dx, dy);
+      const s = Math.max(_crop.minScale, Math.min(_crop.maxScale,
+        _crop.pinch.scale0 * (dist / _crop.pinch.dist0)));
+      _crop.scale = s;
+      _syncZoomSlider();
+      _cropClampOffset(); _cropDraw();
+    }
+  }, { passive: false });
+  fp.addEventListener('touchend', () => { _crop.drag = null; _crop.pinch = null; });
+}
+
+function onCropZoomSlider(val) {
+  const t = val / 100;
+  _crop.scale = _crop.minScale + t * (_crop.maxScale - _crop.minScale);
+  _cropClampOffset(); _cropDraw();
+}
+
+function _syncZoomSlider() {
+  const t = (_crop.scale - _crop.minScale) / (_crop.maxScale - _crop.minScale);
+  const sl = document.getElementById('cropZoomSlider');
+  if (sl) sl.value = Math.round(t * 100);
+}
+
+function cancelCrop() {
+  document.getElementById('cropModal').classList.add('hidden');
+  _crop.img = null; _crop.callback = null;
+}
+
+function confirmCrop() {
+  const { img, ox, oy, scale, vpSize } = _crop;
+  const out = document.createElement('canvas');
+  out.width = 160; out.height = 160;
+  const ctx = out.getContext('2d');
+  // Map: vpSize → 160
+  const ratio = 160 / vpSize;
+  const w = img.width * scale * ratio;
+  const h = img.height * scale * ratio;
+  const cx = 80 + ox * ratio;
+  const cy = 80 + oy * ratio;
+  ctx.drawImage(img, cx - w / 2, cy - h / 2, w, h);
+  const dataUrl = out.toDataURL('image/jpeg', 0.82);
+  document.getElementById('cropModal').classList.add('hidden');
+  if (_crop.callback) _crop.callback(dataUrl);
+  _crop.img = null; _crop.callback = null;
+}
+
+// ── Photo triggers ───────────────────────────────────────────
+
+function previewNewPlayerPhoto(input) {
+  const file = input.files[0];
+  if (!file) return;
+  input.value = '';
+  openCropModal(file, dataUrl => {
+    _newPlayerPhoto = dataUrl;
+    const preview = document.getElementById('newPlayerAvatarPreview');
+    if (preview) preview.innerHTML = `<img src="${dataUrl}" alt="">`;
+  });
+}
+
+function triggerPlayerPhotoEdit(id) {
+  const inp = document.createElement('input');
+  inp.type = 'file'; inp.accept = 'image/*';
+  inp.onchange = () => {
+    const file = inp.files[0];
+    if (!file) return;
+    openCropModal(file, dataUrl => {
+      const players = playersLoad();
+      const p = players.find(x => x.id === id);
+      if (p) { p.photo = dataUrl; playersSave(players); renderSavedPlayersList(); }
+    });
+  };
+  inp.click();
+}
+
+function renderSavedPlayersList() {
+  const players = playersLoad();
+  const el = document.getElementById('savedPlayersList');
+  if (players.length === 0) {
+    el.innerHTML = '<p style="font-size:0.85rem;color:var(--muted);text-align:center;padding:8px 0;">Inga sparade spelare.</p>';
+    return;
+  }
+  el.innerHTML = players.map(p => `
+    <div class="saved-player-row">
+      ${avatarHtml(p.photo || null, 'avatar')}
+      <div class="saved-player-info">
+        <div class="saved-player-name">${p.name}${p.nick ? ` <span style="font-weight:400;color:var(--muted);">"${p.nick}"</span>` : ''}</div>
+        <div class="saved-player-hi">HCP-index: ${p.hi}</div>
+      </div>
+      <button class="avatar-edit-btn" onclick="triggerPlayerPhotoEdit(${p.id})" title="Byt bild">📷</button>
+      <button class="saved-player-del" onclick="deleteSavedPlayer(${p.id})" title="Ta bort">🗑</button>
+    </div>`).join('');
+}
+
+function addSavedPlayer() {
+  const name = document.getElementById('newPlayerName').value.trim();
+  const hi   = parseFloat(document.getElementById('newPlayerHI').value);
+  const nick = document.getElementById('newPlayerNick').value.trim();
+  const errEl = document.getElementById('addPlayerError');
+  if (!name) { errEl.style.display='block'; errEl.textContent='Ange ett namn.'; return; }
+  if (isNaN(hi) || hi < 0 || hi > 54) { errEl.style.display='block'; errEl.textContent='Ange ett giltigt handicapindex (0–54).'; return; }
+  errEl.style.display = 'none';
+  const players = playersLoad();
+  const entry = { id: Date.now(), name, hi };
+  if (nick) entry.nick = nick;
+  if (_newPlayerPhoto) { entry.photo = _newPlayerPhoto; _newPlayerPhoto = null; }
+  players.push(entry);
+  playersSave(players);
+  document.getElementById('newPlayerName').value = '';
+  document.getElementById('newPlayerHI').value = '';
+  document.getElementById('newPlayerNick').value = '';
+  const preview = document.getElementById('newPlayerAvatarPreview');
+  preview.innerHTML = '<span class="avatar-placeholder">📷</span>';
+  renderSavedPlayersList();
+}
+
+function deleteSavedPlayer(id) {
+  playersSave(playersLoad().filter(p => p.id !== id));
+  renderSavedPlayersList();
+}
+
+function pickSavedPlayer(slotIndex, selectEl) {
+  const id = parseInt(selectEl.value);
+  if (isNaN(id)) return;
+  const player = playersLoad().find(p => p.id === id);
+  if (!player) return;
+  const nameEl = document.getElementById(`pname_${slotIndex}`);
+  const hiEl   = document.getElementById(`phi_${slotIndex}`);
+  if (nameEl) nameEl.value = player.nick || player.name;
+  if (hiEl)   hiEl.value   = player.hi;
+  // Update avatar in card title
+  const avatarEl = document.getElementById(`pcard_avatar_${slotIndex}`);
+  if (avatarEl) {
+    if (player.photo) {
+      avatarEl.innerHTML = `<img src="${player.photo}" alt="">`;
+    } else {
+      avatarEl.innerHTML = '<span class="avatar-placeholder">🏌️</span>';
+    }
+  }
+  onPlayerInput(slotIndex);
 }
 
 function openHistory() {
@@ -1680,6 +2383,7 @@ function renderHistoryList() {
             <div class="hi-meta">${topLine}</div>
           </div>
           <span class="hi-chevron">▶</span>
+          <button class="hi-share" onclick="event.stopPropagation();shareRound(${r.id});" title="Dela">📤</button>
           <button class="hi-del" onclick="event.stopPropagation();roundDelete(${r.id});renderHistoryList();" title="Ta bort">🗑</button>
         </div>
         <div class="hi-body">
@@ -1702,44 +2406,176 @@ function toggleHistoryItem(header) {
 // ============================================================
 // SHARE RESULT
 // ============================================================
-function buildShareText() {
-  const isScramble = state.gameMode === 'scramble';
-  const subjects = isScramble ? state.teams : state.players;
-  const medals = ['🥇','🥈','🥉','🪙'];
-  const results = subjects.map(s => ({ name: s.name, pts: s.playingHandicap !== undefined ? null : null, ph: s.playingHandicap }));
-
-  // Re-read from ranking cards in DOM for sorted results
-  const cards = document.querySelectorAll('#rankingContainer .ranking-card');
-  const lines = [];
-  cards.forEach((card, i) => {
-    const name = card.querySelector('.rank-name')?.textContent || '';
-    const pts  = card.querySelector('.rank-pts')?.textContent || '';
-    lines.push(`${medals[i]||''} ${name}: ${pts} poäng`);
+// ── Share image builder ──────────────────────────────────────
+function _loadImg(src) {
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.onload = () => resolve(img);
+    img.onerror = () => resolve(null);
+    img.src = src;
   });
+}
 
-  const date = new Date().toLocaleDateString('sv-SE');
-  const teeIcon = state.teeColor === 'Gul' ? '🟡' : '🔴';
-  const header = `⛳ ${state.courseName} · ${teeIcon} ${state.teeColor} · ${state.holes} hål · ${date}`;
+async function buildShareImage(rows, meta) {
+  // rows: [{ name, points }] already sorted
+  // meta: { courseName, tee, holes, date }
+  const W = 480;
+  const HEADER_H = 88;
+  const ROW_H = 72;
+  const FOOTER_H = 42;
+  const H = HEADER_H + rows.length * ROW_H + FOOTER_H;
+  const AV = 46; // avatar diameter
+  const MEDALS = ['🥇','🥈','🥉','🪙'];
+
+  const canvas = document.createElement('canvas');
+  canvas.width = W; canvas.height = H;
+  const ctx = canvas.getContext('2d');
+
+  // White base
+  ctx.fillStyle = '#fff';
+  ctx.fillRect(0, 0, W, H);
+
+  // Green header
+  ctx.fillStyle = '#1b5e20';
+  ctx.fillRect(0, 0, W, HEADER_H);
+  ctx.fillStyle = '#fff';
+  ctx.font = 'bold 19px system-ui, -apple-system, sans-serif';
+  ctx.textAlign = 'left';
+  ctx.fillText(`⛳ ${meta.courseName}`, 16, 34);
+  ctx.font = '14px system-ui, -apple-system, sans-serif';
+  ctx.fillStyle = '#a5d6a7';
+  const teeIcon = meta.tee === 'Gul' ? '🟡' : '🔴';
+  ctx.fillText(`${teeIcon} ${meta.tee} · ${meta.holes} hål · ${meta.date}`, 16, 62);
+
+  // Player rows
+  for (let i = 0; i < rows.length; i++) {
+    const { name, points } = rows[i];
+    const rowY = HEADER_H + i * ROW_H;
+
+    // Row background
+    ctx.fillStyle = i % 2 === 0 ? '#f9fdf9' : '#ffffff';
+    ctx.fillRect(0, rowY, W, ROW_H);
+
+    // Subtle separator
+    ctx.fillStyle = '#e8f5e9';
+    ctx.fillRect(0, rowY + ROW_H - 1, W, 1);
+
+    // Medal text (emoji, best-effort)
+    ctx.font = '22px system-ui, -apple-system, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText(MEDALS[i] || `${i+1}.`, 26, rowY + ROW_H / 2 + 8);
+
+    // Avatar circle
+    const avX = 54, avY = rowY + (ROW_H - AV) / 2;
+    const cx = avX + AV / 2, cy = avY + AV / 2, r = AV / 2;
+
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(cx, cy, r, 0, Math.PI * 2);
+    ctx.clip();
+
+    const photo = _photoForName(name);
+    if (photo) {
+      const img = await _loadImg(photo);
+      if (img) ctx.drawImage(img, avX, avY, AV, AV);
+      else { ctx.fillStyle = '#e8f5e9'; ctx.fillRect(avX, avY, AV, AV); }
+    } else {
+      ctx.fillStyle = '#e8f5e9';
+      ctx.fillRect(avX, avY, AV, AV);
+      ctx.font = '22px system-ui';
+      ctx.textAlign = 'center';
+      ctx.fillStyle = '#2e7d32';
+      ctx.fillText('⛳', cx, cy + 8);
+    }
+    ctx.restore();
+
+    // Avatar border
+    ctx.strokeStyle = '#2e7d32';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(cx, cy, r, 0, Math.PI * 2);
+    ctx.stroke();
+
+    // Name
+    ctx.font = 'bold 16px system-ui, -apple-system, sans-serif';
+    ctx.textAlign = 'left';
+    ctx.fillStyle = '#1b5e20';
+    ctx.fillText(name, 112, rowY + ROW_H / 2 + 6);
+
+    // Points
+    ctx.font = 'bold 22px system-ui, -apple-system, sans-serif';
+    ctx.textAlign = 'right';
+    ctx.fillStyle = '#2e7d32';
+    ctx.fillText(`${points}p`, W - 16, rowY + ROW_H / 2 + 8);
+  }
+
+  // Footer
+  const footerY = HEADER_H + rows.length * ROW_H;
+  ctx.fillStyle = '#f1f8e9';
+  ctx.fillRect(0, footerY, W, FOOTER_H);
+  ctx.font = '13px system-ui, -apple-system, sans-serif';
+  ctx.textAlign = 'center';
+  ctx.fillStyle = '#558b2f';
+  ctx.fillText('🏌️ Poängbogey-kalkylator', W / 2, footerY + FOOTER_H / 2 + 5);
+
+  return canvas;
+}
+
+function _shareTextFromRows(rows, meta) {
+  const medals = ['🥇','🥈','🥉','🪙'];
+  const teeIcon = meta.tee === 'Gul' ? '🟡' : '🔴';
+  const header = `⛳ ${meta.courseName} · ${teeIcon} ${meta.tee} · ${meta.holes} hål · ${meta.date}`;
+  const lines = rows.map((r, i) => `${medals[i]||''} ${r.name}: ${r.points} poäng`);
   return [header, '', ...lines, '', '🏌️ Poängbogey-kalkylator'].join('\n');
 }
 
-async function shareResult() {
-  const text = buildShareText();
-  if (navigator.share) {
-    try {
-      await navigator.share({ text });
-      return;
-    } catch(e) {
-      if (e.name === 'AbortError') return; // user cancelled
+async function _doShare(rows, meta) {
+  const text = _shareTextFromRows(rows, meta);
+  const canvas = await buildShareImage(rows, meta);
+
+  // Try sharing as image file (mobile)
+  await new Promise(resolve => canvas.toBlob(async blob => {
+    const file = new File([blob], 'golf-resultat.png', { type: 'image/png' });
+    if (navigator.canShare && navigator.canShare({ files: [file] })) {
+      try { await navigator.share({ files: [file], text }); resolve(); return; }
+      catch(e) { if (e.name === 'AbortError') { resolve(); return; } }
     }
-  }
-  // Fallback: copy to clipboard
-  try {
-    await navigator.clipboard.writeText(text);
-    showShareToast('📋 Kopierat till urklipp!');
-  } catch(e) {
-    showShareToast('Kunde inte kopiera — markera och kopiera manuellt.');
-  }
+    // Try text-only share (desktop)
+    if (navigator.share) {
+      try { await navigator.share({ text }); resolve(); return; }
+      catch(e) { if (e.name === 'AbortError') { resolve(); return; } }
+    }
+    // Clipboard fallback
+    try {
+      await navigator.clipboard.writeText(text);
+      showShareToast('📋 Kopierat till urklipp!');
+    } catch(e) {
+      showShareToast('Kunde inte kopiera — markera och kopiera manuellt.');
+    }
+    resolve();
+  }, 'image/png'));
+}
+
+async function shareRound(id) {
+  const rounds = roundsLoad();
+  const r = rounds.find(x => x.id === id);
+  if (!r) return;
+  const rows = [...r.subjects]
+    .sort((a, b) => b.totalPoints - a.totalPoints)
+    .map(s => ({ name: s.name, points: s.totalPoints }));
+  await _doShare(rows, { courseName: r.courseName, tee: r.tee, holes: r.holes, date: r.date });
+}
+
+async function shareResult() {
+  const cards = document.querySelectorAll('#rankingContainer .ranking-card');
+  const rows = [];
+  cards.forEach(card => {
+    const name   = card.querySelector('.rank-name')?.textContent?.trim() || '';
+    const points = parseInt(card.querySelector('.rank-pts')?.textContent) || 0;
+    rows.push({ name, points });
+  });
+  const date = new Date().toLocaleDateString('sv-SE');
+  await _doShare(rows, { courseName: state.courseName, tee: state.teeColor, holes: state.holes, date });
 }
 
 function showShareToast(msg) {
