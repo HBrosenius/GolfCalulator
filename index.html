@@ -636,17 +636,23 @@
         </div>
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
           <div>
-            <label style="margin-top:0;">Namn</label>
-            <input type="text" id="newPlayerName" placeholder="Namn">
+            <label style="margin-top:0;">Förnamn</label>
+            <input type="text" id="newPlayerName" placeholder="Förnamn">
+          </div>
+          <div>
+            <label style="margin-top:0;">Efternamn <span style="font-size:0.78rem;color:var(--muted);">(valfritt)</span></label>
+            <input type="text" id="newPlayerLastName" placeholder="Efternamn">
+          </div>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:10px;">
+          <div>
+            <label style="margin-top:0;">Smeknamn <span style="font-size:0.78rem;color:var(--muted);">(visas i spelet)</span></label>
+            <input type="text" id="newPlayerNick" placeholder="t.ex. Birdie-Bengt">
           </div>
           <div>
             <label style="margin-top:0;">Handicapindex</label>
             <input type="number" id="newPlayerHI" placeholder="t.ex. 15.4" step="0.1" min="0" max="54" inputmode="decimal">
           </div>
-        </div>
-        <div style="margin-top:10px;">
-          <label style="margin-top:0;">Smeknamn <span style="font-size:0.78rem;color:var(--muted);">(valfritt, visas i spelet)</span></label>
-          <input type="text" id="newPlayerNick" placeholder="t.ex. Birdie-Bengt">
         </div>
         <button class="btn" style="margin-top:10px;width:100%;" onclick="addSavedPlayer()">+ Lägg till</button>
         <div id="addPlayerError" style="display:none;font-size:0.82rem;color:var(--danger);margin-top:6px;"></div>
@@ -2113,7 +2119,7 @@ function openPlayerHistory(id) {
   headerEl.innerHTML = `
     ${avatarHtml(player.photo || null, 'avatar')}
     <div>
-      <div style="font-weight:700;font-size:1rem;color:var(--green-dark);">${player.name}${player.nick ? ` <span style="font-weight:400;color:var(--muted);">"${player.nick}"</span>` : ''}</div>
+      <div style="font-weight:700;font-size:1rem;color:var(--green-dark);">${player.name}${player.lastName ? ' ' + player.lastName : ''}${player.nick ? ` <span style="font-weight:400;color:var(--muted);">"${player.nick}"</span>` : ''}</div>
       <div style="font-size:0.78rem;color:var(--muted);">HCP-index: ${player.hi} · ${rounds.length} rundor</div>
     </div>`;
 
@@ -2421,7 +2427,7 @@ function renderSavedPlayersList() {
     <div class="saved-player-row" style="cursor:pointer;" onclick="openPlayerHistory(${p.id})">
       ${avatarHtml(p.photo || null, 'avatar')}
       <div class="saved-player-info">
-        <div class="saved-player-name">${p.name}${p.nick ? ` <span style="font-weight:400;color:var(--muted);">"${p.nick}"</span>` : ''}</div>
+        <div class="saved-player-name">${p.name}${p.lastName ? ' ' + p.lastName : ''}${p.nick ? ` <span style="font-weight:400;color:var(--muted);">"${p.nick}"</span>` : ''}</div>
         <div class="saved-player-hi">HCP-index: ${p.hi}</div>
       </div>
       <button class="avatar-edit-btn" onclick="event.stopPropagation();triggerPlayerPhotoEdit(${p.id})" title="Byt bild">📷</button>
@@ -2431,20 +2437,23 @@ function renderSavedPlayersList() {
 }
 
 function addSavedPlayer() {
-  const name = document.getElementById('newPlayerName').value.trim();
-  const hi   = parseFloat(document.getElementById('newPlayerHI').value);
-  const nick = document.getElementById('newPlayerNick').value.trim();
+  const name     = document.getElementById('newPlayerName').value.trim();
+  const lastName = document.getElementById('newPlayerLastName').value.trim();
+  const hi       = parseFloat(document.getElementById('newPlayerHI').value);
+  const nick     = document.getElementById('newPlayerNick').value.trim();
   const errEl = document.getElementById('addPlayerError');
-  if (!name) { errEl.style.display='block'; errEl.textContent='Ange ett namn.'; return; }
+  if (!name) { errEl.style.display='block'; errEl.textContent='Ange ett förnamn.'; return; }
   if (isNaN(hi) || hi < 0 || hi > 54) { errEl.style.display='block'; errEl.textContent='Ange ett giltigt handicapindex (0–54).'; return; }
   errEl.style.display = 'none';
   const players = playersLoad();
   const entry = { id: Date.now(), name, hi };
+  if (lastName) entry.lastName = lastName;
   if (nick) entry.nick = nick;
   if (_newPlayerPhoto) { entry.photo = _newPlayerPhoto; _newPlayerPhoto = null; }
   players.push(entry);
   playersSave(players);
   document.getElementById('newPlayerName').value = '';
+  document.getElementById('newPlayerLastName').value = '';
   document.getElementById('newPlayerHI').value = '';
   document.getElementById('newPlayerNick').value = '';
   const preview = document.getElementById('newPlayerAvatarPreview');
