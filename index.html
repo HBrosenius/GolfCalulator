@@ -513,6 +513,22 @@
   .player-history-meta { font-size: 0.78rem; color: var(--muted); margin-top: 2px; }
   .player-history-pts { font-size: 1.3rem; font-weight: 800; color: var(--green-dark); white-space: nowrap; }
   .player-history-pts-label { font-size: 0.7rem; color: var(--muted); text-align: right; }
+  .hof-category { margin-bottom: 20px; }
+  .hof-category-title {
+    font-size: 0.72rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em;
+    color: var(--muted); margin: 0 0 8px;
+  }
+  .hof-row {
+    display: flex; align-items: center; gap: 10px;
+    padding: 8px 10px; border-radius: 8px; background: #f0faf4; margin-bottom: 6px;
+  }
+  .hof-row.gold   { background: #fff8e1; }
+  .hof-row.silver { background: #f5f5f5; }
+  .hof-row.bronze { background: #fbe9e7; }
+  .hof-rank { font-size: 1.2rem; width: 28px; text-align: center; flex-shrink: 0; }
+  .hof-info { flex: 1; }
+  .hof-name { font-weight: 600; font-size: 0.92rem; color: var(--green-dark); }
+  .hof-val  { font-size: 1.1rem; font-weight: 800; color: var(--green-dark); white-space: nowrap; }
   .player-stat-grid {
     display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 16px;
   }
@@ -627,7 +643,10 @@
     <div class="card">
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;">
         <div class="card-title" style="margin:0;"><span class="icon">👤</span> Spelarregister</div>
-        <button onclick="closePlayersView()" style="background:none;border:none;font-size:1.4rem;cursor:pointer;color:var(--muted);padding:0 4px;">✕</button>
+        <div style="display:flex;gap:8px;align-items:center;">
+          <button onclick="openHallOfFame()" style="background:none;border:1px solid var(--green);border-radius:6px;padding:4px 10px;font-size:0.8rem;color:var(--green-dark);cursor:pointer;">🏆 Hall of Fame</button>
+          <button onclick="closePlayersView()" style="background:none;border:none;font-size:1.4rem;cursor:pointer;color:var(--muted);padding:0 4px;">✕</button>
+        </div>
       </div>
       <div id="savedPlayersList"></div>
       <div id="addPlayerForm" style="margin-top:14px;border-top:1px solid var(--border);padding-top:14px;">
@@ -662,6 +681,17 @@
         <button class="btn" style="margin-top:10px;width:100%;" onclick="addSavedPlayer()">+ Lägg till</button>
         <div id="addPlayerError" style="display:none;font-size:0.82rem;color:var(--danger);margin-top:6px;"></div>
       </div>
+    </div>
+  </div>
+
+  <!-- HALL OF FAME -->
+  <div id="hallOfFameView" class="hidden">
+    <div class="card">
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:16px;">
+        <button onclick="closeHallOfFame()" style="background:none;border:none;font-size:1.2rem;cursor:pointer;color:var(--muted);padding:0 4px;">←</button>
+        <div class="card-title" style="margin:0;"><span class="icon">🏆</span> Hall of Fame</div>
+      </div>
+      <div id="hallOfFameContent"></div>
     </div>
   </div>
 
@@ -2245,6 +2275,97 @@ function openPlayerHistory(id) {
 
 function closePlayerHistory() {
   document.getElementById('playerHistoryView').classList.add('hidden');
+  document.getElementById('playersView').classList.remove('hidden');
+}
+
+// ============================================================
+// HALL OF FAME
+// ============================================================
+function openHallOfFame() {
+  const players = playersLoad();
+  const rounds  = roundsLoad();
+
+  if (players.length === 0) {
+    document.getElementById('hallOfFameContent').innerHTML =
+      '<p style="font-size:0.85rem;color:var(--muted);text-align:center;padding:16px 0;">Inga spelare registrerade ännu.</p>';
+  } else {
+    // Accumulate stats per player
+    const stats = {};
+    players.forEach(p => {
+      const display = p.nick || p.name;
+      stats[p.id] = {
+        player: p, display,
+        rounds: 0, wins: 0, totalPts: 0, best: 0,
+        eagles: 0, birdies: 0, pars: 0, bogeys: 0, doubles: 0, holes: 0
+      };
+    });
+
+    rounds.forEach(r => {
+      const sorted = [...r.subjects].sort((a, b) => b.totalPoints - a.totalPoints);
+      r.subjects.forEach(subj => {
+        const p = players.find(p => (p.nick || p.name) === subj.name || p.name === subj.name);
+        if (!p) return;
+        const s = stats[p.id];
+        s.rounds++;
+        s.totalPts += subj.totalPoints;
+        if (subj.totalPoints > s.best) s.best = subj.totalPoints;
+        if (r.subjects.length > 1 && (sorted[0].name === subj.name) && sorted[0].totalPoints > sorted[1].totalPoints) s.wins++;
+        (subj.rows || []).forEach(row => {
+          if (row.skipped) return;
+          s.holes++;
+          if (row.pts >= 4) s.eagles++;
+          else if (row.pts === 3) s.birdies++;
+          else if (row.pts === 2) s.pars++;
+          else if (row.pts === 1) s.bogeys++;
+          else s.doubles++;
+        });
+      });
+    });
+
+    const all = Object.values(stats).filter(s => s.rounds > 0);
+    if (all.length === 0) {
+      document.getElementById('hallOfFameContent').innerHTML =
+        '<p style="font-size:0.85rem;color:var(--muted);text-align:center;padding:16px 0;">Inga spelade rundor hittades för registrerade spelare.</p>';
+    } else {
+      const medals = ['🥇','🥈','🥉'];
+      const rowCls = ['gold','silver','bronze'];
+
+      const category = (title, sorted, valFn) => {
+        const rows = sorted.slice(0, 3).map((s, i) => `
+          <div class="hof-row ${rowCls[i] || ''}">
+            <div class="hof-rank">${medals[i] || ''}</div>
+            ${avatarHtml(s.player.photo || null, 'player-card-avatar')}
+            <div class="hof-info"><div class="hof-name">${s.display}</div></div>
+            <div class="hof-val">${valFn(s)}</div>
+          </div>`).join('');
+        return `<div class="hof-category"><p class="hof-category-title">${title}</p>${rows}</div>`;
+      };
+
+      const byBest    = [...all].sort((a,b) => b.best - a.best);
+      const byAvg     = [...all].filter(s=>s.rounds>0).sort((a,b) => (b.totalPts/b.rounds) - (a.totalPts/a.rounds));
+      const byWins    = [...all].sort((a,b) => b.wins - a.wins);
+      const byBirdies = [...all].sort((a,b) => b.birdies - a.birdies);
+      const byEagles  = [...all].sort((a,b) => b.eagles - a.eagles);
+      const byRounds  = [...all].sort((a,b) => b.rounds - a.rounds);
+      const byDoubles = [...all].sort((a,b) => b.doubles - a.doubles);
+
+      document.getElementById('hallOfFameContent').innerHTML =
+        category('⭐ Bästa runda',   byBest,    s => s.best + 'p') +
+        category('📊 Bäst snitt',    byAvg,     s => (s.totalPts/s.rounds).toFixed(1) + 'p') +
+        category('🏆 Flest vinster', byWins,    s => s.wins + (s.wins === 1 ? ' vinst' : ' vinster')) +
+        category('🐦 Flest birdies', byBirdies, s => s.birdies) +
+        category('🦅 Flest eagles',  byEagles,  s => s.eagles) +
+        category('🏌️ Mest aktiv',    byRounds,  s => s.rounds + (s.rounds === 1 ? ' runda' : ' rundor')) +
+        category('💀 Flest dubbel+', byDoubles, s => s.doubles);
+    }
+  }
+
+  document.getElementById('playersView').classList.add('hidden');
+  document.getElementById('hallOfFameView').classList.remove('hidden');
+}
+
+function closeHallOfFame() {
+  document.getElementById('hallOfFameView').classList.add('hidden');
   document.getElementById('playersView').classList.remove('hidden');
 }
 
