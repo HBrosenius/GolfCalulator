@@ -549,6 +549,11 @@
   .saved-player-hi { font-size: 0.8rem; color: var(--muted); }
   .saved-player-del { background: none; border: none; cursor: pointer; color: var(--muted); font-size: 1rem; padding: 4px 6px; }
   .saved-player-del:hover { color: var(--danger); }
+  .saved-player-edit-form {
+    padding: 10px 0; border-bottom: 1px solid var(--border);
+  }
+  .saved-player-edit-form:last-child { border-bottom: none; }
+  .saved-player-edit-form input { width: 100%; }
   .player-picker-select {
     width: 100%; padding: 6px 8px; border: 1.5px solid var(--border);
     border-radius: 8px; font-size: 0.85rem; background: #f8fdf9;
@@ -2424,13 +2429,14 @@ function renderSavedPlayersList() {
     return;
   }
   el.innerHTML = players.map(p => `
-    <div class="saved-player-row" style="cursor:pointer;" onclick="openPlayerHistory(${p.id})">
+    <div class="saved-player-row" style="cursor:pointer;" data-player-id="${p.id}" onclick="openPlayerHistory(${p.id})">
       ${avatarHtml(p.photo || null, 'avatar')}
       <div class="saved-player-info">
         <div class="saved-player-name">${p.name}${p.lastName ? ' ' + p.lastName : ''}${p.nick ? ` <span style="font-weight:400;color:var(--muted);">"${p.nick}"</span>` : ''}</div>
         <div class="saved-player-hi">HCP-index: ${p.hi}</div>
       </div>
       <button class="avatar-edit-btn" onclick="event.stopPropagation();triggerPlayerPhotoEdit(${p.id})" title="Byt bild">📷</button>
+      <button class="avatar-edit-btn" onclick="event.stopPropagation();editSavedPlayer(${p.id})" title="Redigera">✏️</button>
       <button class="saved-player-del" onclick="event.stopPropagation();deleteSavedPlayer(${p.id})" title="Ta bort">🗑</button>
       <span style="color:var(--muted);font-size:0.9rem;">›</span>
     </div>`).join('');
@@ -2458,6 +2464,51 @@ function addSavedPlayer() {
   document.getElementById('newPlayerNick').value = '';
   const preview = document.getElementById('newPlayerAvatarPreview');
   preview.innerHTML = '<span class="avatar-placeholder">📷</span>';
+  renderSavedPlayersList();
+}
+
+function editSavedPlayer(id) {
+  const p = playersLoad().find(x => x.id === id);
+  if (!p) return;
+  const row = document.querySelector(`#savedPlayersList [data-player-id="${id}"]`);
+  if (!row) return;
+  row.outerHTML = `
+    <div class="saved-player-edit-form" data-player-id="${id}">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px;">
+        <div><label style="margin-top:0;font-size:0.8rem;">Förnamn</label>
+          <input type="text" id="edit_name_${id}" value="${p.name}" style="font-size:0.9rem;padding:6px 8px;"></div>
+        <div><label style="margin-top:0;font-size:0.8rem;">Efternamn</label>
+          <input type="text" id="edit_lastName_${id}" value="${p.lastName || ''}" style="font-size:0.9rem;padding:6px 8px;"></div>
+        <div><label style="margin-top:0;font-size:0.8rem;">Smeknamn</label>
+          <input type="text" id="edit_nick_${id}" value="${p.nick || ''}" style="font-size:0.9rem;padding:6px 8px;"></div>
+        <div><label style="margin-top:0;font-size:0.8rem;">Handicapindex</label>
+          <input type="number" id="edit_hi_${id}" value="${p.hi}" step="0.1" min="0" max="54" inputmode="decimal" style="font-size:0.9rem;padding:6px 8px;"></div>
+      </div>
+      <div style="display:flex;gap:8px;">
+        <button class="btn" style="flex:1;padding:8px;" onclick="savePlayerEdit(${id})">Spara</button>
+        <button class="btn secondary" style="flex:1;padding:8px;" onclick="renderSavedPlayersList()">Avbryt</button>
+      </div>
+      <div id="edit_err_${id}" style="display:none;font-size:0.82rem;color:var(--danger);margin-top:6px;"></div>
+    </div>`;
+}
+
+function savePlayerEdit(id) {
+  const name     = document.getElementById(`edit_name_${id}`)?.value.trim();
+  const lastName = document.getElementById(`edit_lastName_${id}`)?.value.trim();
+  const nick     = document.getElementById(`edit_nick_${id}`)?.value.trim();
+  const hi       = parseFloat(document.getElementById(`edit_hi_${id}`)?.value);
+  const errEl    = document.getElementById(`edit_err_${id}`);
+  if (!name) { errEl.style.display='block'; errEl.textContent='Ange ett förnamn.'; return; }
+  if (isNaN(hi) || hi < 0 || hi > 54) { errEl.style.display='block'; errEl.textContent='Ange ett giltigt handicapindex (0–54).'; return; }
+  const players = playersLoad();
+  const p = players.find(x => x.id === id);
+  if (p) {
+    p.name = name;
+    p.lastName = lastName || undefined;
+    p.nick = nick || undefined;
+    p.hi = hi;
+    playersSave(players);
+  }
   renderSavedPlayersList();
 }
 
