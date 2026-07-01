@@ -5,7 +5,7 @@ Mobilanpassad webbapp för att beräkna poängbogey-resultat under en golfrunda.
 ## Funktioner
 
 - **1–4 spelare** i samma bollsällskap, varje spelare med eget handicapindex
-- **Scramble-läge** för 4 spelare i 2 lag — lagets spelhandicap beräknas automatiskt
+- **Scramble- och Bästboll-läge** för 4 spelare i 2 lag — laghandicap/spelhandicap beräknas automatiskt
 - **Spelhandicap** beräknas med slope-formeln: `HI × (Slope / 113) + (CR − Par)`
 - Stöd för **9 och 18 hål**, samt möjlighet att spela en 9-hålsbana som 18 hål (dubbelrunda)
 - **Gul och Röd tee**
