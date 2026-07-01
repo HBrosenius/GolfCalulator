@@ -892,6 +892,7 @@
           <button class="toggle-btn active" id="btnModeIndividual" onclick="setGameMode('individual')">Individuellt</button>
           <button class="toggle-btn" id="btnModeScramble" onclick="setGameMode('scramble')">Scramble (2 lag)</button>
           <button class="toggle-btn" id="btnModeFourball" onclick="setGameMode('fourball')">Bästboll (2 lag)</button>
+          <button class="toggle-btn" id="btnModeFoursome" onclick="setGameMode('foursome')">Foursome (2 lag)</button>
         </div>
         <div id="gameModeDesc" class="info-box"></div>
       </div>
@@ -1530,13 +1531,20 @@ function calcPlayingHandicap(hi, slope, cr, par, holes) {
   return holes === 9 ? Math.round(ph18 / 2) : ph18;
 }
 
+// Team formats: 4 players split into 2 teams. "Shared score" formats (Scramble,
+// Foursome) enter one score per team per hole; Fourball enters one score per player.
+const TEAM_MODES = ['scramble', 'fourball', 'foursome'];
+const SHARED_SCORE_MODES = ['scramble', 'foursome'];
+const isTeamMode = mode => TEAM_MODES.includes(mode);
+const isSharedScoreMode = mode => SHARED_SCORE_MODES.includes(mode);
+
 function setNumPlayers(n) {
   state.numPlayers = n;
   [1,2,3,4].forEach(i =>
     document.getElementById(`btnP${i}`).classList.toggle('active', i === n));
   // Show/hide game mode selector
   document.getElementById('gameModeRow').classList.toggle('hidden', n !== 4);
-  if (n !== 4 && (state.gameMode === 'scramble' || state.gameMode === 'fourball')) setGameMode('individual');
+  if (n !== 4 && isTeamMode(state.gameMode)) setGameMode('individual');
   else if (n === 4) document.getElementById('gameModeDesc').innerHTML = GAME_MODE_DESCRIPTIONS[state.gameMode] || '';
   buildPlayerCards();
 }
@@ -1544,7 +1552,8 @@ function setNumPlayers(n) {
 const GAME_MODE_DESCRIPTIONS = {
   individual: 'Varje spelare räknar sin egen poängbogey med sitt eget spelhandicap.',
   scramble: 'Lagen väljer den bästa av sina två utslag/bollar och spelar den gemensamt vidare — laget matar in <strong>en</strong> score per hål. Laghandicap beräknas automatiskt från spelarnas HI.',
-  fourball: 'Varje spelare spelar sin egen boll och matar in sin egen score med sitt eget spelhandicap. Lagets poäng på varje hål är den <strong>bästa</strong> av lagmedlemmarnas poäng den hålet.'
+  fourball: 'Varje spelare spelar sin egen boll och matar in sin egen score med sitt eget spelhandicap. Lagets poäng på varje hål är den <strong>bästa</strong> av lagmedlemmarnas poäng den hålet.',
+  foursome: 'Lagmedlemmarna spelar en gemensam boll och slår varannan gång — laget matar in <strong>en</strong> score per hål. Laghandicap är snittet av lagmedlemmarnas spelhandicap.'
 };
 
 function setGameMode(mode) {
@@ -1552,9 +1561,10 @@ function setGameMode(mode) {
   document.getElementById('btnModeIndividual').classList.toggle('active', mode === 'individual');
   document.getElementById('btnModeScramble').classList.toggle('active', mode === 'scramble');
   document.getElementById('btnModeFourball').classList.toggle('active', mode === 'fourball');
+  document.getElementById('btnModeFoursome').classList.toggle('active', mode === 'foursome');
   document.getElementById('gameModeDesc').innerHTML = GAME_MODE_DESCRIPTIONS[mode] || '';
   // Default team assignments: 0,1 → A; 2,3 → B
-  if ((mode === 'scramble' || mode === 'fourball') && (!state.teamAssign || state.teamAssign.length !== 4)) {
+  if (isTeamMode(mode) && (!state.teamAssign || state.teamAssign.length !== 4)) {
     state.teamAssign = ['A','A','B','B'];
   }
   buildPlayerCards();
@@ -1563,7 +1573,7 @@ function setGameMode(mode) {
 function buildPlayerCards() {
   const container = document.getElementById('playerCardsContainer');
   container.innerHTML = '';
-  const isTeamFormat = (state.gameMode === 'scramble' || state.gameMode === 'fourball') && state.numPlayers === 4;
+  const isTeamFormat = isTeamMode(state.gameMode) && state.numPlayers === 4;
 
   for (let p = 0; p < state.numPlayers; p++) {
     const existing = state.players[p] || {};
@@ -1629,29 +1639,36 @@ function calcScrambleHandicap(hi1, hi2) {
   return Math.round(lo * 0.5 + hi * 0.4);
 }
 
+function calcFoursomeHandicap(ph1, ph2) {
+  return Math.round((ph1 + ph2) / 2);
+}
+
 function buildTeamInfo() {
   const el = document.getElementById('scrambleTeamInfo');
   if (!el) return;
   const isFourball = state.gameMode === 'fourball';
+  const isFoursome = state.gameMode === 'foursome';
   const teams = { A: [], B: [] };
   for (let p = 0; p < 4; p++) {
     const hi  = parseFloat(document.getElementById(`phi_${p}`)?.value);
     const name = document.getElementById(`pname_${p}`)?.value.trim() || `Spelare ${p+1}`;
+    const ph  = !isNaN(hi) && state.slope && state.cr && state.par
+      ? calcPlayingHandicap(hi, state.slope, state.cr, state.par, state.holes)
+      : null;
     const t   = state.teamAssign[p] || 'A';
-    teams[t].push({ name, hi });
+    teams[t].push({ name, hi, ph });
   }
   ['A','B'].forEach(t => {
     const members = teams[t];
     const his = members.map(m => m.hi).filter(h => !isNaN(h));
+    const phs = members.map(m => m.ph).filter(v => v !== null);
     const cls = t === 'A' ? 'team-a' : 'team-b';
     let phLabel;
     if (isFourball) {
-      phLabel = members.map(m => {
-        const ph = !isNaN(m.hi) && state.slope && state.cr && state.par
-          ? calcPlayingHandicap(m.hi, state.slope, state.cr, state.par, state.holes)
-          : null;
-        return `${m.name}${ph !== null ? ' (+' + ph + ')' : ''}`;
-      }).join(' & ');
+      phLabel = members.map(m => `${m.name}${m.ph !== null ? ' (+' + m.ph + ')' : ''}`).join(' & ');
+    } else if (isFoursome) {
+      const ph = phs.length === 2 ? calcFoursomeHandicap(phs[0], phs[1]) : '–';
+      phLabel = `${members.map(m=>m.name).join(' & ')} · Spelhandicap: <strong>${ph}</strong>`;
     } else {
       const ph = his.length === 2 ? calcScrambleHandicap(his[0], his[1]) : '–';
       phLabel = `${members.map(m=>m.name).join(' & ')} · Spelhandicap: <strong>${ph}</strong>`;
@@ -1669,7 +1686,7 @@ function buildTeamInfo() {
 
 function onPlayerInput(p) {
   updatePlayerPH(p);
-  if (state.gameMode === 'scramble' || state.gameMode === 'fourball') buildTeamInfo();
+  if (isTeamMode(state.gameMode)) buildTeamInfo();
 }
 
 function updatePlayerPH(p) {
@@ -1713,7 +1730,7 @@ function goToStep4Score() {
   }
   state.players = players;
 
-  if (state.gameMode === 'scramble') {
+  if (state.gameMode === 'scramble' || state.gameMode === 'foursome') {
     // Build 2 teams
     const teamNames = { A: [], B: [] };
     players.forEach((pl, p) => {
@@ -1723,9 +1740,12 @@ function goToStep4Score() {
     state.teams = ['A','B'].map(t => {
       const members = teamNames[t];
       const his = members.map(m => m.hi);
-      const ph  = his.length === 2 ? calcScrambleHandicap(his[0], his[1])
+      const phs = members.map(m => m.playingHandicap);
+      const ph  = state.gameMode === 'foursome'
+                ? (phs.length === 2 ? calcFoursomeHandicap(phs[0], phs[1]) : phs.length === 1 ? phs[0] : 0)
+                : (his.length === 2 ? calcScrambleHandicap(his[0], his[1])
                 : his.length === 1 ? calcPlayingHandicap(his[0], state.slope, state.cr, state.par, state.holes)
-                : 0;
+                : 0);
       return { name: `Lag ${t}`, members, playingHandicap: ph };
     });
     state.scores = state.teams.map(() => new Array(state.holes).fill(''));
@@ -1739,19 +1759,19 @@ function goToStep4Score() {
 }
 
 function numColumns() {
-  return state.gameMode === 'scramble' ? state.teams.length : state.players.length;
+  return isSharedScoreMode(state.gameMode) ? state.teams.length : state.players.length;
 }
 
 function buildScoreTable() {
   const thead = document.getElementById('scoreTableHead');
   const tbody = document.getElementById('scoreTableBody');
-  const isScramble = state.gameMode === 'scramble';
-  const cols = isScramble ? state.teams : state.players;
+  const isSharedScore = isSharedScoreMode(state.gameMode);
+  const cols = isSharedScore ? state.teams : state.players;
 
   // Header
   let hd = '<tr><th>Hål</th><th>Par</th><th>Hcp</th>';
   cols.forEach(c => {
-    const label = isScramble ? c.name : c.name;
+    const label = c.name;
     const ph    = c.playingHandicap;
     hd += `<th style="min-width:52px;">${label}<span class="ph-header-badge">+${ph}</span></th>`;
   });
@@ -1788,7 +1808,7 @@ function buildScoreTable() {
 function calcLivePts(p, i, score) {
   const par = state.hpar[i] || 4;
   const si  = state.si[i] || (i + 1);
-  const ph  = (state.gameMode === 'scramble' ? state.teams : state.players)[p].playingHandicap;
+  const ph  = (isSharedScoreMode(state.gameMode) ? state.teams : state.players)[p].playingHandicap;
   const strokes = strokesOnHole(ph, si, state.holes);
   const netto = score - strokes;
   return Math.max(0, par + 2 - netto);
@@ -1955,7 +1975,8 @@ function calculateAll() {
 
   const isScramble = state.gameMode === 'scramble';
   const isFourball = state.gameMode === 'fourball';
-  const subjects   = isScramble ? state.teams : state.players;
+  const isFoursome = state.gameMode === 'foursome';
+  const subjects   = isSharedScoreMode(state.gameMode) ? state.teams : state.players;
 
   const results = subjects.map((subj, p) => {
     const ph = subj.playingHandicap;
@@ -1976,7 +1997,7 @@ function calculateAll() {
       totalBrutto += score;
       rows.push({ h: i+1, par, si, strokes, score, netto, pts, skipped: false });
     }
-    return { subj, ph, totalPoints, totalBrutto, rows, isScramble, isFourball };
+    return { subj, ph, totalPoints, totalBrutto, rows, isScramble, isFourball, isFoursome };
   });
 
   if (isFourball) applyFourballTeamScoring(results);
@@ -2034,6 +2055,7 @@ function renderResults(playerResults, rankContainerId = 'rankingContainer', prCo
   const medals  = ['🥇', '🥈', '🥉', '🪙'];
   const isScramble = results[0]?.isScramble;
   const isFourball = results[0]?.isFourball;
+  const isFoursome = results[0]?.isFoursome;
 
   // Ranking
   const rankContainer = document.getElementById(rankContainerId);
@@ -2041,10 +2063,10 @@ function renderResults(playerResults, rankContainerId = 'rankingContainer', prCo
   sorted.forEach((r, rank) => {
     const holesPlayed = r.rows.filter(row => !row.skipped).length;
     const name     = r.subj.name;
-    const subLabel = isScramble
-      ? `Spelhandicap +${r.ph} · ${r.subj.members.map(m=>m.name).join(' & ')}`
-      : isFourball
+    const subLabel = isFourball
       ? `Lag ${r.teamId} (bästboll)${r.teammateName ? ' · med ' + r.teammateName : ''} · HI ${r.subj.hi} · Spelhandicap +${r.ph}`
+      : (isScramble || isFoursome)
+      ? `Spelhandicap +${r.ph} · ${r.subj.members.map(m=>m.name).join(' & ')}${isFoursome ? ' · Foursome' : ''}`
       : `HI ${r.subj.hi} · Spelhandicap +${r.ph} · ${holesPlayed} hål`;
     const photo = _photoForName(name);
     rankContainer.innerHTML += `
@@ -2099,10 +2121,10 @@ function renderResults(playerResults, rankContainerId = 'rankingContainer', prCo
     rtbodyHtml += `<tr class="total-row${state.holes===9?'':' half-row'}">
       <td colspan="3"><strong>Totalt</strong></td><td>${r.totalBrutto}</td><td></td><td></td><td>${r.totalPoints}</td></tr>`;
 
-    const subLabel = isScramble
-      ? `Spelhandicap +${r.ph} · ${r.subj.members.map(m=>m.name).join(' & ')}`
-      : isFourball
+    const subLabel = isFourball
       ? `Lag ${r.teamId} (bästboll)${r.teammateName ? ' · med ' + r.teammateName : ''} · Spelhandicap +${r.ph} · Brutto ${r.totalBrutto} · ${holesPlayed} hål`
+      : (isScramble || isFoursome)
+      ? `Spelhandicap +${r.ph} · ${r.subj.members.map(m=>m.name).join(' & ')}${isFoursome ? ' · Foursome' : ''}`
       : `Spelhandicap +${r.ph} · Brutto ${r.totalBrutto} · ${holesPlayed} hål`;
 
     const sectionPhoto = _photoForName(r.subj.name);
@@ -2142,6 +2164,7 @@ function newRound() {
     document.getElementById('btnModeIndividual').classList.add('active');
     document.getElementById('btnModeScramble').classList.remove('active');
     document.getElementById('btnModeFourball').classList.remove('active');
+    document.getElementById('btnModeFoursome').classList.remove('active');
     document.getElementById('scrambleTeamInfo').classList.add('hidden');
     document.getElementById('scrambleTeamInfo').innerHTML = '';
   } catch(e) {}
@@ -2284,13 +2307,15 @@ function saveCurrentRound(playerResults) {
   const dateStr = now.toLocaleDateString('sv-SE');
   const isScramble = state.gameMode === 'scramble';
   const isFourball = state.gameMode === 'fourball';
+  const isFoursome = state.gameMode === 'foursome';
+  const hasSharedScore = isScramble || isFoursome;
   const subjects = playerResults.map(r => ({
     name: r.subj.name,
-    hi: isScramble ? null : r.subj.hi,
+    hi: hasSharedScore ? null : r.subj.hi,
     ph: r.ph,
     totalPoints: r.totalPoints,
     totalBrutto: r.totalBrutto,
-    members: isScramble ? r.subj.members.map(m => m.name) : null,
+    members: hasSharedScore ? r.subj.members.map(m => m.name) : null,
     teamId: isFourball ? r.teamId : null,
     teammate: isFourball ? r.teammateName : null,
     rows: r.rows
@@ -2304,7 +2329,7 @@ function saveCurrentRound(playerResults) {
     slope: state.slope,
     cr: state.cr,
     par: state.par,
-    gameMode: isScramble ? 'scramble' : (isFourball ? 'fourball' : 'individual'),
+    gameMode: isScramble ? 'scramble' : (isFourball ? 'fourball' : (isFoursome ? 'foursome' : 'individual')),
     subjects
   });
 }
@@ -3246,13 +3271,14 @@ function printRound(id) {
   if (!round) return;
   const isScramble = round.gameMode === 'scramble';
   const isFourball  = round.gameMode === 'fourball';
+  const isFoursome  = round.gameMode === 'foursome';
   const results = round.subjects.map(s => ({
     subj: { name: s.name, hi: s.hi, members: s.members ? s.members.map(m => ({ name: m })) : null },
     ph: s.ph,
     totalPoints: s.totalPoints,
     totalBrutto: s.totalBrutto,
     rows: s.rows,
-    isScramble, isFourball,
+    isScramble, isFourball, isFoursome,
     teamId: s.teamId, teammateName: s.teammate
   }));
   renderResults(results, 'printRankingContainer', 'printPlayerResultsContainer');

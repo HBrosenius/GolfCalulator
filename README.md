@@ -5,7 +5,7 @@ Mobilanpassad webbapp för att beräkna poängbogey-resultat under en golfrunda.
 ## Funktioner
 
 - **1–4 spelare** i samma bollsällskap, varje spelare med eget handicapindex
-- **Scramble- och Bästboll-läge** för 4 spelare i 2 lag — laghandicap/spelhandicap beräknas automatiskt
+- **Scramble-, Bästboll- och Foursome-läge** för 4 spelare i 2 lag — laghandicap/spelhandicap beräknas automatiskt
 - **Spelhandicap** beräknas med slope-formeln: `HI × (Slope / 113) + (CR − Par)`
 - Stöd för **9 och 18 hål**, samt möjlighet att spela en 9-hålsbana som 18 hål (dubbelrunda)
 - **Gul och Röd tee**
@@ -30,6 +30,13 @@ Laget spelar en gemensam score per hål. Resultatsidan visar vilket lag som vann
 ### Bästboll (4 spelare, 2 lag)
 Spelarna delas in i Lag A och Lag B, men till skillnad från Scramble spelar varje spelare sin egen boll och matar in sin egen score per hål med sitt eget spelhandicap. Lagets poäng på varje hål är den bästa av de två lagmedlemmarnas poäng. Resultatsidan visar båda spelarnas individuella scorekort och markerar vilken spelares poäng som räknades för laget på varje hål.
 
+### Foursome (4 spelare, 2 lag)
+Spelarna delas in i Lag A och Lag B och spelar en gemensam boll där lagmedlemmarna slår varannan gång, precis som i Scramble matar laget in **en** score per hål. Lagets spelhandicap beräknas som snittet av lagmedlemmarnas egna spelhandicap:
+
+```
+Spelhandicap = round((Spelhandicap spelare 1 + Spelhandicap spelare 2) / 2)
+```
+
 ## Spelarregister
 
 Spara dina vanliga medspelare för snabb återanvändning:
@@ -53,7 +60,7 @@ Klicka på en spelare i registret för att se spelhistorik och statistik:
 
 ## Säsong / Order of Merit
 
-Under Spelarregister → **📅 Säsong** kan du se en sammanlagd poängtabell för alla spelare inom ett valfritt datumintervall (standard: innevarande år). Rundor spelade i Scramble-läge räknas inte in eftersom laget då inte är knutet till enskilda spelare — Individuellt och Bästboll räknas båda in per spelare.
+Under Spelarregister → **📅 Säsong** kan du se en sammanlagd poängtabell för alla spelare inom ett valfritt datumintervall (standard: innevarande år). Rundor spelade i Scramble- eller Foursome-läge räknas inte in eftersom laget då inte är knutet till enskilda spelare — Individuellt och Bästboll räknas båda in per spelare.
 
 ## Live-poäng och ledartavla
 
