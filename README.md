@@ -27,6 +27,9 @@ Spelhandicap = round(lägst HI × 0,5 + högst HI × 0,4)
 
 Laget spelar en gemensam score per hål. Resultatsidan visar vilket lag som vann.
 
+### Bästboll (4 spelare, 2 lag)
+Spelarna delas in i Lag A och Lag B, men till skillnad från Scramble spelar varje spelare sin egen boll och matar in sin egen score per hål med sitt eget spelhandicap. Lagets poäng på varje hål är den bästa av de två lagmedlemmarnas poäng. Resultatsidan visar båda spelarnas individuella scorekort och markerar vilken spelares poäng som räknades för laget på varje hål.
+
 ## Spelarregister
 
 Spara dina vanliga medspelare för snabb återanvändning:
@@ -45,7 +48,12 @@ Klicka på en spelare i registret för att se spelhistorik och statistik:
 - **Poäng** — bästa runda, snittpoäng och totalt spelade hål
 - **Hålresultat** — antal eagles, birdies, pars, bogeyn och dubbel+
 - **Poänggraf** — stapeldiagram över de senaste 5 rundorna
+- **HCP-utveckling** — linjediagram över spelarens handicapindex över tid, baserat på HI:t som angavs vid varje runda
 - **Hall of Fame** — jämförelsestatistik mellan alla sparade spelare (bästa runda, flest vinster, flest birdies m.m.)
+
+## Säsong / Order of Merit
+
+Under Spelarregister → **📅 Säsong** kan du se en sammanlagd poängtabell för alla spelare inom ett valfritt datumintervall (standard: innevarande år). Rundor spelade i Scramble-läge räknas inte in eftersom laget då inte är knutet till enskilda spelare — Individuellt och Bästboll räknas båda in per spelare.
 
 ## Live-poäng och ledartavla
 
@@ -69,6 +77,10 @@ Resultatsidan och sparade rundor kan delas via **📤 Dela**-knappen:
 - På mobil delas en **bildkort** (PNG) med profilbilder, rankning och poäng
 - På desktop kopieras resultattexten till urklipp som reserv
 - Bilden innehåller kursnamn, tee, antal hål och datum
+
+## Skriv ut / PDF-export
+
+Resultatsidan och sparade rundor kan skrivas ut eller sparas som PDF via **🖨 Skriv ut / PDF**-knappen. Utskriften visar rankingen och det fullständiga hålvisa scorekortet för varje spelare, utan menyer och knappar.
 
 ## Förinstallerade banor
 

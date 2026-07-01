@@ -277,6 +277,9 @@
   .hi-del { background: none; border: none; cursor: pointer; color: var(--muted);
     font-size: 1rem; padding: 4px; flex-shrink: 0; }
   .hi-del:hover { color: var(--danger); }
+  .hi-print { background: none; border: none; cursor: pointer; color: var(--muted);
+    font-size: 1rem; padding: 4px 6px; flex-shrink: 0; }
+  .hi-print:hover { color: var(--accent); }
 
   /* Scramble team buttons */
   .team-btn {
@@ -405,6 +408,7 @@
   .pts-2 { color: var(--text); }
   .pts-3 { color: var(--green); font-weight: 700; }
   .pts-4 { color: var(--gold); font-weight: 800; }
+  .counts-for-team { box-shadow: inset 0 0 0 2px var(--green); border-radius: 4px; }
 
   .info-box {
     background: #e8f5e9; border-left: 3px solid var(--green);
@@ -582,16 +586,31 @@
     .result-grid { grid-template-columns: 1fr 1fr; }
     .score-input { width: 40px; }
   }
+
+  #printOnlyResults { display: none; }
+
+  @media print {
+    .no-print { display: none !important; }
+    .container { max-width: 100%; padding: 0; }
+    .card { box-shadow: none; border: 1px solid #ccc; }
+    .player-result-section { page-break-inside: avoid; break-inside: avoid; }
+    body.printing-history #step1, body.printing-history #step2, body.printing-history #step3,
+    body.printing-history #step4, body.printing-history #step5,
+    body.printing-history #historyView, body.printing-history #playersView,
+    body.printing-history #hallOfFameView, body.printing-history #seasonView,
+    body.printing-history #playerHistoryView { display: none !important; }
+    body.printing-history #printOnlyResults { display: block !important; }
+  }
 </style>
 </head>
 <body>
 
-<header>
+<header class="no-print">
   <h1>⛳ Poängbogey</h1>
   <p>Golfkalkylator</p>
 </header>
 
-<div class="step-indicator">
+<div class="step-indicator no-print">
   <div class="step-dot active" id="dot1">1</div>
   <div class="step-dot" id="dot2">2</div>
   <div class="step-dot" id="dot3">3</div>
@@ -599,7 +618,7 @@
   <div class="step-dot" id="dot5">5</div>
 </div>
 
-<div id="lsBanner" class="hidden" style="background:#fff3cd;border-bottom:2px solid #f0ad4e;padding:12px 16px;font-size:0.85rem;color:#856404;text-align:center;">
+<div id="lsBanner" class="hidden no-print" style="background:#fff3cd;border-bottom:2px solid #f0ad4e;padding:12px 16px;font-size:0.85rem;color:#856404;text-align:center;">
   ⚠️ <strong>Öppna filen i Safari eller Chrome</strong> för att kunna spara banor.<br>
   Dubbelklicka på <code>index.html</code> i Finder — den fungerar utan server.
 </div>
@@ -644,6 +663,7 @@
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;">
         <div class="card-title" style="margin:0;"><span class="icon">👤</span> Spelarregister</div>
         <div style="display:flex;gap:8px;align-items:center;">
+          <button onclick="openSeasonView()" style="background:none;border:1px solid var(--green);border-radius:6px;padding:4px 10px;font-size:0.8rem;color:var(--green-dark);cursor:pointer;">📅 Säsong</button>
           <button onclick="openHallOfFame()" style="background:none;border:1px solid var(--green);border-radius:6px;padding:4px 10px;font-size:0.8rem;color:var(--green-dark);cursor:pointer;">🏆 Hall of Fame</button>
           <button onclick="closePlayersView()" style="background:none;border:none;font-size:1.4rem;cursor:pointer;color:var(--muted);padding:0 4px;">✕</button>
         </div>
@@ -692,6 +712,27 @@
         <div class="card-title" style="margin:0;"><span class="icon">🏆</span> Hall of Fame</div>
       </div>
       <div id="hallOfFameContent"></div>
+    </div>
+  </div>
+
+  <!-- SÄSONG / ORDER OF MERIT -->
+  <div id="seasonView" class="hidden">
+    <div class="card">
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:16px;">
+        <button onclick="closeSeasonView()" style="background:none;border:none;font-size:1.2rem;cursor:pointer;color:var(--muted);padding:0 4px;">←</button>
+        <div class="card-title" style="margin:0;"><span class="icon">📅</span> Säsong / Order of Merit</div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px;">
+        <div>
+          <label style="margin-top:0;">Från</label>
+          <input type="date" id="seasonFrom" onchange="computeSeasonStandings()">
+        </div>
+        <div>
+          <label style="margin-top:0;">Till</label>
+          <input type="date" id="seasonTo" onchange="computeSeasonStandings()">
+        </div>
+      </div>
+      <div id="seasonContent"></div>
     </div>
   </div>
 
@@ -850,12 +891,14 @@
         <div class="toggle-row">
           <button class="toggle-btn active" id="btnModeIndividual" onclick="setGameMode('individual')">Individuellt</button>
           <button class="toggle-btn" id="btnModeScramble" onclick="setGameMode('scramble')">Scramble (2 lag)</button>
+          <button class="toggle-btn" id="btnModeFourball" onclick="setGameMode('fourball')">Bästboll (2 lag)</button>
         </div>
+        <div id="gameModeDesc" class="info-box"></div>
       </div>
 
       <div id="playerCardsContainer" style="margin-top:14px;"></div>
 
-      <!-- Scramble lagöversikt -->
+      <!-- Scramble/Bästboll lagöversikt -->
       <div id="scrambleTeamInfo" class="hidden" style="margin-top:4px;"></div>
     </div>
 
@@ -898,11 +941,21 @@
 
     <div id="playerResultsContainer"></div>
 
-    <div style="display:flex; gap:10px;">
+    <div style="display:flex; gap:10px;" class="no-print">
       <button class="btn secondary" onclick="goToStep(4)">← Ändra score</button>
       <button class="btn" onclick="newRound()">Ny runda</button>
     </div>
-    <button class="btn secondary" style="margin-top:10px;" onclick="shareResult()">📤 Dela resultat</button>
+    <button class="btn secondary no-print" style="margin-top:10px;" onclick="shareResult()">📤 Dela resultat</button>
+    <button class="btn secondary no-print" style="margin-top:10px;" onclick="window.print()">🖨 Skriv ut / PDF</button>
+  </div>
+
+  <!-- Printbar vy för en enskild sparad runda (fylls av printRound) -->
+  <div id="printOnlyResults">
+    <div class="card">
+      <div class="card-title"><span class="icon">🏆</span> Resultat</div>
+      <div id="printRankingContainer"></div>
+    </div>
+    <div id="printPlayerResultsContainer"></div>
   </div>
 
 </div><!-- /container -->
@@ -1482,16 +1535,25 @@ function setNumPlayers(n) {
     document.getElementById(`btnP${i}`).classList.toggle('active', i === n));
   // Show/hide game mode selector
   document.getElementById('gameModeRow').classList.toggle('hidden', n !== 4);
-  if (n !== 4 && state.gameMode === 'scramble') setGameMode('individual');
+  if (n !== 4 && (state.gameMode === 'scramble' || state.gameMode === 'fourball')) setGameMode('individual');
+  else if (n === 4) document.getElementById('gameModeDesc').innerHTML = GAME_MODE_DESCRIPTIONS[state.gameMode] || '';
   buildPlayerCards();
 }
+
+const GAME_MODE_DESCRIPTIONS = {
+  individual: 'Varje spelare räknar sin egen poängbogey med sitt eget spelhandicap.',
+  scramble: 'Lagen väljer den bästa av sina två utslag/bollar och spelar den gemensamt vidare — laget matar in <strong>en</strong> score per hål. Laghandicap beräknas automatiskt från spelarnas HI.',
+  fourball: 'Varje spelare spelar sin egen boll och matar in sin egen score med sitt eget spelhandicap. Lagets poäng på varje hål är den <strong>bästa</strong> av lagmedlemmarnas poäng den hålet.'
+};
 
 function setGameMode(mode) {
   state.gameMode = mode;
   document.getElementById('btnModeIndividual').classList.toggle('active', mode === 'individual');
   document.getElementById('btnModeScramble').classList.toggle('active', mode === 'scramble');
+  document.getElementById('btnModeFourball').classList.toggle('active', mode === 'fourball');
+  document.getElementById('gameModeDesc').innerHTML = GAME_MODE_DESCRIPTIONS[mode] || '';
   // Default team assignments: 0,1 → A; 2,3 → B
-  if (mode === 'scramble' && (!state.teamAssign || state.teamAssign.length !== 4)) {
+  if ((mode === 'scramble' || mode === 'fourball') && (!state.teamAssign || state.teamAssign.length !== 4)) {
     state.teamAssign = ['A','A','B','B'];
   }
   buildPlayerCards();
@@ -1500,15 +1562,15 @@ function setGameMode(mode) {
 function buildPlayerCards() {
   const container = document.getElementById('playerCardsContainer');
   container.innerHTML = '';
-  const isScramble = state.gameMode === 'scramble' && state.numPlayers === 4;
+  const isTeamFormat = (state.gameMode === 'scramble' || state.gameMode === 'fourball') && state.numPlayers === 4;
 
   for (let p = 0; p < state.numPlayers; p++) {
     const existing = state.players[p] || {};
     const nameVal  = existing.name || '';
     const hiVal    = existing.hi !== undefined ? existing.hi : '';
-    const team     = isScramble ? (state.teamAssign[p] || 'A') : null;
+    const team     = isTeamFormat ? (state.teamAssign[p] || 'A') : null;
 
-    const teamBtns = isScramble ? `
+    const teamBtns = isTeamFormat ? `
       <div style="display:flex;gap:6px;margin-top:8px;align-items:center;">
         <span style="font-size:0.75rem;color:var(--muted);">Lag:</span>
         <button class="team-btn${team==='A'?' team-a':''}" onclick="assignTeam(${p},'A')">A</button>
@@ -1552,7 +1614,7 @@ function buildPlayerCards() {
       </div>`;
   }
   for (let p = 0; p < state.numPlayers; p++) updatePlayerPH(p);
-  if (isScramble) buildTeamInfo();
+  if (isTeamFormat) buildTeamInfo();
 }
 
 function assignTeam(playerIdx, team) {
@@ -1569,6 +1631,7 @@ function calcScrambleHandicap(hi1, hi2) {
 function buildTeamInfo() {
   const el = document.getElementById('scrambleTeamInfo');
   if (!el) return;
+  const isFourball = state.gameMode === 'fourball';
   const teams = { A: [], B: [] };
   for (let p = 0; p < 4; p++) {
     const hi  = parseFloat(document.getElementById(`phi_${p}`)?.value);
@@ -1579,14 +1642,25 @@ function buildTeamInfo() {
   ['A','B'].forEach(t => {
     const members = teams[t];
     const his = members.map(m => m.hi).filter(h => !isNaN(h));
-    const ph  = his.length === 2 ? calcScrambleHandicap(his[0], his[1]) : '–';
     const cls = t === 'A' ? 'team-a' : 'team-b';
+    let phLabel;
+    if (isFourball) {
+      phLabel = members.map(m => {
+        const ph = !isNaN(m.hi) && state.slope && state.cr && state.par
+          ? calcPlayingHandicap(m.hi, state.slope, state.cr, state.par, state.holes)
+          : null;
+        return `${m.name}${ph !== null ? ' (+' + ph + ')' : ''}`;
+      }).join(' & ');
+    } else {
+      const ph = his.length === 2 ? calcScrambleHandicap(his[0], his[1]) : '–';
+      phLabel = `${members.map(m=>m.name).join(' & ')} · Spelhandicap: <strong>${ph}</strong>`;
+    }
     el.innerHTML = (el.innerHTML || '').replace(`<!-- team${t} -->`, '');
     el.querySelector(`#teamBox${t}`)?.remove();
     const div = document.createElement('div');
     div.id = `teamBox${t}`;
     div.className = `team-info-card ${cls}`;
-    div.innerHTML = `<strong>Lag ${t}</strong>: ${members.map(m=>m.name).join(' & ')} · Spelhandicap: <strong>${ph}</strong>`;
+    div.innerHTML = `<strong>Lag ${t}</strong>: ${phLabel}`;
     el.appendChild(div);
   });
   el.classList.remove('hidden');
@@ -1594,7 +1668,7 @@ function buildTeamInfo() {
 
 function onPlayerInput(p) {
   updatePlayerPH(p);
-  if (state.gameMode === 'scramble') buildTeamInfo();
+  if (state.gameMode === 'scramble' || state.gameMode === 'fourball') buildTeamInfo();
 }
 
 function updatePlayerPH(p) {
@@ -1731,6 +1805,23 @@ function updateLiveLeader() {
     totals.push(sum);
   }
 
+  if (state.gameMode === 'fourball') {
+    const teamPts = { A: 0, B: 0 };
+    for (let i = 0; i < state.holes; i++) {
+      const holePts = { A: null, B: null };
+      for (let p = 0; p < n; p++) {
+        const el = document.getElementById(`score_${p}_${i}`);
+        if (el && el.value !== '') {
+          const t = state.teamAssign[p] || 'A';
+          const pts = calcLivePts(p, i, parseInt(el.value));
+          if (holePts[t] === null || pts > holePts[t]) holePts[t] = pts;
+        }
+      }
+      ['A','B'].forEach(t => { if (holePts[t] !== null) teamPts[t] += holePts[t]; });
+    }
+    for (let p = 0; p < n; p++) totals[p] = teamPts[state.teamAssign[p] || 'A'];
+  }
+
   const max = Math.max(...totals);
   const anyScored = totals.some(t => t > 0);
 
@@ -1862,6 +1953,7 @@ function calculateAll() {
   if (!anyScore) { alert('Mata in minst ett hålresultat.'); return; }
 
   const isScramble = state.gameMode === 'scramble';
+  const isFourball = state.gameMode === 'fourball';
   const subjects   = isScramble ? state.teams : state.players;
 
   const results = subjects.map((subj, p) => {
@@ -1883,12 +1975,44 @@ function calculateAll() {
       totalBrutto += score;
       rows.push({ h: i+1, par, si, strokes, score, netto, pts, skipped: false });
     }
-    return { subj, ph, totalPoints, totalBrutto, rows, isScramble };
+    return { subj, ph, totalPoints, totalBrutto, rows, isScramble, isFourball };
   });
+
+  if (isFourball) applyFourballTeamScoring(results);
 
   saveCurrentRound(results);
   renderResults(results);
   goToStep(5);
+}
+
+// Bästboll: each player scores their own ball, but the team's point per hole
+// is the better of the two teammates' points — recompute totals as a team.
+function applyFourballTeamScoring(results) {
+  const teamOf = p => state.teamAssign[p] || 'A';
+  ['A','B'].forEach(team => {
+    const memberIdxs = results.map((_, p) => p).filter(p => teamOf(p) === team);
+    if (memberIdxs.length === 0) return;
+    let teamTotal = 0;
+    for (let i = 0; i < state.holes; i++) {
+      let holeBest = -1;
+      memberIdxs.forEach(p => {
+        const row = results[p].rows[i];
+        if (!row.skipped && row.pts > holeBest) holeBest = row.pts;
+      });
+      if (holeBest < 0) continue; // nobody on the team played this hole
+      memberIdxs.forEach(p => {
+        const row = results[p].rows[i];
+        row.countsForTeam = !row.skipped && row.pts === holeBest;
+      });
+      teamTotal += holeBest;
+    }
+    memberIdxs.forEach(p => {
+      results[p].totalPoints = teamTotal;
+      results[p].teamId = team;
+      const mate = memberIdxs.find(x => x !== p);
+      results[p].teammateName = mate !== undefined ? results[mate].subj.name : null;
+    });
+  });
 }
 
 function _photoForName(displayName) {
@@ -1902,21 +2026,24 @@ function _resultAvatarHtml(photo, cls) {
   return `<div class="${cls}">🏌️</div>`;
 }
 
-function renderResults(playerResults) {
+function renderResults(playerResults, rankContainerId = 'rankingContainer', prContainerId = 'playerResultsContainer') {
   // Sort for ranking (higher points = better)
   const results = playerResults; // alias (passed from calculateAll)
   const sorted  = results.slice().sort((a, b) => b.totalPoints - a.totalPoints);
   const medals  = ['🥇', '🥈', '🥉', '🪙'];
   const isScramble = results[0]?.isScramble;
+  const isFourball = results[0]?.isFourball;
 
   // Ranking
-  const rankContainer = document.getElementById('rankingContainer');
+  const rankContainer = document.getElementById(rankContainerId);
   rankContainer.innerHTML = '';
   sorted.forEach((r, rank) => {
     const holesPlayed = r.rows.filter(row => !row.skipped).length;
     const name     = r.subj.name;
     const subLabel = isScramble
       ? `Spelhandicap +${r.ph} · ${r.subj.members.map(m=>m.name).join(' & ')}`
+      : isFourball
+      ? `Lag ${r.teamId} (bästboll)${r.teammateName ? ' · med ' + r.teammateName : ''} · HI ${r.subj.hi} · Spelhandicap +${r.ph}`
       : `HI ${r.subj.hi} · Spelhandicap +${r.ph} · ${holesPlayed} hål`;
     const photo = _photoForName(name);
     rankContainer.innerHTML += `
@@ -1935,7 +2062,7 @@ function renderResults(playerResults) {
   });
 
   // Per-subject detail table
-  const prContainer = document.getElementById('playerResultsContainer');
+  const prContainer = document.getElementById(prContainerId);
   prContainer.innerHTML = '';
 
   results.forEach(r => {
@@ -1948,7 +2075,7 @@ function renderResults(playerResults) {
         rtbodyHtml += `<tr class="total-row">
           <td colspan="3">Ut (1–9)</td><td>${front9brutto}</td><td></td><td></td><td>${front9pts}</td></tr>`;
       }
-      const ptsClass = row.skipped ? '' : `pts-${Math.min(row.pts, 4)}`;
+      const ptsClass = row.skipped ? '' : `pts-${Math.min(row.pts, 4)}${row.countsForTeam ? ' counts-for-team' : ''}`;
       const divClass = (state.holes === 18 && i === 9) ? ' class="half-row"' : '';
       rtbodyHtml += `
         <tr${divClass}>
@@ -1973,6 +2100,8 @@ function renderResults(playerResults) {
 
     const subLabel = isScramble
       ? `Spelhandicap +${r.ph} · ${r.subj.members.map(m=>m.name).join(' & ')}`
+      : isFourball
+      ? `Lag ${r.teamId} (bästboll)${r.teammateName ? ' · med ' + r.teammateName : ''} · Spelhandicap +${r.ph} · Brutto ${r.totalBrutto} · ${holesPlayed} hål`
       : `Spelhandicap +${r.ph} · Brutto ${r.totalBrutto} · ${holesPlayed} hål`;
 
     const sectionPhoto = _photoForName(r.subj.name);
@@ -2011,6 +2140,7 @@ function newRound() {
     document.getElementById('gameModeRow').classList.add('hidden');
     document.getElementById('btnModeIndividual').classList.add('active');
     document.getElementById('btnModeScramble').classList.remove('active');
+    document.getElementById('btnModeFourball').classList.remove('active');
     document.getElementById('scrambleTeamInfo').classList.add('hidden');
     document.getElementById('scrambleTeamInfo').innerHTML = '';
   } catch(e) {}
@@ -2152,6 +2282,7 @@ function saveCurrentRound(playerResults) {
   const now = new Date();
   const dateStr = now.toLocaleDateString('sv-SE');
   const isScramble = state.gameMode === 'scramble';
+  const isFourball = state.gameMode === 'fourball';
   const subjects = playerResults.map(r => ({
     name: r.subj.name,
     hi: isScramble ? null : r.subj.hi,
@@ -2159,6 +2290,8 @@ function saveCurrentRound(playerResults) {
     totalPoints: r.totalPoints,
     totalBrutto: r.totalBrutto,
     members: isScramble ? r.subj.members.map(m => m.name) : null,
+    teamId: isFourball ? r.teamId : null,
+    teammate: isFourball ? r.teammateName : null,
     rows: r.rows
   }));
   roundSaveNew({
@@ -2170,7 +2303,7 @@ function saveCurrentRound(playerResults) {
     slope: state.slope,
     cr: state.cr,
     par: state.par,
-    gameMode: isScramble ? 'scramble' : 'individual',
+    gameMode: isScramble ? 'scramble' : (isFourball ? 'fourball' : 'individual'),
     subjects
   });
 }
@@ -2189,6 +2322,19 @@ function playersLoad() {
 function playersSave(list) {
   if (!_lsOk) return;
   localStorage.setItem(PLAYERS_KEY, JSON.stringify(list));
+}
+
+// A subject "wins" a round if its points beat every subject NOT on its own
+// unit (teamId for Bästboll, else its own name) — so Bästboll teammates who
+// tie each other still both get credit for beating the other team.
+function subjectWonRound(r, subj) {
+  if (r.subjects.length < 2) return false;
+  const unitOf = s => s.teamId || s.name;
+  const myUnit = unitOf(subj);
+  const others = r.subjects.filter(o => unitOf(o) !== myUnit);
+  if (others.length === 0) return false;
+  const bestOther = Math.max(...others.map(o => o.totalPoints));
+  return subj.totalPoints > bestOther;
 }
 
 function openPlayerHistory(id) {
@@ -2226,8 +2372,7 @@ function openPlayerHistory(id) {
       totalPts += subj.totalPoints;
       if (subj.totalPoints > best) best = subj.totalPoints;
 
-      const sorted = [...r.subjects].sort((a, b) => b.totalPoints - a.totalPoints);
-      if ((sorted[0].name === displayName || sorted[0].name === player.name) && r.subjects.length > 1) wins++;
+      if (subjectWonRound(r, subj)) wins++;
 
       (subj.rows || []).forEach(row => {
         if (row.skipped) return;
@@ -2277,6 +2422,17 @@ function openPlayerHistory(id) {
 
     const chart = `<svg viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:auto;display:block;">${bars}${avgLine}</svg>`;
 
+    // HCP trend chart — uses each round's stored HI (null for Scramble subjects, so those rounds are skipped)
+    const hiRounds = rounds.filter(r => {
+      const s = r.subjects.find(s => s.name === displayName || s.name === player.name);
+      return s && s.hi != null;
+    }).slice(0, 8).reverse();
+    const hiVals = hiRounds.map(r => {
+      const s = r.subjects.find(s => s.name === displayName || s.name === player.name);
+      return s.hi;
+    });
+    const hcpChart = hiVals.length >= 2 ? buildHcpTrendChart(hiRounds, hiVals) : '';
+
     listEl.innerHTML = `
       <p class="player-stats-section-title">Översikt</p>
       <div class="player-stat-grid">
@@ -2300,7 +2456,9 @@ function openPlayerHistory(id) {
       </div>
       ${chartPts.length >= 2 ? `<p class="player-stats-section-title" style="margin-top:16px;">Senaste ${chartPts.length} rundor</p>
       <div style="background:#f0faf4;border-radius:10px;padding:10px 8px 4px;margin-bottom:16px;">${chart}</div>` : ''}
-      <p class="player-stats-section-title" style="margin-top:${chartPts.length >= 2 ? '0' : '16px'};">Rundor</p>` +
+      ${hcpChart ? `<p class="player-stats-section-title">HCP-utveckling</p>
+      <div style="background:#f0faf4;border-radius:10px;padding:10px 8px 4px;margin-bottom:16px;">${hcpChart}</div>` : ''}
+      <p class="player-stats-section-title" style="margin-top:${chartPts.length >= 2 || hcpChart ? '0' : '16px'};">Rundor</p>` +
       rounds.map(r => {
         const subj = r.subjects.find(s => s.name === displayName || s.name === player.name);
         const pts = subj ? subj.totalPoints : '–';
@@ -2331,6 +2489,32 @@ function closePlayerHistory() {
   document.getElementById('playersView').classList.remove('hidden');
 }
 
+function buildHcpTrendChart(hiRounds, hiVals) {
+  const W = 280, H = 90, PAD = 28;
+  const minVal = Math.min(...hiVals);
+  const maxVal = Math.max(...hiVals);
+  const range = Math.max(maxVal - minVal, 1);
+  const buffer = range * 0.15;
+  const lo = minVal - buffer, hi = maxVal + buffer;
+  const n = hiVals.length;
+  const stepX = n > 1 ? (W - PAD * 2) / (n - 1) : 0;
+  const yFor = v => H - 16 - ((v - lo) / (hi - lo)) * (H - 24);
+
+  const points = hiVals.map((v, i) => ({ x: PAD + i * stepX, y: yFor(v), v }));
+  const polyline = points.map(p => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' ');
+  const dots = points.map((p, i) => {
+    const label = hiRounds[i].date.slice(5); // MM-DD
+    return `
+      <circle cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="3.5" fill="#1b5e20"/>
+      <text x="${p.x.toFixed(1)}" y="${(p.y - 8).toFixed(1)}" text-anchor="middle" font-size="10" font-weight="700" fill="#1b5e20">${p.v}</text>
+      <text x="${p.x.toFixed(1)}" y="${H - 2}" text-anchor="middle" font-size="9" fill="#888">${label}</text>`;
+  }).join('');
+
+  return `<svg viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:auto;display:block;">
+    <polyline points="${polyline}" fill="none" stroke="#66bb6a" stroke-width="2"/>${dots}
+  </svg>`;
+}
+
 // ============================================================
 // HALL OF FAME
 // ============================================================
@@ -2354,7 +2538,6 @@ function openHallOfFame() {
     });
 
     rounds.forEach(r => {
-      const sorted = [...r.subjects].sort((a, b) => b.totalPoints - a.totalPoints);
       r.subjects.forEach(subj => {
         const p = players.find(p => (p.nick || p.name) === subj.name || p.name === subj.name);
         if (!p) return;
@@ -2362,7 +2545,7 @@ function openHallOfFame() {
         s.rounds++;
         s.totalPts += subj.totalPoints;
         if (subj.totalPoints > s.best) s.best = subj.totalPoints;
-        if (r.subjects.length > 1 && (sorted[0].name === subj.name) && sorted[0].totalPoints > sorted[1].totalPoints) s.wins++;
+        if (subjectWonRound(r, subj)) s.wins++;
         (subj.rows || []).forEach(row => {
           if (row.skipped) return;
           s.holes++;
@@ -2420,6 +2603,78 @@ function openHallOfFame() {
 function closeHallOfFame() {
   document.getElementById('hallOfFameView').classList.add('hidden');
   document.getElementById('playersView').classList.remove('hidden');
+}
+
+// ============================================================
+// SÄSONG / ORDER OF MERIT
+// ============================================================
+function openSeasonView() {
+  const fromEl = document.getElementById('seasonFrom');
+  const toEl   = document.getElementById('seasonTo');
+  if (!fromEl.value || !toEl.value) {
+    const now = new Date();
+    const jan1 = new Date(now.getFullYear(), 0, 1);
+    fromEl.value = jan1.toLocaleDateString('sv-SE');
+    toEl.value   = now.toLocaleDateString('sv-SE');
+  }
+  computeSeasonStandings();
+  document.getElementById('playersView').classList.add('hidden');
+  document.getElementById('seasonView').classList.remove('hidden');
+}
+
+function closeSeasonView() {
+  document.getElementById('seasonView').classList.add('hidden');
+  document.getElementById('playersView').classList.remove('hidden');
+}
+
+function computeSeasonStandings() {
+  const contentEl = document.getElementById('seasonContent');
+  const players = playersLoad();
+  if (players.length === 0) {
+    contentEl.innerHTML = '<p style="font-size:0.85rem;color:var(--muted);text-align:center;padding:16px 0;">Inga spelare registrerade ännu.</p>';
+    return;
+  }
+
+  const fromStr = document.getElementById('seasonFrom').value;
+  const toStr   = document.getElementById('seasonTo').value;
+  const rounds = roundsLoad().filter(r => (!fromStr || r.date >= fromStr) && (!toStr || r.date <= toStr));
+
+  const stats = {};
+  players.forEach(p => {
+    stats[p.id] = { player: p, display: p.nick || p.name, rounds: 0, wins: 0, totalPts: 0, best: 0 };
+  });
+
+  rounds.forEach(r => {
+    r.subjects.forEach(subj => {
+      const p = players.find(p => (p.nick || p.name) === subj.name || p.name === subj.name);
+      if (!p) return;
+      const s = stats[p.id];
+      s.rounds++;
+      s.totalPts += subj.totalPoints;
+      if (subj.totalPoints > s.best) s.best = subj.totalPoints;
+      if (subjectWonRound(r, subj)) s.wins++;
+    });
+  });
+
+  const all = Object.values(stats).filter(s => s.rounds > 0).sort((a, b) => b.totalPts - a.totalPts);
+  if (all.length === 0) {
+    contentEl.innerHTML = '<p style="font-size:0.85rem;color:var(--muted);text-align:center;padding:16px 0;">Inga spelade rundor hittades i valt datumintervall.</p>';
+    return;
+  }
+
+  const medals = ['🥇','🥈','🥉'];
+  const rowCls = ['gold','silver','bronze'];
+  contentEl.innerHTML = `<div class="hof-category"><p class="hof-category-title">🏅 Order of Merit</p>` +
+    all.map((s, i) => `
+      <div class="hof-row ${rowCls[i] || ''}">
+        <div class="hof-rank">${medals[i] || ''}</div>
+        ${avatarHtml(s.player.photo || null, 'player-card-avatar')}
+        <div class="hof-info"><div class="hof-name">${s.display}</div>
+          <div style="font-size:0.75rem;color:var(--muted);">${s.rounds} ${s.rounds === 1 ? 'runda' : 'rundor'} · ${s.wins} ${s.wins === 1 ? 'vinst' : 'vinster'} · bäst ${s.best}p</div>
+        </div>
+        <div class="hof-val">${s.totalPts}p</div>
+      </div>`).join('') +
+    `</div>`;
 }
 
 function openPlayersView() {
@@ -2770,7 +3025,7 @@ function renderHistoryList() {
     const rankRows = sorted.map((s, i) => `
       <div class="hi-rank-row">
         <span>${medals[i]||''}</span>
-        <span class="hi-rank-name">${s.name}${s.members ? ` <span style="font-weight:400;color:var(--muted)">(${s.members.join(' & ')})</span>` : ''}</span>
+        <span class="hi-rank-name">${s.name}${s.members ? ` <span style="font-weight:400;color:var(--muted)">(${s.members.join(' & ')})</span>` : ''}${s.teamId ? ` <span style="font-weight:400;color:var(--muted)">(Lag ${s.teamId}${s.teammate ? ' · med ' + s.teammate : ''})</span>` : ''}</span>
         <span style="color:var(--muted);font-size:0.75rem;margin-right:6px;">HCP +${s.ph}</span>
         <span class="hi-rank-pts">${s.totalPoints} p</span>
       </div>`).join('');
@@ -2802,6 +3057,7 @@ function renderHistoryList() {
           </div>
           <span class="hi-chevron">▶</span>
           <button class="hi-share" onclick="event.stopPropagation();shareRound(${r.id});" title="Dela">📤</button>
+          <button class="hi-print" onclick="event.stopPropagation();printRound(${r.id});" title="Skriv ut">🖨</button>
           <button class="hi-del" onclick="event.stopPropagation();roundDelete(${r.id});renderHistoryList();" title="Ta bort">🗑</button>
         </div>
         <div class="hi-body">
@@ -2982,6 +3238,28 @@ async function shareRound(id) {
     .sort((a, b) => b.totalPoints - a.totalPoints)
     .map(s => ({ name: s.name, points: s.totalPoints }));
   await _doShare(rows, { courseName: r.courseName, tee: r.tee, holes: r.holes, date: r.date });
+}
+
+function printRound(id) {
+  const round = roundsLoad().find(x => x.id === id);
+  if (!round) return;
+  const isScramble = round.gameMode === 'scramble';
+  const isFourball  = round.gameMode === 'fourball';
+  const results = round.subjects.map(s => ({
+    subj: { name: s.name, hi: s.hi, members: s.members ? s.members.map(m => ({ name: m })) : null },
+    ph: s.ph,
+    totalPoints: s.totalPoints,
+    totalBrutto: s.totalBrutto,
+    rows: s.rows,
+    isScramble, isFourball,
+    teamId: s.teamId, teammateName: s.teammate
+  }));
+  renderResults(results, 'printRankingContainer', 'printPlayerResultsContainer');
+
+  document.body.classList.add('printing-history');
+  const cleanup = () => document.body.classList.remove('printing-history');
+  window.addEventListener('afterprint', cleanup, { once: true });
+  window.print();
 }
 
 async function shareResult() {
