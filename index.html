@@ -164,6 +164,7 @@
   .live-pts.pts-2 { color: var(--green); }
   .live-pts.pts-3 { color: #2196f3; }
   .live-pts.pts-4 { color: #9c27b0; }
+  .tee-order { font-size: 0.65rem; font-weight: 600; color: var(--muted); margin-bottom: 2px; white-space: nowrap; }
 
   .score-input {
     width: 48px; padding: 6px 2px;
@@ -1553,7 +1554,7 @@ const GAME_MODE_DESCRIPTIONS = {
   individual: 'Varje spelare räknar sin egen poängbogey med sitt eget spelhandicap.',
   scramble: 'Lagen väljer den bästa av sina två utslag/bollar och spelar den gemensamt vidare — laget matar in <strong>en</strong> score per hål. Laghandicap beräknas automatiskt från spelarnas HI.',
   fourball: 'Varje spelare spelar sin egen boll och matar in sin egen score med sitt eget spelhandicap. Lagets poäng på varje hål är den <strong>bästa</strong> av lagmedlemmarnas poäng den hålet.',
-  foursome: 'Lagmedlemmarna spelar en gemensam boll och slår varannan gång — laget matar in <strong>en</strong> score per hål. Laghandicap är snittet av lagmedlemmarnas spelhandicap.'
+  foursome: 'Lagmedlemmarna spelar en gemensam boll och slår varannan gång — laget matar in <strong>en</strong> score per hål. Laghandicap är snittet av lagmedlemmarnas spelhandicap. Appen visar vem i respektive lag som slår ut på varje hål (växlar automatiskt hål för hål).'
 };
 
 function setGameMode(mode) {
@@ -1762,10 +1763,19 @@ function numColumns() {
   return isSharedScoreMode(state.gameMode) ? state.teams.length : state.players.length;
 }
 
+// Foursome: teammates strictly alternate who tees off, holding for the whole
+// hole — team's first-assigned member starts odd holes, the other even holes.
+function foursomeStarterName(team, holeIndex) {
+  const members = team.members || [];
+  if (members.length < 2) return null;
+  return members[holeIndex % 2].name;
+}
+
 function buildScoreTable() {
   const thead = document.getElementById('scoreTableHead');
   const tbody = document.getElementById('scoreTableBody');
   const isSharedScore = isSharedScoreMode(state.gameMode);
+  const isFoursome = state.gameMode === 'foursome';
   const cols = isSharedScore ? state.teams : state.players;
 
   // Header
@@ -1795,7 +1805,8 @@ function buildScoreTable() {
     let cells = `<td class="hole-num">${h}</td><td class="par">${par}</td><td class="si">${si}</td>`;
     cols.forEach((c, p) => {
       const val = state.scores[p] && state.scores[p][i] !== '' ? state.scores[p][i] : '';
-      cells += `<td><input type="number" class="score-input${val ? ' has-value' : ''}" id="score_${p}_${i}"
+      const teeTag = isFoursome ? `<div class="tee-order">🎯 ${foursomeStarterName(c, i)}</div>` : '';
+      cells += `<td>${teeTag}<input type="number" class="score-input${val ? ' has-value' : ''}" id="score_${p}_${i}"
         min="1" max="15" inputmode="numeric" value="${val}"
         oninput="onScoreInput(${p},${i},this)" onkeydown="scoreKeyDown(event,${p},${i})">
         <div class="live-pts" id="pts_${p}_${i}"></div></td>`;

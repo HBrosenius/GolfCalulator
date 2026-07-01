@@ -37,6 +37,8 @@ Spelarna delas in i Lag A och Lag B och spelar en gemensam boll där lagmedlemma
 Spelhandicap = round((Spelhandicap spelare 1 + Spelhandicap spelare 2) / 2)
 ```
 
+Under scoreinmatningen visar appen vem i respektive lag som slår ut på varje hål (🎯) — ordningen växlar automatiskt hål för hål mellan lagmedlemmarna.
+
 ## Spelarregister
 
 Spara dina vanliga medspelare för snabb återanvändning:
