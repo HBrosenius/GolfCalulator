@@ -1729,6 +1729,17 @@ function goToStep4Score() {
     const ph = calcPlayingHandicap(hi, state.slope, state.cr, state.par, state.holes);
     players.push({ name, hi, playingHandicap: ph });
   }
+
+  const seenNames = new Set();
+  for (let p = 0; p < players.length; p++) {
+    const key = players[p].name.trim().toLowerCase();
+    if (seenNames.has(key)) {
+      alert(`"${players[p].name}" är tillagd mer än en gång — varje spelare kan bara vara med en gång per runda.`);
+      return;
+    }
+    seenNames.add(key);
+  }
+
   state.players = players;
 
   if (state.gameMode === 'scramble' || state.gameMode === 'foursome') {
@@ -3021,6 +3032,19 @@ function pickSavedPlayer(slotIndex, selectEl) {
   if (isNaN(id)) return;
   const player = playersLoad().find(p => p.id === id);
   if (!player) return;
+  const displayName = player.nick || player.name;
+
+  // A player can only take part once per round
+  for (let p = 0; p < state.numPlayers; p++) {
+    if (p === slotIndex) continue;
+    const otherNameEl = document.getElementById(`pname_${p}`);
+    if (otherNameEl && otherNameEl.value.trim().toLowerCase() === displayName.trim().toLowerCase()) {
+      alert(`${displayName} är redan tillagd som spelare ${p + 1} i den här rundan.`);
+      selectEl.value = '';
+      return;
+    }
+  }
+
   const nameEl = document.getElementById(`pname_${slotIndex}`);
   const hiEl   = document.getElementById(`phi_${slotIndex}`);
   if (nameEl) nameEl.value = player.nick || player.name;
