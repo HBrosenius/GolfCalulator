@@ -958,6 +958,16 @@
         </table>
       </div>
     </div>
+    <div class="card">
+      <div class="card-title"><span class="icon">🌦️</span> Väder & anteckning</div>
+      <div class="toggle-row" style="margin-bottom:10px;">
+        <button class="toggle-btn" id="wx_sun" onclick="setWeather('sun')">☀️ Sol</button>
+        <button class="toggle-btn" id="wx_cloud" onclick="setWeather('cloud')">⛅ Växlande</button>
+        <button class="toggle-btn" id="wx_rain" onclick="setWeather('rain')">🌧️ Regn</button>
+        <button class="toggle-btn" id="wx_wind" onclick="setWeather('wind')">💨 Blåst</button>
+      </div>
+      <input type="text" id="roundNote" maxlength="120" placeholder="Kort anteckning (valfritt)" oninput="state.note = this.value">
+    </div>
     <div style="display:flex; gap:10px;">
       <button class="btn secondary" onclick="step4Back()">← Tillbaka</button>
       <button class="btn" onclick="calculateAll()">Beräkna ⛳</button>
@@ -1019,12 +1029,19 @@
 // ============================================================
 // STATE
 // ============================================================
+const WEATHER = { sun:{e:'☀️',l:'Sol'}, cloud:{e:'⛅',l:'Växlande'}, rain:{e:'🌧️',l:'Regn'}, wind:{e:'💨',l:'Blåst'} };
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"]/g, c => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;' }[c]));
+}
+
 let state = {
   courseName: null, teeColor: null, holes: 18,
   slope: null, cr: null, par: null,
   hpar: [], si: [],
   numPlayers: 1, players: [], scores: [],
-  gameMode: 'individual', teamAssign: ['A','A','B','B'], teams: null
+  gameMode: 'individual', teamAssign: ['A','A','B','B'], teams: null,
+  note: '', weather: null
 };
 
 // ============================================================
@@ -1910,7 +1927,25 @@ function buildScoreTable() {
     tbody.innerHTML += `<tr${rowClass}>${cells}</tr>`;
   }
   updateMatchStatus();
+  syncRoundMeta();
   setTimeout(() => document.getElementById('score_0_0')?.focus(), 100);
+}
+
+function setWeather(key) {
+  state.weather = (state.weather === key ? null : key);
+  Object.keys(WEATHER).forEach(k => {
+    const btn = document.getElementById(`wx_${k}`);
+    if (btn) btn.classList.toggle('active', state.weather === k);
+  });
+}
+
+function syncRoundMeta() {
+  Object.keys(WEATHER).forEach(k => {
+    const btn = document.getElementById(`wx_${k}`);
+    if (btn) btn.classList.toggle('active', state.weather === k);
+  });
+  const note = document.getElementById('roundNote');
+  if (note) note.value = state.note || '';
 }
 
 // Match play (1v1): compare the two subjects' per-hole net points.
@@ -2423,7 +2458,8 @@ function newRound() {
     slope: null, cr: null, par: null,
     hpar: [], si: [],
     numPlayers: 1, players: [], scores: [],
-    gameMode: 'individual', teamAssign: ['A','A','B','B'], teams: null
+    gameMode: 'individual', teamAssign: ['A','A','B','B'], teams: null,
+    note: '', weather: null
   };
   resetCourseFields();
   try { document.getElementById('holeDataBody').innerHTML = ''; } catch(e) {}
@@ -2704,6 +2740,8 @@ function saveCurrentRound(playerResults) {
     cr: state.cr,
     par: state.par,
     gameMode: state.gameMode,
+    note: state.note || '',
+    weather: state.weather || null,
     subjects
   };
   if (isEditing) roundUpdate(roundData);
@@ -3533,7 +3571,7 @@ function renderHistoryList() {
       <div class="history-item" data-id="${r.id}">
         <div class="hi-header" onclick="toggleHistoryItem(this)">
           <div style="flex:1;min-width:0;">
-            <div class="hi-date">${r.date} · ${r.holes} hål · ${r.tee === 'Gul' ? '🟡' : '🔴'} ${r.tee}</div>
+            <div class="hi-date">${r.date} · ${r.holes} hål · ${r.tee === 'Gul' ? '🟡' : '🔴'} ${r.tee}${r.weather && WEATHER[r.weather] ? ' · ' + WEATHER[r.weather].e : ''}</div>
             <div class="hi-course">${r.courseName}</div>
             <div class="hi-meta">${topLine}</div>
           </div>
@@ -3544,6 +3582,7 @@ function renderHistoryList() {
           <button class="hi-del" onclick="event.stopPropagation();roundDelete(${r.id});renderHistoryList();" title="Ta bort">🗑</button>
         </div>
         <div class="hi-body">
+          ${r.note ? `<div style="font-style:italic;color:var(--muted);font-size:0.85rem;margin:4px 0 8px;">📝 "${escapeHtml(r.note)}"</div>` : ''}
           <div class="hi-ranking">${rankRows}</div>
           ${buildRoundHighlights(r.subjects.map(s => ({ subj: { name: s.name }, rows: s.rows })))}
           ${detailTables}
@@ -3577,6 +3616,7 @@ function editRound(id) {
     teamAssign: ['A','A','B','B'],
     scores: r.subjects.map(s => s.rows.map(row =>
       (row.skipped || row.score === '–' || row.score == null) ? '' : row.score)),
+    note: r.note || '', weather: r.weather || null,
     editingId: r.id, editingDate: r.date
   };
   if (shared) {
@@ -3719,9 +3759,13 @@ async function buildShareImage(rows, meta) {
 function _shareTextFromRows(rows, meta) {
   const medals = ['🥇','🥈','🥉','🪙'];
   const teeIcon = meta.tee === 'Gul' ? '🟡' : '🔴';
-  const header = `⛳ ${meta.courseName} · ${teeIcon} ${meta.tee} · ${meta.holes} hål · ${meta.date}`;
+  const wx = meta.weather && WEATHER[meta.weather] ? ` · ${WEATHER[meta.weather].e} ${WEATHER[meta.weather].l}` : '';
+  const header = `⛳ ${meta.courseName} · ${teeIcon} ${meta.tee} · ${meta.holes} hål · ${meta.date}${wx}`;
   const lines = rows.map((r, i) => `${medals[i]||''} ${r.name}: ${r.points} poäng`);
-  const tail = meta.highlight ? [meta.highlight, '', '🏌️ Poängbogey-kalkylator'] : ['🏌️ Poängbogey-kalkylator'];
+  const tailParts = [];
+  if (meta.highlight) tailParts.push(meta.highlight);
+  if (meta.note) tailParts.push(`📝 "${meta.note}"`);
+  const tail = tailParts.length ? [...tailParts, '', '🏌️ Poängbogey-kalkylator'] : ['🏌️ Poängbogey-kalkylator'];
   return [header, '', ...lines, '', ...tail].join('\n');
 }
 
@@ -3761,7 +3805,7 @@ async function shareRound(id) {
     .map(s => ({ name: s.name, points: s.totalPoints }));
   const pseudo = r.subjects.map(s => ({ subj: { name: s.name }, rows: s.rows }));
   const highlight = r.gameMode === 'match' ? matchResultText(pseudo) : topHighlightText(pseudo);
-  await _doShare(rows, { courseName: r.courseName, tee: r.tee, holes: r.holes, date: r.date, highlight });
+  await _doShare(rows, { courseName: r.courseName, tee: r.tee, holes: r.holes, date: r.date, highlight, weather: r.weather || null, note: r.note || '' });
 }
 
 function printRound(id) {
@@ -3805,7 +3849,7 @@ async function shareResult() {
     highlight = '';
   }
   const date = new Date().toLocaleDateString('sv-SE');
-  await _doShare(rows, { courseName: state.courseName, tee: state.teeColor, holes: state.holes, date, highlight });
+  await _doShare(rows, { courseName: state.courseName, tee: state.teeColor, holes: state.holes, date, highlight, weather: state.weather || null, note: state.note || '' });
 }
 
 function showShareToast(msg) {
