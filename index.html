@@ -954,7 +954,7 @@
       </div>
     </div>
     <div style="display:flex; gap:10px;">
-      <button class="btn secondary" onclick="goToStep(3)">← Tillbaka</button>
+      <button class="btn secondary" onclick="step4Back()">← Tillbaka</button>
       <button class="btn" onclick="calculateAll()">Beräkna ⛳</button>
     </div>
   </div>
@@ -2228,6 +2228,17 @@ function newRound() {
 // ============================================================
 // NAVIGATION
 // ============================================================
+function step4Back() {
+  if (state.editingId) {
+    // Editing an existing round — return to the saved rounds list, discard edits
+    state.editingId = undefined;
+    goToStep(1);
+    openHistory();
+    return;
+  }
+  goToStep(3);
+}
+
 function goToStep(n) {
   [1,2,3,4,5].forEach(i => {
     document.getElementById(`step${i}`).classList.toggle('hidden', i !== n);
