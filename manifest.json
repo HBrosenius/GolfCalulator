@@ -1,0 +1,13 @@
+{
+  "name": "Poängbogey-kalkylator",
+  "short_name": "Poängbogey",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "theme_color": "#1b4332",
+  "background_color": "#f8fdf9",
+  "icons": [
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+  ]
+}

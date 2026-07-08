@@ -126,6 +126,17 @@ All lokal data kan säkerhetskopieras och återställas via **📅 Sparade rundo
 
 De tre mest spelade banorna visas som snabbvalsknappar längst upp på startsidan, rangordnade efter antal spelade rundor.
 
+## Installera som app (PWA)
+
+Appen kan installeras på hemskärmen och fungerar då helt offline:
+
+- **iPhone/iPad**: Öppna sidan i Safari → Dela-knappen → **Lägg till på hemskärmen**
+- **Android**: Öppna sidan i Chrome → meny (⋮) → **Installera app** / **Lägg till på startskärmen**
+
+Appen öppnas då i eget fönster utan webbläsarens adressfält, med egen ikon, och all funktionalitet fungerar utan nätverkstäckning — perfekt ute på banan.
+
+> **För utvecklare:** bumpa `CACHE`-versionen i `sw.js` (t.ex. `golf-v2`) vid varje deploy så att installerade appar hämtar den nya versionen.
+
 ## Kom igång
 
 1. Ladda ner `index.html`
