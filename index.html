@@ -3530,6 +3530,7 @@ function renderHistoryList() {
         </div>
         <div class="hi-body">
           <div class="hi-ranking">${rankRows}</div>
+          ${buildRoundHighlights(r.subjects.map(s => ({ subj: { name: s.name }, rows: s.rows })))}
           ${detailTables}
         </div>
       </div>`;
