@@ -2099,6 +2099,80 @@ function _resultAvatarHtml(photo, cls) {
   return `<div class="${cls}">🏌️</div>`;
 }
 
+// Find the single best hole across all subjects. Returns {name, h, pts} or null.
+function _bestHole(results) {
+  let best = null;
+  results.forEach(r => {
+    r.rows.forEach(row => {
+      if (row.skipped) return;
+      if (!best || row.pts > best.pts || (row.pts === best.pts && row.h < best.h)) {
+        best = { name: r.subj.name, h: row.h, pts: row.pts };
+      }
+    });
+  });
+  return best;
+}
+
+function topHighlightText(results) {
+  const b = results && results.length ? _bestHole(results) : null;
+  return b ? `🔥 Bästa hål: ${b.name} hål ${b.h} (${b.pts}p)` : '';
+}
+
+function buildRoundHighlights(results) {
+  const anyPlayed = results.some(r => r.rows.some(row => !row.skipped));
+  if (!anyPlayed) return '';
+
+  const items = [];
+  const best = _bestHole(results);
+  if (best) items.push({ icon: '🔥', label: 'Bästa hål', value: `${best.name} · hål ${best.h} (${best.pts}p)` });
+
+  // Per-subject counts
+  const leaderBy = pred => {
+    let lead = null;
+    results.forEach(r => {
+      const n = r.rows.filter(row => !row.skipped && pred(row.pts)).length;
+      if (n > 0 && (!lead || n > lead.n)) lead = { name: r.subj.name, n };
+    });
+    return lead;
+  };
+  const birdies = leaderBy(p => p === 3);
+  if (birdies) items.push({ icon: '🐦', label: 'Flest birdies', value: `${birdies.name} · ${birdies.n} st` });
+  const eagles = leaderBy(p => p >= 4);
+  if (eagles) items.push({ icon: '🦅', label: 'Eagle el. bättre', value: `${eagles.name} · ${eagles.n} st` });
+  const zeros = leaderBy(p => p === 0);
+  if (zeros) items.push({ icon: '😬', label: 'Flest nollor', value: `${zeros.name} · ${zeros.n} st` });
+
+  // Toughest hole (field average) — only meaningful with 2+ subjects
+  if (results.length >= 2) {
+    const holeStats = {};
+    results.forEach(r => r.rows.forEach(row => {
+      if (row.skipped) return;
+      (holeStats[row.h] = holeStats[row.h] || { sum: 0, n: 0 }).sum += row.pts;
+      holeStats[row.h].n++;
+    }));
+    let tough = null;
+    Object.keys(holeStats).forEach(h => {
+      const avg = holeStats[h].sum / holeStats[h].n;
+      const hn = parseInt(h);
+      if (!tough || avg < tough.avg || (avg === tough.avg && hn < tough.h)) tough = { h: hn, avg };
+    });
+    if (tough) items.push({ icon: '🎯', label: 'Tuffaste hålet', value: `hål ${tough.h}` });
+  }
+
+  const rows = items.map(it => `
+    <div style="display:flex;align-items:center;gap:10px;font-size:0.9rem;">
+      <span style="font-size:1.1rem;">${it.icon}</span>
+      <span style="flex:1;color:var(--muted);">${it.label}</span>
+      <span style="font-weight:700;color:var(--green-dark);">${it.value}</span>
+    </div>`).join('');
+
+  return `
+    <div class="card">
+      <div class="card-title"><span class="icon">✨</span> Höjdpunkter</div>
+      <div style="display:flex;flex-direction:column;gap:8px;">${rows}</div>
+    </div>`;
+}
+
 function renderResults(playerResults, rankContainerId = 'rankingContainer', prContainerId = 'playerResultsContainer') {
   // Sort for ranking (higher points = better)
   const results = playerResults; // alias (passed from calculateAll)
@@ -2194,6 +2268,10 @@ function renderResults(playerResults, rankContainerId = 'rankingContainer', prCo
         </div>
       </div></div>`;
   });
+
+  const hl = buildRoundHighlights(results);
+  if (hl) prContainer.innerHTML = hl + prContainer.innerHTML;
+  window._lastResults = results;
 }
 
 function newRound() {
@@ -3485,7 +3563,8 @@ function _shareTextFromRows(rows, meta) {
   const teeIcon = meta.tee === 'Gul' ? '🟡' : '🔴';
   const header = `⛳ ${meta.courseName} · ${teeIcon} ${meta.tee} · ${meta.holes} hål · ${meta.date}`;
   const lines = rows.map((r, i) => `${medals[i]||''} ${r.name}: ${r.points} poäng`);
-  return [header, '', ...lines, '', '🏌️ Poängbogey-kalkylator'].join('\n');
+  const tail = meta.highlight ? [meta.highlight, '', '🏌️ Poängbogey-kalkylator'] : ['🏌️ Poängbogey-kalkylator'];
+  return [header, '', ...lines, '', ...tail].join('\n');
 }
 
 async function _doShare(rows, meta) {
@@ -3522,7 +3601,8 @@ async function shareRound(id) {
   const rows = [...r.subjects]
     .sort((a, b) => b.totalPoints - a.totalPoints)
     .map(s => ({ name: s.name, points: s.totalPoints }));
-  await _doShare(rows, { courseName: r.courseName, tee: r.tee, holes: r.holes, date: r.date });
+  const highlight = topHighlightText(r.subjects.map(s => ({ subj: { name: s.name }, rows: s.rows })));
+  await _doShare(rows, { courseName: r.courseName, tee: r.tee, holes: r.holes, date: r.date, highlight });
 }
 
 function printRound(id) {
@@ -3557,7 +3637,8 @@ async function shareResult() {
     rows.push({ name, points });
   });
   const date = new Date().toLocaleDateString('sv-SE');
-  await _doShare(rows, { courseName: state.courseName, tee: state.teeColor, holes: state.holes, date });
+  const highlight = topHighlightText(window._lastResults || []);
+  await _doShare(rows, { courseName: state.courseName, tee: state.teeColor, holes: state.holes, date, highlight });
 }
 
 function showShareToast(msg) {

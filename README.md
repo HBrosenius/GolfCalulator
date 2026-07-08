@@ -92,6 +92,11 @@ Resultatsidan och sparade rundor kan delas via **📤 Dela**-knappen:
 - På mobil delas en **bildkort** (PNG) med profilbilder, rankning och poäng
 - På desktop kopieras resultattexten till urklipp som reserv
 - Bilden innehåller kursnamn, tee, antal hål och datum
+- Den delade texten innehåller även rundans bästa hål
+
+## Höjdpunkter
+
+Resultatsidan (och en återöppnad sparad runda) visar ett **✨ Höjdpunkter**-kort med rundans roligaste statistik: bästa hål, flest birdies, eagles, flest nollor och tuffaste hålet.
 
 ## Skriv ut / PDF-export
 
