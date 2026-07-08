@@ -2615,6 +2615,24 @@ function openPlayerHistory(id) {
     });
     const hcpChart = hiVals.length >= 2 ? buildHcpTrendChart(hiRounds, hiVals) : '';
 
+    // Form-vs-hcp trend — own Stableford points net of the "to handicap" baseline (2 pts/hole).
+    // Use own row-pts (not team totalPoints) and skip shared-score rounds (hi null).
+    const formRounds = rounds.filter(r => {
+      const s = r.subjects.find(s => s.name === displayName || s.name === player.name);
+      return s && s.hi != null && s.rows && s.rows.some(row => !row.skipped);
+    }).slice(0, 8).reverse();
+    const formNets = formRounds.map(r => {
+      const s = r.subjects.find(s => s.name === displayName || s.name === player.name);
+      const played = s.rows.filter(row => !row.skipped);
+      const own = played.reduce((a, row) => a + row.pts, 0);
+      return own - played.length * 2;
+    });
+    const formChart = formNets.length >= 2 ? buildFormTrendChart(formRounds, formNets) : '';
+    const formAvg = formNets.length ? formNets.reduce((a, b) => a + b, 0) / formNets.length : 0;
+    const formVerdict = formAvg >= 0
+      ? `📈 Spelar i snitt <strong>${formAvg.toFixed(1)}p över</strong> hcp (${formNets.length} rundor)`
+      : `📉 Spelar i snitt <strong>${Math.abs(formAvg).toFixed(1)}p under</strong> hcp (${formNets.length} rundor)`;
+
     listEl.innerHTML = `
       <p class="player-stats-section-title">Översikt</p>
       <div class="player-stat-grid">
@@ -2640,7 +2658,10 @@ function openPlayerHistory(id) {
       <div style="background:#f0faf4;border-radius:10px;padding:10px 8px 4px;margin-bottom:16px;">${chart}</div>` : ''}
       ${hcpChart ? `<p class="player-stats-section-title">HCP-utveckling</p>
       <div style="background:#f0faf4;border-radius:10px;padding:10px 8px 4px;margin-bottom:16px;">${hcpChart}</div>` : ''}
-      <p class="player-stats-section-title" style="margin-top:${chartPts.length >= 2 || hcpChart ? '0' : '16px'};">Rundor</p>` +
+      ${formChart ? `<p class="player-stats-section-title">Form mot hcp</p>
+      <div style="background:#f0faf4;border-radius:10px;padding:10px 8px 4px;margin-bottom:6px;">${formChart}</div>
+      <p style="font-size:0.8rem;color:var(--muted);margin:0 0 16px;text-align:center;">${formVerdict}</p>` : ''}
+      <p class="player-stats-section-title" style="margin-top:${chartPts.length >= 2 || hcpChart || formChart ? '0' : '16px'};">Rundor</p>` +
       rounds.map(r => {
         const subj = r.subjects.find(s => s.name === displayName || s.name === player.name);
         const pts = subj ? subj.totalPoints : '–';
@@ -2694,6 +2715,37 @@ function buildHcpTrendChart(hiRounds, hiVals) {
 
   return `<svg viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:auto;display:block;">
     <polyline points="${polyline}" fill="none" stroke="#66bb6a" stroke-width="2"/>${dots}
+  </svg>`;
+}
+
+function buildFormTrendChart(formRounds, nets) {
+  const W = 280, H = 90, PAD = 28;
+  const minVal = Math.min(...nets, 0);
+  const maxVal = Math.max(...nets, 0);
+  const range = Math.max(maxVal - minVal, 1);
+  const buffer = range * 0.15;
+  const lo = minVal - buffer, hi = maxVal + buffer;
+  const n = nets.length;
+  const stepX = n > 1 ? (W - PAD * 2) / (n - 1) : 0;
+  const yFor = v => H - 16 - ((v - lo) / (hi - lo)) * (H - 24);
+  const baseY = yFor(0);
+
+  const points = nets.map((v, i) => ({ x: PAD + i * stepX, y: yFor(v), v }));
+  const polyline = points.map(p => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' ');
+  const dots = points.map((p, i) => {
+    const label = formRounds[i].date.slice(5); // MM-DD
+    const col = p.v >= 0 ? '#2e7d32' : '#e53935';
+    const lbl = (p.v > 0 ? '+' : '') + p.v;
+    return `
+      <circle cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="3.5" fill="${col}"/>
+      <text x="${p.x.toFixed(1)}" y="${(p.y - 8).toFixed(1)}" text-anchor="middle" font-size="10" font-weight="700" fill="${col}">${lbl}</text>
+      <text x="${p.x.toFixed(1)}" y="${H - 2}" text-anchor="middle" font-size="9" fill="#888">${label}</text>`;
+  }).join('');
+  const baseline = `<line x1="${PAD}" y1="${baseY.toFixed(1)}" x2="${(W - PAD).toFixed(1)}" y2="${baseY.toFixed(1)}" stroke="#bbb" stroke-width="1.5" stroke-dasharray="4 3"/>
+    <text x="${(W - PAD + 2).toFixed(1)}" y="${(baseY + 4).toFixed(1)}" font-size="9" fill="#999">hcp</text>`;
+
+  return `<svg viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:auto;display:block;">
+    ${baseline}<polyline points="${polyline}" fill="none" stroke="#66bb6a" stroke-width="2"/>${dots}
   </svg>`;
 }
 

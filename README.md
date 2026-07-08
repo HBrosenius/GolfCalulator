@@ -57,6 +57,7 @@ Klicka på en spelare i registret för att se spelhistorik och statistik:
 - **Poäng** — bästa runda, snittpoäng och totalt spelade hål
 - **Hålresultat** — antal eagles, birdies, pars, bogeyn och dubbel+
 - **Poänggraf** — stapeldiagram över de senaste 5 rundorna
+- **Form mot hcp** — trendkurva över hur många poäng spelaren snittar över/under sitt handicap (baslinje = 2 poäng/hål)
 - **HCP-utveckling** — linjediagram över spelarens handicapindex över tid, baserat på HI:t som angavs vid varje runda
 - **Hall of Fame** — jämförelsestatistik mellan alla sparade spelare (bästa runda, flest vinster, flest birdies m.m.)
 
