@@ -83,6 +83,7 @@ Rundan sparas automatiskt efter varje inmatad score. Om sidan laddas om eller we
 
 Alla spelade rundor sparas automatiskt och kan bläddras i efterhand:
 
+- **Filtrera** sparade rundor på bana, format, spelare och/eller datumintervall (🔎 Filter) — spelarfiltret matchar även lagmedlemmar i Scramble/Foursome
 - Visa rankingresultat och hålvis scoredetaljer per spelare
 - **Väder & anteckning** — lägg till väderförhållande (☀️/⛅/🌧️/💨) och en kort anteckning på rundan; visas i historiken och i den delade texten
 - **Redigera** en sparad runda med ✏️ — öppna scoreinmatningen igen, rätta felskrivna slag och räkna om (rundan uppdateras på plats)

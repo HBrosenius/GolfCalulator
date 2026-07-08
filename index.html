@@ -646,6 +646,33 @@
         <div class="card-title" style="margin:0;"><span class="icon">📅</span> Sparade rundor</div>
         <button onclick="closeHistory()" style="background:none;border:none;font-size:1.4rem;cursor:pointer;color:var(--muted);padding:0 4px;">✕</button>
       </div>
+      <button id="historyFilterToggle" onclick="toggleHistoryFilters()" style="background:none;border:1px solid var(--border);border-radius:8px;padding:7px 12px;font-size:0.85rem;color:var(--green-dark);cursor:pointer;margin-bottom:10px;">🔎 Filter</button>
+      <div id="historyFilters" class="hidden" style="background:#f0faf5;border-radius:8px;padding:10px 12px;margin-bottom:10px;">
+        <label style="margin-top:0;font-size:0.8rem;">Bana</label>
+        <select id="histFilterCourse" onchange="renderHistoryList()"></select>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+          <div>
+            <label style="font-size:0.8rem;">Format</label>
+            <select id="histFilterFormat" onchange="renderHistoryList()"></select>
+          </div>
+          <div>
+            <label style="font-size:0.8rem;">Spelare</label>
+            <select id="histFilterPlayer" onchange="renderHistoryList()"></select>
+          </div>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+          <div>
+            <label style="font-size:0.8rem;">Från</label>
+            <input type="date" id="histFilterFrom" onchange="renderHistoryList()">
+          </div>
+          <div>
+            <label style="font-size:0.8rem;">Till</label>
+            <input type="date" id="histFilterTo" onchange="renderHistoryList()">
+          </div>
+        </div>
+        <button onclick="clearHistoryFilters()" style="background:none;border:none;color:var(--green);font-size:0.82rem;cursor:pointer;padding:8px 0 0;">Rensa filter</button>
+      </div>
+      <div id="historyCount" style="font-size:0.8rem;color:var(--muted);margin-bottom:8px;"></div>
       <div id="historyList"><p style="font-size:0.85rem;color:var(--muted);text-align:center;padding:12px 0;">Inga sparade rundor.</p></div>
     </div>
     <div class="card" style="margin-top:10px;">
@@ -1656,6 +1683,8 @@ const GAME_MODE_DESCRIPTIONS = {
   foursome: 'Lagmedlemmarna spelar en gemensam boll och slår varannan gång — laget matar in <strong>en</strong> score per hål. Laghandicap är snittet av lagmedlemmarnas spelhandicap. Appen visar vem i respektive lag som slår ut på varje hål (växlar automatiskt hål för hål).',
   match: 'Matchspel 1 mot 1 — varje hål vinns av spelaren med flest poäng (netto). Den som är fler hål upp än det finns hål kvar vinner matchen. Resultatet visas som t.ex. <strong>3&2</strong>.'
 };
+
+const GAME_MODE_LABELS = { individual:'Individuellt', scramble:'Scramble', fourball:'Bästboll', foursome:'Foursome', match:'Matchspel' };
 
 function setGameMode(mode) {
   state.gameMode = mode;
@@ -3506,6 +3535,7 @@ function pickSavedPlayer(slotIndex, selectEl) {
 }
 
 function openHistory() {
+  populateHistoryFilters();
   renderHistoryList();
   document.getElementById('step1').classList.add('hidden');
   document.getElementById('historyView').classList.remove('hidden');
@@ -3516,14 +3546,75 @@ function closeHistory() {
   document.getElementById('step1').classList.remove('hidden');
 }
 
+function toggleHistoryFilters() {
+  document.getElementById('historyFilters').classList.toggle('hidden');
+}
+
+function _histFilterValues() {
+  const v = id => (document.getElementById(id)?.value || '');
+  return {
+    course: v('histFilterCourse'), format: v('histFilterFormat'),
+    player: v('histFilterPlayer'), from: v('histFilterFrom'), to: v('histFilterTo')
+  };
+}
+
+function populateHistoryFilters() {
+  const rounds = roundsLoad();
+  const courses = [...new Set(rounds.map(r => r.courseName))].sort((a, b) => a.localeCompare(b, 'sv'));
+  const formats = [...new Set(rounds.map(r => r.gameMode))];
+  const players = [...new Set(rounds.flatMap(r =>
+    r.subjects.flatMap(s => s.members && s.members.length ? s.members : [s.name])
+  ))].sort((a, b) => a.localeCompare(b, 'sv'));
+
+  const fill = (id, all, items, labelFn) => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.innerHTML = `<option value="">${all}</option>` +
+      items.map(v => `<option value="${escapeHtml(v)}">${escapeHtml(labelFn ? labelFn(v) : v)}</option>`).join('');
+    el.value = '';
+  };
+  fill('histFilterCourse', 'Alla banor', courses);
+  fill('histFilterFormat', 'Alla format', formats, m => GAME_MODE_LABELS[m] || m);
+  fill('histFilterPlayer', 'Alla spelare', players);
+  const from = document.getElementById('histFilterFrom'); if (from) from.value = '';
+  const to = document.getElementById('histFilterTo'); if (to) to.value = '';
+}
+
+function clearHistoryFilters() {
+  ['histFilterCourse','histFilterFormat','histFilterPlayer','histFilterFrom','histFilterTo']
+    .forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
+  renderHistoryList();
+}
+
 function renderHistoryList() {
   const rounds = roundsLoad();
   const container = document.getElementById('historyList');
+  const countEl = document.getElementById('historyCount');
+  const toggleEl = document.getElementById('historyFilterToggle');
   if (rounds.length === 0) {
     container.innerHTML = '<p style="font-size:0.85rem;color:var(--muted);text-align:center;padding:12px 0;">Inga sparade rundor.</p>';
+    if (countEl) countEl.textContent = '';
     return;
   }
-  container.innerHTML = rounds.map(r => {
+
+  const f = _histFilterValues();
+  const active = !!(f.course || f.format || f.player || f.from || f.to);
+  const rows = rounds.filter(r =>
+    (!f.course || r.courseName === f.course) &&
+    (!f.format || r.gameMode === f.format) &&
+    (!f.from   || r.date >= f.from) &&
+    (!f.to     || r.date <= f.to) &&
+    (!f.player || r.subjects.some(s => s.members && s.members.length ? s.members.includes(f.player) : s.name === f.player))
+  );
+  if (toggleEl) toggleEl.style.borderColor = active ? 'var(--green)' : 'var(--border)';
+  if (countEl) countEl.textContent = active ? `${rows.length} av ${rounds.length} rundor` : '';
+
+  if (rows.length === 0) {
+    container.innerHTML = '<p style="font-size:0.85rem;color:var(--muted);text-align:center;padding:12px 0;">Inga rundor matchar filtret.</p>';
+    return;
+  }
+
+  container.innerHTML = rows.map(r => {
     const sorted = r.subjects.slice().sort((a, b) => b.totalPoints - a.totalPoints);
     const medals = ['🥇','🥈','🥉','🪙'];
     let topLine, rankRows;
