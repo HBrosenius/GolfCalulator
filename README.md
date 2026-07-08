@@ -71,6 +71,10 @@ Under Spelarregister → **📅 Säsong** kan du se en sammanlagd poängtabell f
 - **Poängtotal** visas i tabellens sidfot och uppdateras löpande
 - **Äran-banner** — efter varje avslutat hål visas vem som har äran och startar nästa hål, med spelarens profilbild
 
+## Återuppta pågående runda
+
+Rundan sparas automatiskt efter varje inmatad score. Om sidan laddas om eller webbläsaren stängs mitt i rundan visas en banner på startsidan med **Fortsätt rundan ▶** — alla inmatade scorer, poäng och ledarmarkering återställs. Snapshoten rensas när rundan beräknas klart eller när du väljer **Släng**.
+
 ## Rundhistorik
 
 Alla spelade rundor sparas automatiskt och kan bläddras i efterhand:

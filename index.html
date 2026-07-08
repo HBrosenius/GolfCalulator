@@ -758,6 +758,18 @@
   <!-- STEG 1: Välj bana -->
   <div id="step1">
 
+    <!-- Pågående runda (resume) -->
+    <div id="resumeBanner" class="card" style="display:none;margin-bottom:10px;background:#e8f5e9;border:1px solid var(--green-light);">
+      <div style="display:flex;align-items:center;gap:10px;">
+        <div style="font-size:1.4rem;">⛳</div>
+        <div style="flex:1;font-size:0.85rem;color:var(--green-dark);" id="resumeText"></div>
+      </div>
+      <div style="display:flex;gap:8px;margin-top:10px;">
+        <button class="btn" style="flex:1;" onclick="resumeRound()">Fortsätt rundan ▶</button>
+        <button class="btn secondary" style="flex:0 0 auto;" onclick="discardInprogress()">Släng</button>
+      </div>
+    </div>
+
     <!-- Senaste banor (snabbval) -->
     <div id="recentCoursesCard" class="card hidden" style="margin-bottom:10px;">
       <div class="card-title" style="margin-bottom:10px;"><span class="icon">🕐</span> Senaste banor</div>
@@ -1776,6 +1788,7 @@ function goToStep4Score() {
   }
 
   buildScoreTable();
+  inprogressSave();
   goToStep(4);
 }
 
@@ -1964,6 +1977,7 @@ function onScoreInput(p, i, el) {
   }
   updateLiveLeader();
   updateHonorBanner();
+  inprogressSave();
   if (el.value !== '') {
     const n = numColumns();
     const nextP = p + 1;
@@ -2177,6 +2191,7 @@ function renderResults(playerResults, rankContainerId = 'rankingContainer', prCo
 }
 
 function newRound() {
+  inprogressClear();
   state = {
     courseName: null, teeColor: null, holes: 18,
     slope: null, cr: null, par: null,
@@ -2216,6 +2231,87 @@ function goToStep(n) {
     else if (i < n) dot.classList.add('done');
   });
   window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+// ============================================================
+// IN-PROGRESS ROUND (resume after refresh)
+// ============================================================
+const INPROGRESS_KEY = 'golf_inprogress_round';
+
+function inprogressSave() {
+  if (!_lsOk) return;
+  try {
+    localStorage.setItem(INPROGRESS_KEY, JSON.stringify({ savedAt: Date.now(), state }));
+  } catch(e) {}
+}
+
+function inprogressLoad() {
+  if (!_lsOk) return null;
+  try {
+    const snap = JSON.parse(localStorage.getItem(INPROGRESS_KEY) || 'null');
+    return (snap && snap.state && snap.state.courseName) ? snap : null;
+  } catch(e) { return null; }
+}
+
+function inprogressClear() {
+  if (!_lsOk) return;
+  try { localStorage.removeItem(INPROGRESS_KEY); } catch(e) {}
+}
+
+function showResumeBannerIfAny() {
+  const snap = inprogressLoad();
+  const banner = document.getElementById('resumeBanner');
+  if (!snap || !banner) return;
+  const s = snap.state;
+  const holesScored = (() => {
+    let count = 0;
+    for (let i = 0; i < s.holes; i++) {
+      if ((s.scores || []).some(row => row && row[i] !== '' && row[i] != null)) count++;
+    }
+    return count;
+  })();
+  const when = new Date(snap.savedAt).toLocaleString('sv-SE', { dateStyle: 'short', timeStyle: 'short' });
+  document.getElementById('resumeText').innerHTML =
+    `Du har en pågående runda på <strong>${s.courseName}</strong> (${s.teeColor} tee, ${s.holes} hål) — ` +
+    `${holesScored} hål med score inmatade. Senast sparad ${when}.`;
+  banner.style.display = 'block';
+}
+
+function resumeRound() {
+  const snap = inprogressLoad();
+  if (!snap) return;
+  state = snap.state;
+  buildScoreTable();
+  restoreScoresToTable();
+  updateLiveLeader();
+  updateHonorBanner();
+  document.getElementById('resumeBanner').style.display = 'none';
+  goToStep(4);
+}
+
+function restoreScoresToTable() {
+  const n = numColumns();
+  for (let p = 0; p < n; p++) {
+    for (let i = 0; i < state.holes; i++) {
+      const val = state.scores[p] ? state.scores[p][i] : '';
+      if (val === '' || val == null) continue;
+      const el = document.getElementById(`score_${p}_${i}`);
+      if (!el) continue;
+      el.value = val;
+      el.classList.add('has-value');
+      const ptsEl = document.getElementById(`pts_${p}_${i}`);
+      if (ptsEl) {
+        const pts = calcLivePts(p, i, val);
+        ptsEl.textContent = pts + 'p';
+        ptsEl.className = `live-pts pts-${Math.min(pts, 4)}`;
+      }
+    }
+  }
+}
+
+function discardInprogress() {
+  inprogressClear();
+  document.getElementById('resumeBanner').style.display = 'none';
 }
 
 // ============================================================
@@ -2363,6 +2459,7 @@ function saveCurrentRound(playerResults) {
     gameMode: isScramble ? 'scramble' : (isFourball ? 'fourball' : (isFoursome ? 'foursome' : 'individual')),
     subjects
   });
+  inprogressClear();
 }
 
 // ============================================================
@@ -3363,6 +3460,7 @@ function showShareToast(msg) {
 if (!_lsOk) document.getElementById('lsBanner').classList.remove('hidden');
 try { seedDefaultCourses(); } catch(e) {}
 try { renderSavedCourses(); } catch(e) {}
+try { showResumeBannerIfAny(); } catch(e) {}
 goToStep(1);
 </script>
 </body>
