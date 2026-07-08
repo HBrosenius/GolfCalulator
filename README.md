@@ -155,6 +155,8 @@ Appen öppnas då i eget fönster utan webbläsarens adressfält, med egen ikon,
 4. Fyll i slope, CR och par från scorekortet för vald tee
 5. Mata in par och Hcp/Index per hål (sparas automatiskt till nästa gång)
 
+Håldata valideras innan rundan startar: varje hål måste ha par och ett unikt index (fullständig 1–18 för 18-hålsbanor), och parsumman måste stämma med banans par — annars visas ett tydligt felmeddelande. Index anges alltid som scorekortets Hcp/Index (1–18).
+
 > **Obs:** Öppna alltid via samma webbläsare för att data ska vara tillgänglig — sparning kräver `localStorage` och fungerar inte i privat/inkognito-läge.
 
 ## Teknisk info

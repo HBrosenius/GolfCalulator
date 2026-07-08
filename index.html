@@ -893,6 +893,7 @@
       </div>
     </div>
 
+    <div id="step2Error" class="hidden" style="background:#fdecea;border-left:3px solid var(--danger);border-radius:0 8px 8px 0;padding:10px 14px;font-size:0.9rem;color:var(--danger);margin-bottom:8px;"></div>
     <div style="display:flex; gap:10px;">
       <button class="btn secondary" onclick="goToStep(1)">← Tillbaka</button>
       <button class="btn" onclick="goToStep3Players()">Nästa →</button>
@@ -1401,6 +1402,16 @@ function clearStep1Error() {
   document.getElementById('step1Error').classList.add('hidden');
 }
 
+function showStep2Error(msg) {
+  const el = document.getElementById('step2Error');
+  el.textContent = '⚠ ' + msg;
+  el.classList.remove('hidden');
+  el.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+}
+function clearStep2Error() {
+  document.getElementById('step2Error').classList.add('hidden');
+}
+
 function goToStep2() {
   clearStep1Error();
   try {
@@ -1470,7 +1481,7 @@ function buildHoleDataTable() {
           `).join('')}
         </div>
         <input type="number" class="idx-input${savedSI?'  filled':''}" id="si_${i}"
-          min="1" max="${state.holes}" inputmode="numeric"
+          min="1" max="18" inputmode="numeric"
           placeholder="–" value="${savedSI}"
           oninput="this.classList.toggle('filled', this.value!='')">
       </div>`;
@@ -1501,7 +1512,8 @@ function fillStandardData() {
   if (n === 18) {
     for (let i = 0; i < 9; i++) { siArr.push(i+1); siArr.push(i+10); }
   } else {
-    for (let i = 1; i <= 9; i++) siArr.push(i);
+    // 9-hole cards use the scorecard's 1–18 index (odd numbers) — scoring halves it
+    for (let i = 0; i < 9; i++) siArr.push(i*2 + 1);
   }
   for (let i = 0; i < n; i++) {
     selectPar(i, parArr[i]);
@@ -1526,7 +1538,7 @@ function generateDefaultSI(holes) {
   if (holes === 18) {
     for (let i = 0; i < 9; i++) { out.push(i + 1); out.push(i + 10); }
   } else {
-    for (let i = 1; i <= holes; i++) out.push(i);
+    for (let i = 0; i < 9; i++) out.push(i*2 + 1);
   }
   return out;
 }
@@ -1534,18 +1546,53 @@ function generateDefaultSI(holes) {
 // ============================================================
 // STEP 2 → STEP 3: validate hole data then go to players step
 // ============================================================
+// Validate entered hole data. Returns an error message string, or null if OK.
+function validateHoleData(hpar, si) {
+  for (let i = 0; i < state.holes; i++) {
+    if (!hpar[i] || hpar[i] < 3 || hpar[i] > 5) return `Hål ${i+1} saknar par.`;
+    if (!si[i] || si[i] < 1 || si[i] > 18 || !Number.isInteger(si[i])) return `Hål ${i+1} saknar giltigt index (1–18).`;
+  }
+  // Duplicate index check (applies to both 9 and 18)
+  const seen = {};
+  for (let i = 0; i < state.holes; i++) {
+    if (seen[si[i]] !== undefined) return `Index ${si[i]} används på flera hål (hål ${seen[si[i]]+1} och ${i+1}).`;
+    seen[si[i]] = i;
+  }
+  if (state.holes === 18) {
+    const missing = [];
+    for (let v = 1; v <= 18; v++) if (!si.includes(v)) missing.push(v);
+    if (missing.length) return `Alla index 1–18 måste anges. Saknas: ${missing.join(', ')}.`;
+  } else {
+    // 9-hole: the scorecard's 1–18 index must map (via ceil/2) onto ranks 1..9
+    const ranks = new Set(si.map(v => Math.ceil(v / 2)));
+    if (ranks.size !== 9) {
+      return '9-hålsbana: ange varje håls index (1–18) från scorekortet. Varje hål måste ha unik slagordning.';
+    }
+  }
+  // Par sum
+  const sum = hpar.reduce((a, b) => a + b, 0);
+  const parOk = state.holes === 18 ? (sum === state.par) : (sum === state.par || sum * 2 === state.par);
+  if (!parOk) return `Summan av paren (${sum}) stämmer inte med banans par (${state.par}). Kontrollera par-knapparna.`;
+  return null;
+}
+
 function goToStep3Players() {
   const hpar = [], si = [];
-  let missingPar = false, missingIdx = false;
   for (let i = 0; i < state.holes; i++) {
-    const p = getSelectedPar(i);
-    const s = parseInt(document.getElementById(`si_${i}`) ? document.getElementById(`si_${i}`).value : '');
-    if (!p) missingPar = true;
-    if (!s || s < 1 || s > state.holes) missingIdx = true;
-    hpar.push(p || 4);
-    si.push(s || (i + 1));
+    hpar.push(getSelectedPar(i));
+    const el = document.getElementById(`si_${i}`);
+    const s = parseInt(el ? el.value : '');
+    si.push(isNaN(s) ? 0 : s);
   }
-  // Spara alltid — använd standardvärden för tomma hål
+
+  const err = validateHoleData(hpar, si);
+  if (err) {
+    expandHoleData();
+    showStep2Error(err);
+    return;
+  }
+  clearStep2Error();
+
   state.hpar = hpar;
   state.si   = si;
   saveCurrentCourseData({ hpar, si });
