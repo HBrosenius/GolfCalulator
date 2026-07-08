@@ -238,9 +238,9 @@
   .course-group:last-child { margin-bottom: 0; }
   .cg-header {
     display: flex; align-items: center; justify-content: space-between;
-    padding: 10px 12px 6px;
+    padding: 10px 12px 6px; min-width: 0;
   }
-  .cg-name { font-weight: 600; font-size: 0.95rem; }
+  .cg-name { font-weight: 600; font-size: 0.95rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .cg-holes { font-size: 0.75rem; color: var(--muted); margin-top: 1px; }
   .cg-tees {
     display: flex; gap: 6px; padding: 0 12px 10px; flex-wrap: wrap;
@@ -578,8 +578,8 @@
     padding: 8px 0; border-bottom: 1px solid var(--border);
   }
   .saved-player-row:last-child { border-bottom: none; }
-  .saved-player-info { flex: 1; }
-  .saved-player-name { font-weight: 600; font-size: 0.95rem; }
+  .saved-player-info { flex: 1; min-width: 0; }
+  .saved-player-name { font-weight: 600; font-size: 0.95rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .saved-player-hi { font-size: 0.8rem; color: var(--muted); }
   .saved-player-del { background: none; border: none; cursor: pointer; color: var(--muted); font-size: 1rem; padding: 4px 6px; }
   .saved-player-del:hover { color: var(--danger); }
@@ -1196,7 +1196,7 @@ function renderGroups(groups) {
   return groups.map(g => `
     <div class="course-group">
       <div class="cg-header">
-        <div>
+        <div style="min-width:0;">
           <div class="cg-name">${g.name}</div>
           <div class="cg-holes">${g.holes} hål</div>
         </div>
@@ -1578,15 +1578,6 @@ function clearHoleData() {
   }
 }
 
-function generateDefaultSI(holes) {
-  const out = [];
-  if (holes === 18) {
-    for (let i = 0; i < 9; i++) { out.push(i + 1); out.push(i + 10); }
-  } else {
-    for (let i = 0; i < 9; i++) out.push(i*2 + 1);
-  }
-  return out;
-}
 
 // ============================================================
 // STEP 2 → STEP 3: validate hole data then go to players step
@@ -1983,8 +1974,8 @@ function buildScoreTable() {
         <div class="live-pts" id="pts_${p}_${i}"></div></td>`;
     });
     let extra = '';
-    if (people.length && markers.ctp && markers.ctp.hole === i) extra += markerRow('🎯', 'Närmast pinnen', 'setCtpPlayer', markers.ctp.player);
-    if (people.length && markers.ld && markers.ld.hole === i) extra += markerRow('💥', 'Längsta drive', 'setLdPlayer', markers.ld.player);
+    if (people.length >= 2 && markers.ctp && markers.ctp.hole === i) extra += markerRow('🎯', 'Närmast pinnen', 'setCtpPlayer', markers.ctp.player);
+    if (people.length >= 2 && markers.ld && markers.ld.hole === i) extra += markerRow('💥', 'Längsta drive', 'setLdPlayer', markers.ld.player);
     tbody.innerHTML += `<tr${rowClass}>${cells}</tr>${extra}`;
   }
   updateMatchStatus();
@@ -2579,6 +2570,7 @@ function newRound() {
 function step4Back() {
   if (state.editingId) {
     // Editing an existing round — return to the saved rounds list, discard edits
+    if (!confirm('Avbryt redigeringen? Ändringar sparas inte.')) return;
     state.editingId = undefined;
     goToStep(1);
     openHistory();
@@ -2693,7 +2685,8 @@ function roundsLoad() {
 
 function roundsSave(rounds) {
   if (!_lsOk) return;
-  try { localStorage.setItem(ROUNDS_KEY, JSON.stringify(rounds)); } catch(e) {}
+  try { localStorage.setItem(ROUNDS_KEY, JSON.stringify(rounds)); }
+  catch(e) { alert('Lagringsutrymmet är fullt — ta bort några rundor eller spelarbilder för att göra plats.'); }
 }
 
 function roundSaveNew(roundData) {
@@ -2854,7 +2847,11 @@ function playersLoad() {
 
 function playersSave(list) {
   if (!_lsOk) return;
-  localStorage.setItem(PLAYERS_KEY, JSON.stringify(list));
+  try {
+    localStorage.setItem(PLAYERS_KEY, JSON.stringify(list));
+  } catch(e) {
+    alert('Lagringsutrymmet är fullt — ta bort några rundor eller spelarbilder för att göra plats.');
+  }
 }
 
 // A subject "wins" a round if its points beat every subject NOT on its own
@@ -2975,7 +2972,7 @@ function openPlayerHistory(id) {
       });
     });
 
-    const avg = (totalPts / rounds.length).toFixed(1);
+    const avg = (rounds.length ? totalPts / rounds.length : 0).toFixed(1);
     const parOrBetter = totalHoles > 0 ? Math.round((eagles + birdies + pars) / totalHoles * 100) : 0;
 
     const statBox = (icon, val, lbl) =>
@@ -2990,7 +2987,7 @@ function openPlayerHistory(id) {
     const chartMax = Math.max(...chartPts, 1);
     const W = 280, H = 90, PAD = 28, barGap = 8;
     const barW = (W - PAD * 2 - barGap * (chartPts.length - 1)) / chartPts.length;
-    const avgVal = totalPts / rounds.length;
+    const avgVal = rounds.length ? totalPts / rounds.length : 0;
 
     const bars = chartPts.map((pts, i) => {
       const barH = Math.max(4, Math.round((pts / chartMax) * (H - 24)));
@@ -3542,7 +3539,7 @@ function renderSavedPlayersList() {
       </div>
       <button class="avatar-edit-btn" onclick="event.stopPropagation();triggerPlayerPhotoEdit(${p.id})" title="Byt bild">📷</button>
       <button class="avatar-edit-btn" onclick="event.stopPropagation();editSavedPlayer(${p.id})" title="Redigera">✏️</button>
-      <button class="saved-player-del" onclick="event.stopPropagation();deleteSavedPlayer(${p.id})" title="Ta bort">🗑</button>
+      <button class="saved-player-del" onclick="event.stopPropagation();if(confirm('Ta bort spelaren? Går inte att ångra.'))deleteSavedPlayer(${p.id})" title="Ta bort">🗑</button>
       <span style="color:var(--muted);font-size:0.9rem;">›</span>
     </div>`).join('');
 }
@@ -3792,7 +3789,7 @@ function renderHistoryList() {
           <button class="hi-edit" onclick="event.stopPropagation();editRound(${r.id});" title="Redigera">✏️</button>
           <button class="hi-share" onclick="event.stopPropagation();shareRound(${r.id});" title="Dela">📤</button>
           <button class="hi-print" onclick="event.stopPropagation();printRound(${r.id});" title="Skriv ut">🖨</button>
-          <button class="hi-del" onclick="event.stopPropagation();roundDelete(${r.id});renderHistoryList();" title="Ta bort">🗑</button>
+          <button class="hi-del" onclick="event.stopPropagation();if(confirm('Ta bort rundan? Går inte att ångra.')){roundDelete(${r.id});renderHistoryList();}" title="Ta bort">🗑</button>
         </div>
         <div class="hi-body">
           ${r.note ? `<div style="font-style:italic;color:var(--muted);font-size:0.85rem;margin:4px 0 8px;">📝 "${escapeHtml(r.note)}"</div>` : ''}
