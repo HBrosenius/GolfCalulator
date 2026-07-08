@@ -3488,14 +3488,29 @@ function renderHistoryList() {
   container.innerHTML = rounds.map(r => {
     const sorted = r.subjects.slice().sort((a, b) => b.totalPoints - a.totalPoints);
     const medals = ['🥇','🥈','🥉','🪙'];
-    const topLine = sorted.map((s, i) => `${medals[i]||''} ${s.name} ${s.totalPoints}p`).join(' · ');
-    const rankRows = sorted.map((s, i) => `
-      <div class="hi-rank-row">
-        <span>${medals[i]||''}</span>
-        <span class="hi-rank-name">${s.name}${s.members ? ` <span style="font-weight:400;color:var(--muted)">(${s.members.join(' & ')})</span>` : ''}${s.teamId ? ` <span style="font-weight:400;color:var(--muted)">(Lag ${s.teamId}${s.teammate ? ' · med ' + s.teammate : ''})</span>` : ''}</span>
-        <span style="color:var(--muted);font-size:0.75rem;margin-right:6px;">HCP +${s.ph}</span>
-        <span class="hi-rank-pts">${s.totalPoints} p</span>
-      </div>`).join('');
+    let topLine, rankRows;
+    if (r.gameMode === 'match') {
+      const pseudo = r.subjects.map(s => ({ subj: { name: s.name }, rows: s.rows }));
+      const mr = computeMatchResult(pseudo);
+      const result = matchResultText(pseudo) || '🤝 Delad match';
+      const hasWinner = mr && mr.winnerIdx !== null;
+      topLine = result;
+      const tally = (mr && r.subjects.length === 2)
+        ? `Hål vunna: ${r.subjects[0].name} ${mr.aWon} – ${mr.bWon} ${r.subjects[1].name}${mr.halved ? ` · ${mr.halved} delade` : ''}`
+        : '';
+      rankRows = `
+        <div class="hi-rank-row" style="justify-content:center;font-weight:700;color:var(--green-dark);">${hasWinner ? '🏆 ' : ''}${result}</div>
+        ${tally ? `<div class="hi-rank-row" style="justify-content:center;color:var(--muted);font-size:0.8rem;">${tally}</div>` : ''}`;
+    } else {
+      topLine = sorted.map((s, i) => `${medals[i]||''} ${s.name} ${s.totalPoints}p`).join(' · ');
+      rankRows = sorted.map((s, i) => `
+        <div class="hi-rank-row">
+          <span>${medals[i]||''}</span>
+          <span class="hi-rank-name">${s.name}${s.members ? ` <span style="font-weight:400;color:var(--muted)">(${s.members.join(' & ')})</span>` : ''}${s.teamId ? ` <span style="font-weight:400;color:var(--muted)">(Lag ${s.teamId}${s.teammate ? ' · med ' + s.teammate : ''})</span>` : ''}</span>
+          <span style="color:var(--muted);font-size:0.75rem;margin-right:6px;">HCP +${s.ph}</span>
+          <span class="hi-rank-pts">${s.totalPoints} p</span>
+        </div>`).join('');
+    }
     const detailTables = r.subjects.map(s => {
       const rows = s.rows.map(row => `
         <tr>
@@ -3761,7 +3776,7 @@ function printRound(id) {
     totalPoints: s.totalPoints,
     totalBrutto: s.totalBrutto,
     rows: s.rows,
-    isScramble, isFourball, isFoursome,
+    isScramble, isFourball, isFoursome, isMatch: round.gameMode === 'match',
     teamId: s.teamId, teammateName: s.teammate
   }));
   renderResults(results, 'printRankingContainer', 'printPlayerResultsContainer');
