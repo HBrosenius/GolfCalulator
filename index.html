@@ -285,9 +285,9 @@
   .hi-rank-row:last-child { border-bottom: none; }
   .hi-rank-name { flex: 1; font-weight: 600; }
   .hi-rank-pts { font-weight: 700; color: var(--green-dark); }
-  .hi-share { background: none; border: none; cursor: pointer; color: var(--muted);
+  .hi-share, .hi-edit { background: none; border: none; cursor: pointer; color: var(--muted);
     font-size: 1rem; padding: 4px 6px; flex-shrink: 0; }
-  .hi-share:hover { color: var(--accent); }
+  .hi-share:hover, .hi-edit:hover { color: var(--accent); }
   .hi-del { background: none; border: none; cursor: pointer; color: var(--muted);
     font-size: 1rem; padding: 4px; flex-shrink: 0; }
   .hi-del:hover { color: var(--danger); }
@@ -2246,6 +2246,7 @@ const INPROGRESS_KEY = 'golf_inprogress_round';
 
 function inprogressSave() {
   if (!_lsOk) return;
+  if (state.editingId) return; // editing a saved round must not clobber a live in-progress round
   try {
     localStorage.setItem(INPROGRESS_KEY, JSON.stringify({ savedAt: Date.now(), state }));
   } catch(e) {}
@@ -2339,6 +2340,14 @@ function roundsSave(rounds) {
 function roundSaveNew(roundData) {
   const rounds = roundsLoad();
   rounds.unshift(roundData); // newest first
+  roundsSave(rounds);
+}
+
+function roundUpdate(roundData) {
+  const rounds = roundsLoad();
+  const idx = rounds.findIndex(r => r.id === roundData.id);
+  if (idx === -1) { roundSaveNew(roundData); return; }
+  rounds[idx] = roundData;
   roundsSave(rounds);
 }
 
@@ -2453,9 +2462,10 @@ function saveCurrentRound(playerResults) {
     teammate: isFourball ? r.teammateName : null,
     rows: r.rows
   }));
-  roundSaveNew({
-    id: now.getTime(),
-    date: dateStr,
+  const isEditing = !!state.editingId;
+  const roundData = {
+    id: isEditing ? state.editingId : now.getTime(),
+    date: isEditing ? state.editingDate : dateStr,
     courseName: state.courseName,
     tee: state.teeColor,
     holes: state.holes,
@@ -2464,8 +2474,9 @@ function saveCurrentRound(playerResults) {
     par: state.par,
     gameMode: isScramble ? 'scramble' : (isFourball ? 'fourball' : (isFoursome ? 'foursome' : 'individual')),
     subjects
-  });
-  inprogressClear();
+  };
+  if (isEditing) roundUpdate(roundData);
+  else { roundSaveNew(roundData); inprogressClear(); }
 }
 
 // ============================================================
@@ -3229,6 +3240,7 @@ function renderHistoryList() {
             <div class="hi-meta">${topLine}</div>
           </div>
           <span class="hi-chevron">▶</span>
+          <button class="hi-edit" onclick="event.stopPropagation();editRound(${r.id});" title="Redigera">✏️</button>
           <button class="hi-share" onclick="event.stopPropagation();shareRound(${r.id});" title="Dela">📤</button>
           <button class="hi-print" onclick="event.stopPropagation();printRound(${r.id});" title="Skriv ut">🖨</button>
           <button class="hi-del" onclick="event.stopPropagation();roundDelete(${r.id});renderHistoryList();" title="Ta bort">🗑</button>
@@ -3247,6 +3259,43 @@ function toggleHistoryItem(header) {
   const chevron = header.querySelector('.hi-chevron');
   body.classList.toggle('open');
   chevron.classList.toggle('open');
+}
+
+function editRound(id) {
+  const r = roundsLoad().find(x => x.id === id);
+  if (!r) return;
+  const base = r.subjects[0].rows;
+  const hpar = base.map(row => row.par);
+  const si   = base.map(row => row.si);
+  const shared = isSharedScoreMode(r.gameMode);
+  state = {
+    courseName: r.courseName, teeColor: r.tee, holes: r.holes,
+    slope: r.slope, cr: r.cr, par: r.par,
+    hpar, si,
+    gameMode: r.gameMode,
+    numPlayers: shared ? r.subjects.reduce((n, s) => n + (s.members ? s.members.length : 1), 0) : r.subjects.length,
+    players: [], teams: null,
+    teamAssign: ['A','A','B','B'],
+    scores: r.subjects.map(s => s.rows.map(row =>
+      (row.skipped || row.score === '–' || row.score == null) ? '' : row.score)),
+    editingId: r.id, editingDate: r.date
+  };
+  if (shared) {
+    state.teams = r.subjects.map(s => ({
+      name: s.name,
+      members: (s.members || []).map(nm => ({ name: nm })),
+      playingHandicap: s.ph
+    }));
+  } else {
+    state.players = r.subjects.map(s => ({ name: s.name, hi: s.hi, playingHandicap: s.ph }));
+    if (r.gameMode === 'fourball') state.teamAssign = r.subjects.map(s => s.teamId || 'A');
+  }
+  document.getElementById('historyView').classList.add('hidden');
+  buildScoreTable();
+  restoreScoresToTable();
+  updateLiveLeader();
+  updateHonorBanner();
+  goToStep(4);
 }
 
 // ============================================================
