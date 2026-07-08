@@ -103,6 +103,8 @@ Resultatsidan och sparade rundor kan delas via **📤 Dela**-knappen:
 
 Resultatsidan (och en återöppnad sparad runda) visar ett **✨ Höjdpunkter**-kort med rundans roligaste statistik: bästa hål, flest birdies, eagles, flest nollor och tuffaste hålet.
 
+I början av varje runda lottas ett par-3-hål för **🎯 närmast pinnen** och ett par-4/5-hål för **💥 längsta drive**. När du matar in scoren dyker en vinnarväljare upp direkt vid det utlottade hålet, och vinnarna visas sedan i höjdpunkterna.
+
 ## Skriv ut / PDF-export
 
 Resultatsidan och sparade rundor kan skrivas ut eller sparas som PDF via **🖨 Skriv ut / PDF**-knappen. Utskriften visar rankingen och det fullständiga hålvisa scorekortet för varje spelare, utan menyer och knappar.

@@ -1068,7 +1068,8 @@ let state = {
   hpar: [], si: [],
   numPlayers: 1, players: [], scores: [],
   gameMode: 'individual', teamAssign: ['A','A','B','B'], teams: null,
-  note: '', weather: null
+  note: '', weather: null,
+  markers: { ctp: { hole: null, player: '' }, ld: { hole: null, player: '' } }
 };
 
 // ============================================================
@@ -1896,9 +1897,26 @@ function goToStep4Score() {
     state.scores = players.map(() => new Array(state.holes).fill(''));
   }
 
+  assignRandomMarkerHoles();
   buildScoreTable();
   inprogressSave();
   goToStep(4);
+}
+
+// Pick one random par-3 for närmast pinnen and one random par-4/5 for längsta drive.
+// Guarded by `assigned` so bouncing step 3 ↔ 4 doesn't re-randomize a set-up round.
+function assignRandomMarkerHoles() {
+  if (state.markers && state.markers.assigned) return;
+  const par3 = [], driveHoles = [];
+  for (let i = 0; i < state.holes; i++) {
+    ((state.hpar[i] || 4) === 3 ? par3 : driveHoles).push(i);
+  }
+  const pick = arr => arr.length ? arr[Math.floor(Math.random() * arr.length)] : null;
+  state.markers = {
+    ctp: { hole: pick(par3), player: '' },
+    ld:  { hole: pick(driveHoles), player: '' },
+    assigned: true
+  };
 }
 
 function numColumns() {
@@ -1937,6 +1955,17 @@ function buildScoreTable() {
   tfoot.innerHTML = ft + '</tr>';
   document.querySelector('.score-table').appendChild(tfoot);
 
+  const totalCols = 3 + cols.length;
+  const markers = state.markers || { ctp: { hole: null, player: '' }, ld: { hole: null, player: '' } };
+  const people = _markerPeople();
+  const markerOpts = sel => `<option value="">— välj vinnare —</option>` +
+    people.map(n => `<option value="${escapeHtml(n)}"${n === sel ? ' selected' : ''}>${escapeHtml(n)}</option>`).join('');
+  const markerRow = (icon, label, onchange, sel) =>
+    `<tr class="marker-row"><td colspan="${totalCols}" style="background:#fff8e1;text-align:left;padding:8px 10px;">
+      <span style="font-size:0.85rem;font-weight:600;color:var(--green-dark);">${icon} ${label}:</span>
+      <select style="margin-left:8px;max-width:60%;padding:6px 8px;" onchange="${onchange}(this.value)">${markerOpts(sel)}</select>
+    </td></tr>`;
+
   tbody.innerHTML = '';
   for (let i = 0; i < state.holes; i++) {
     const h   = i + 1;
@@ -1953,7 +1982,10 @@ function buildScoreTable() {
         oninput="onScoreInput(${p},${i},this)" onkeydown="scoreKeyDown(event,${p},${i})">
         <div class="live-pts" id="pts_${p}_${i}"></div></td>`;
     });
-    tbody.innerHTML += `<tr${rowClass}>${cells}</tr>`;
+    let extra = '';
+    if (people.length && markers.ctp && markers.ctp.hole === i) extra += markerRow('🎯', 'Närmast pinnen', 'setCtpPlayer', markers.ctp.player);
+    if (people.length && markers.ld && markers.ld.hole === i) extra += markerRow('💥', 'Längsta drive', 'setLdPlayer', markers.ld.player);
+    tbody.innerHTML += `<tr${rowClass}>${cells}</tr>${extra}`;
   }
   updateMatchStatus();
   syncRoundMeta();
@@ -1975,6 +2007,24 @@ function syncRoundMeta() {
   });
   const note = document.getElementById('roundNote');
   if (note) note.value = state.note || '';
+}
+
+function _markerPeople() {
+  if (isSharedScoreMode(state.gameMode) && state.teams) {
+    return state.teams.flatMap(t => (t.members || []).map(m => m.name));
+  }
+  return (state.players || []).map(p => p.name);
+}
+
+function setCtpPlayer(v) {
+  if (!state.markers) return;
+  state.markers.ctp.player = v || '';
+  inprogressSave();
+}
+function setLdPlayer(v) {
+  if (!state.markers) return;
+  state.markers.ld.player = v || '';
+  inprogressSave();
 }
 
 // Match play (1v1): compare the two subjects' per-hole net points.
@@ -2243,7 +2293,7 @@ function calculateAll() {
   if (isFourball) applyFourballTeamScoring(results);
 
   saveCurrentRound(results);
-  renderResults(results);
+  renderResults(results, undefined, undefined, state.markers);
   goToStep(5);
 }
 
@@ -2307,7 +2357,7 @@ function topHighlightText(results) {
   return b ? `🔥 Bästa hål: ${b.name} hål ${b.h} (${b.pts}p)` : '';
 }
 
-function buildRoundHighlights(results) {
+function buildRoundHighlights(results, markers) {
   const anyPlayed = results.some(r => r.rows.some(row => !row.skipped));
   if (!anyPlayed) return '';
 
@@ -2348,6 +2398,18 @@ function buildRoundHighlights(results) {
     if (tough) items.push({ icon: '🎯', label: 'Tuffaste hålet', value: `hål ${tough.h}` });
   }
 
+  // Markers (närmast pinnen / längsta drive)
+  if (markers) {
+    const ctp = markers.ctp;
+    if (ctp && ctp.player) {
+      items.push({ icon: '🎯', label: `Närmast pinnen${ctp.hole != null ? ' · hål ' + (ctp.hole + 1) : ''}`, value: escapeHtml(ctp.player) });
+    }
+    const ld = markers.ld;
+    if (ld && ld.player) {
+      items.push({ icon: '💥', label: `Längsta drive${ld.hole != null ? ' · hål ' + (ld.hole + 1) : ''}`, value: escapeHtml(ld.player) });
+    }
+  }
+
   const rows = items.map(it => `
     <div style="display:flex;align-items:center;gap:10px;font-size:0.9rem;">
       <span style="font-size:1.1rem;">${it.icon}</span>
@@ -2362,7 +2424,7 @@ function buildRoundHighlights(results) {
     </div>`;
 }
 
-function renderResults(playerResults, rankContainerId = 'rankingContainer', prContainerId = 'playerResultsContainer') {
+function renderResults(playerResults, rankContainerId = 'rankingContainer', prContainerId = 'playerResultsContainer', markers = null) {
   // Sort for ranking (higher points = better)
   const results = playerResults; // alias (passed from calculateAll)
   const sorted  = results.slice().sort((a, b) => b.totalPoints - a.totalPoints);
@@ -2475,7 +2537,7 @@ function renderResults(playerResults, rankContainerId = 'rankingContainer', prCo
       </div></div>`;
   });
 
-  const hl = buildRoundHighlights(results);
+  const hl = buildRoundHighlights(results, markers);
   if (hl) prContainer.innerHTML = hl + prContainer.innerHTML;
   window._lastResults = results;
 }
@@ -2488,7 +2550,8 @@ function newRound() {
     hpar: [], si: [],
     numPlayers: 1, players: [], scores: [],
     gameMode: 'individual', teamAssign: ['A','A','B','B'], teams: null,
-    note: '', weather: null
+    note: '', weather: null,
+    markers: { ctp: { hole: null, player: '' }, ld: { hole: null, player: '' } }
   };
   resetCourseFields();
   try { document.getElementById('holeDataBody').innerHTML = ''; } catch(e) {}
@@ -2771,6 +2834,7 @@ function saveCurrentRound(playerResults) {
     gameMode: state.gameMode,
     note: state.note || '',
     weather: state.weather || null,
+    markers: state.markers || { ctp: { hole: null, player: '' }, ld: { hole: null, player: '' } },
     subjects
   };
   if (isEditing) roundUpdate(roundData);
@@ -3675,7 +3739,7 @@ function renderHistoryList() {
         <div class="hi-body">
           ${r.note ? `<div style="font-style:italic;color:var(--muted);font-size:0.85rem;margin:4px 0 8px;">📝 "${escapeHtml(r.note)}"</div>` : ''}
           <div class="hi-ranking">${rankRows}</div>
-          ${buildRoundHighlights(r.subjects.map(s => ({ subj: { name: s.name }, rows: s.rows })))}
+          ${buildRoundHighlights(r.subjects.map(s => ({ subj: { name: s.name }, rows: s.rows })), r.markers)}
           ${detailTables}
         </div>
       </div>`;
@@ -3708,6 +3772,7 @@ function editRound(id) {
     scores: r.subjects.map(s => s.rows.map(row =>
       (row.skipped || row.score === '–' || row.score == null) ? '' : row.score)),
     note: r.note || '', weather: r.weather || null,
+    markers: r.markers || { ctp: { hole: null, player: '' }, ld: { hole: null, player: '' } },
     editingId: r.id, editingDate: r.date
   };
   if (shared) {
@@ -3914,7 +3979,7 @@ function printRound(id) {
     isScramble, isFourball, isFoursome, isMatch: round.gameMode === 'match',
     teamId: s.teamId, teammateName: s.teammate
   }));
-  renderResults(results, 'printRankingContainer', 'printPlayerResultsContainer');
+  renderResults(results, 'printRankingContainer', 'printPlayerResultsContainer', round.markers);
 
   document.body.classList.add('printing-history');
   const cleanup = () => document.body.classList.remove('printing-history');
