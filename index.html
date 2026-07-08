@@ -2870,6 +2870,63 @@ function subjectWonRound(r, subj) {
   return subj.totalPoints > bestOther;
 }
 
+// Head-to-head record vs each opponent across individual/fourball/match rounds.
+// Fourball teammates share a teamId (not opponents); match uses computeMatchResult.
+function buildHeadToHead(rounds, isMe) {
+  const rec = {};
+  const bump = (opp, res) => { const o = rec[opp] || (rec[opp] = { w: 0, l: 0, t: 0 }); o[res]++; };
+  rounds.forEach(round => {
+    const subs = round.subjects;
+    if (!subs || subs.length < 2) return;
+    const unitKey = s => s.teamId || s.name;
+    const peopleOf = s => (s.members && s.members.length) ? s.members : [s.name];
+    const units = {};
+    subs.forEach(s => {
+      const u = units[unitKey(s)] || (units[unitKey(s)] = { points: s.totalPoints, people: [] });
+      peopleOf(s).forEach(n => u.people.push(n));
+    });
+    const myKey = Object.keys(units).find(k => units[k].people.some(isMe));
+    if (myKey == null) return;
+    const others = Object.keys(units).filter(k => k !== myKey);
+    if (!others.length) return;
+
+    if (round.gameMode === 'match' && subs.length === 2) {
+      const mySub = subs.find(s => isMe(s.name)), oppSub = subs.find(s => !isMe(s.name));
+      if (!mySub || !oppSub) return;
+      const mr = computeMatchResult([mySub, oppSub]);
+      const res = (!mr || mr.winnerIdx === null) ? 't' : (mr.winnerIdx === 0 ? 'w' : 'l');
+      bump(oppSub.name, res);
+    } else {
+      const myPts = units[myKey].points;
+      others.forEach(k => {
+        const res = myPts > units[k].points ? 'w' : (myPts < units[k].points ? 'l' : 't');
+        units[k].people.forEach(opp => { if (!isMe(opp)) bump(opp, res); });
+      });
+    }
+  });
+  const opps = Object.keys(rec);
+  if (!opps.length) return '';
+  opps.sort((a, b) => {
+    const A = rec[a], B = rec[b];
+    return (B.w + B.l + B.t) - (A.w + A.l + A.t) || a.localeCompare(b, 'sv');
+  });
+  const rows = opps.map(o => {
+    const { w, l, t } = rec[o];
+    const games = w + l + t;
+    return `<div class="player-history-row">
+      <div class="player-history-info">
+        <div class="player-history-course">${escapeHtml(o)}</div>
+        <div class="player-history-meta">${games} ${games === 1 ? 'möte' : 'möten'}</div>
+      </div>
+      <div style="text-align:right;">
+        <div class="player-history-pts">${w}–${l}–${t}</div>
+        <div class="player-history-pts-label">V–F–O</div>
+      </div>
+    </div>`;
+  }).join('');
+  return `<p class="player-stats-section-title">Inbördes möten</p>${rows}`;
+}
+
 function openPlayerHistory(id) {
   const player = playersLoad().find(p => p.id === id);
   if (!player) return;
@@ -3012,6 +3069,7 @@ function openPlayerHistory(id) {
       ${formChart ? `<p class="player-stats-section-title">Form mot hcp</p>
       <div style="background:#f0faf4;border-radius:10px;padding:10px 8px 4px;margin-bottom:6px;">${formChart}</div>
       <p style="font-size:0.8rem;color:var(--muted);margin:0 0 16px;text-align:center;">${formVerdict}</p>` : ''}
+      ${buildHeadToHead(rounds, nm => nm === displayName || nm === player.name)}
       <p class="player-stats-section-title" style="margin-top:${chartPts.length >= 2 || hcpChart || formChart ? '0' : '16px'};">Rundor</p>` +
       rounds.map(r => {
         const subj = r.subjects.find(s => s.name === displayName || s.name === player.name);
