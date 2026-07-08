@@ -916,9 +916,12 @@
         <label style="margin-top:0;">Spelform</label>
         <div class="toggle-row">
           <button class="toggle-btn active" id="btnModeIndividual" onclick="setGameMode('individual')">Individuellt</button>
-          <button class="toggle-btn" id="btnModeScramble" onclick="setGameMode('scramble')">Scramble (2 lag)</button>
-          <button class="toggle-btn" id="btnModeFourball" onclick="setGameMode('fourball')">Bästboll (2 lag)</button>
-          <button class="toggle-btn" id="btnModeFoursome" onclick="setGameMode('foursome')">Foursome (2 lag)</button>
+          <span id="matchModeBtn" style="display:none;"><button class="toggle-btn" id="btnModeMatch" onclick="setGameMode('match')">Matchspel (1v1)</button></span>
+          <span id="teamModeBtns" style="display:contents;">
+            <button class="toggle-btn" id="btnModeScramble" onclick="setGameMode('scramble')">Scramble (2 lag)</button>
+            <button class="toggle-btn" id="btnModeFourball" onclick="setGameMode('fourball')">Bästboll (2 lag)</button>
+            <button class="toggle-btn" id="btnModeFoursome" onclick="setGameMode('foursome')">Foursome (2 lag)</button>
+          </span>
         </div>
         <div id="gameModeDesc" class="info-box"></div>
       </div>
@@ -946,6 +949,7 @@
         <div id="honorAvatar" style="width:32px;height:32px;border-radius:50%;background:#c8e6c9;border:2px solid var(--green);display:flex;align-items:center;justify-content:center;overflow:hidden;flex-shrink:0;font-size:1rem;"></div>
         <div style="flex:1;font-size:0.85rem;color:var(--green-dark);" id="honorText"></div>
       </div>
+      <div id="matchStatus" style="display:none;background:var(--green-dark);color:white;border-radius:8px;padding:10px 12px;margin-bottom:10px;font-weight:700;text-align:center;font-size:0.95rem;"></div>
       <div style="overflow-x:auto;">
         <table class="score-table">
           <thead id="scoreTableHead"></thead>
@@ -1570,10 +1574,14 @@ function setNumPlayers(n) {
   state.numPlayers = n;
   [1,2,3,4].forEach(i =>
     document.getElementById(`btnP${i}`).classList.toggle('active', i === n));
-  // Show/hide game mode selector
-  document.getElementById('gameModeRow').classList.toggle('hidden', n !== 4);
+  // Show/hide game mode selector — team modes at 4 players, match play at 2
+  const showModes = (n === 2 || n === 4);
+  document.getElementById('gameModeRow').classList.toggle('hidden', !showModes);
+  document.getElementById('teamModeBtns').style.display = n === 4 ? 'contents' : 'none';
+  document.getElementById('matchModeBtn').style.display = n === 2 ? '' : 'none';
   if (n !== 4 && isTeamMode(state.gameMode)) setGameMode('individual');
-  else if (n === 4) document.getElementById('gameModeDesc').innerHTML = GAME_MODE_DESCRIPTIONS[state.gameMode] || '';
+  else if (n !== 2 && state.gameMode === 'match') setGameMode('individual');
+  else if (showModes) document.getElementById('gameModeDesc').innerHTML = GAME_MODE_DESCRIPTIONS[state.gameMode] || '';
   buildPlayerCards();
 }
 
@@ -1581,7 +1589,8 @@ const GAME_MODE_DESCRIPTIONS = {
   individual: 'Varje spelare räknar sin egen poängbogey med sitt eget spelhandicap.',
   scramble: 'Lagen väljer den bästa av sina två utslag/bollar och spelar den gemensamt vidare — laget matar in <strong>en</strong> score per hål. Laghandicap beräknas automatiskt från spelarnas HI.',
   fourball: 'Varje spelare spelar sin egen boll och matar in sin egen score med sitt eget spelhandicap. Lagets poäng på varje hål är den <strong>bästa</strong> av lagmedlemmarnas poäng den hålet.',
-  foursome: 'Lagmedlemmarna spelar en gemensam boll och slår varannan gång — laget matar in <strong>en</strong> score per hål. Laghandicap är snittet av lagmedlemmarnas spelhandicap. Appen visar vem i respektive lag som slår ut på varje hål (växlar automatiskt hål för hål).'
+  foursome: 'Lagmedlemmarna spelar en gemensam boll och slår varannan gång — laget matar in <strong>en</strong> score per hål. Laghandicap är snittet av lagmedlemmarnas spelhandicap. Appen visar vem i respektive lag som slår ut på varje hål (växlar automatiskt hål för hål).',
+  match: 'Matchspel 1 mot 1 — varje hål vinns av spelaren med flest poäng (netto). Den som är fler hål upp än det finns hål kvar vinner matchen. Resultatet visas som t.ex. <strong>3&2</strong>.'
 };
 
 function setGameMode(mode) {
@@ -1590,6 +1599,7 @@ function setGameMode(mode) {
   document.getElementById('btnModeScramble').classList.toggle('active', mode === 'scramble');
   document.getElementById('btnModeFourball').classList.toggle('active', mode === 'fourball');
   document.getElementById('btnModeFoursome').classList.toggle('active', mode === 'foursome');
+  document.getElementById('btnModeMatch').classList.toggle('active', mode === 'match');
   document.getElementById('gameModeDesc').innerHTML = GAME_MODE_DESCRIPTIONS[mode] || '';
   // Default team assignments: 0,1 → A; 2,3 → B
   if (isTeamMode(mode) && (!state.teamAssign || state.teamAssign.length !== 4)) {
@@ -1852,7 +1862,45 @@ function buildScoreTable() {
     });
     tbody.innerHTML += `<tr${rowClass}>${cells}</tr>`;
   }
+  updateMatchStatus();
   setTimeout(() => document.getElementById('score_0_0')?.focus(), 100);
+}
+
+// Match play (1v1): compare the two subjects' per-hole net points.
+// Returns { winnerIdx, text, aWon, bWon, halved, playedHoles }.
+function computeMatchResult(results) {
+  const A = results[0], B = results[1];
+  if (!A || !B) return null;
+  const n = Math.min(A.rows.length, B.rows.length);
+  const seq = [];
+  for (let i = 0; i < n; i++) {
+    const ra = A.rows[i], rb = B.rows[i];
+    if (ra.skipped || rb.skipped) continue;
+    seq.push(ra.pts > rb.pts ? 1 : (ra.pts < rb.pts ? -1 : 0));
+  }
+  let lead = 0, winnerIdx = null, text = 'Delad match', decidedAt = seq.length;
+  for (let k = 0; k < seq.length; k++) {
+    lead += seq[k];
+    const rem = seq.length - (k + 1);
+    if (Math.abs(lead) > rem) {
+      winnerIdx = lead > 0 ? 0 : 1;
+      text = rem > 0 ? `${Math.abs(lead)}&${rem}` : `${Math.abs(lead)} upp`;
+      decidedAt = k + 1;
+      break;
+    }
+  }
+  const decided = seq.slice(0, decidedAt);
+  const aWon = decided.filter(x => x > 0).length;
+  const bWon = decided.filter(x => x < 0).length;
+  const halved = decided.filter(x => x === 0).length;
+  return { winnerIdx, text, aWon, bWon, halved, playedHoles: seq.length };
+}
+
+function matchResultText(results) {
+  const mr = computeMatchResult(results);
+  if (!mr || mr.playedHoles === 0) return '';
+  if (mr.winnerIdx === null) return '🤝 Delad match';
+  return `${results[mr.winnerIdx].subj.name} vann ${mr.text}`;
 }
 
 function calcLivePts(p, i, score) {
@@ -1905,10 +1953,12 @@ function updateLiveLeader() {
   }
 
   // Highlight leader column header and all body cells in that column
+  // (suppressed in match play — the points leader isn't necessarily the match leader)
+  const suppressLeader = state.gameMode === 'match';
   const headerCells = document.querySelectorAll('#scoreTableHead th');
   const bodyRows = document.querySelectorAll('#scoreTableBody tr');
   for (let p = 0; p < n; p++) {
-    const isLeader = anyScored && totals[p] === max;
+    const isLeader = !suppressLeader && anyScored && totals[p] === max;
     const th = headerCells[3 + p];
     if (th) th.classList.toggle('leader-col', isLeader);
     bodyRows.forEach(row => {
@@ -1916,6 +1966,32 @@ function updateLiveLeader() {
       if (cell) cell.classList.toggle('leader-col', isLeader);
     });
   }
+}
+
+function updateMatchStatus() {
+  const el = document.getElementById('matchStatus');
+  if (!el) return;
+  if (state.gameMode !== 'match') { el.style.display = 'none'; return; }
+  let lead = 0, played = 0;
+  for (let i = 0; i < state.holes; i++) {
+    const a = document.getElementById(`score_0_${i}`);
+    const b = document.getElementById(`score_1_${i}`);
+    if (a && b && a.value !== '' && b.value !== '') {
+      const pa = calcLivePts(0, i, parseInt(a.value));
+      const pb = calcLivePts(1, i, parseInt(b.value));
+      if (pa > pb) lead++; else if (pb > pa) lead--;
+      played++;
+    }
+  }
+  const nameA = state.players[0]?.name || 'Spelare 1';
+  const nameB = state.players[1]?.name || 'Spelare 2';
+  let txt;
+  if (played === 0) txt = 'Matchen börjar';
+  else if (lead > 0) txt = `${nameA} ${lead} upp`;
+  else if (lead < 0) txt = `${nameB} ${-lead} upp`;
+  else txt = 'Delad (A/S)';
+  el.textContent = `⚔️ ${txt} · ${played} hål spelade`;
+  el.style.display = 'block';
 }
 
 function updateHonorBanner() {
@@ -1983,6 +2059,7 @@ function onScoreInput(p, i, el) {
   }
   updateLiveLeader();
   updateHonorBanner();
+  updateMatchStatus();
   inprogressSave();
   if (el.value !== '') {
     const n = numColumns();
@@ -2027,6 +2104,7 @@ function calculateAll() {
   const isScramble = state.gameMode === 'scramble';
   const isFourball = state.gameMode === 'fourball';
   const isFoursome = state.gameMode === 'foursome';
+  const isMatch    = state.gameMode === 'match';
   const subjects   = isSharedScoreMode(state.gameMode) ? state.teams : state.players;
 
   const results = subjects.map((subj, p) => {
@@ -2048,7 +2126,7 @@ function calculateAll() {
       totalBrutto += score;
       rows.push({ h: i+1, par, si, strokes, score, netto, pts, skipped: false });
     }
-    return { subj, ph, totalPoints, totalBrutto, rows, isScramble, isFourball, isFoursome };
+    return { subj, ph, totalPoints, totalBrutto, rows, isScramble, isFourball, isFoursome, isMatch };
   });
 
   if (isFourball) applyFourballTeamScoring(results);
@@ -2181,10 +2259,27 @@ function renderResults(playerResults, rankContainerId = 'rankingContainer', prCo
   const isScramble = results[0]?.isScramble;
   const isFourball = results[0]?.isFourball;
   const isFoursome = results[0]?.isFoursome;
+  const isMatch    = results[0]?.isMatch;
 
   // Ranking
   const rankContainer = document.getElementById(rankContainerId);
   rankContainer.innerHTML = '';
+
+  if (isMatch) {
+    const mr = computeMatchResult(results);
+    const A = results[0], B = results[1];
+    const title = (mr && mr.winnerIdx !== null)
+      ? `🏆 ${results[mr.winnerIdx].subj.name} vann ${mr.text}`
+      : '🤝 Delad match';
+    const tally = mr
+      ? `Hål vunna: ${A.subj.name} ${mr.aWon} – ${mr.bWon} ${B.subj.name}${mr.halved ? ` · ${mr.halved} delade` : ''}`
+      : '';
+    rankContainer.innerHTML = `
+      <div class="ranking-card" style="flex-direction:column;align-items:stretch;gap:6px;">
+        <div style="font-size:1.15rem;font-weight:800;color:var(--green-dark);text-align:center;">${title}</div>
+        <div style="text-align:center;color:var(--muted);font-size:0.85rem;">${tally}</div>
+      </div>`;
+  } else
   sorted.forEach((r, rank) => {
     const holesPlayed = r.rows.filter(row => !row.skipped).length;
     const name     = r.subj.name;
@@ -2561,7 +2656,7 @@ function saveCurrentRound(playerResults) {
     slope: state.slope,
     cr: state.cr,
     par: state.par,
-    gameMode: isScramble ? 'scramble' : (isFourball ? 'fourball' : (isFoursome ? 'foursome' : 'individual')),
+    gameMode: state.gameMode,
     subjects
   };
   if (isEditing) roundUpdate(roundData);
@@ -3601,7 +3696,8 @@ async function shareRound(id) {
   const rows = [...r.subjects]
     .sort((a, b) => b.totalPoints - a.totalPoints)
     .map(s => ({ name: s.name, points: s.totalPoints }));
-  const highlight = topHighlightText(r.subjects.map(s => ({ subj: { name: s.name }, rows: s.rows })));
+  const pseudo = r.subjects.map(s => ({ subj: { name: s.name }, rows: s.rows }));
+  const highlight = r.gameMode === 'match' ? matchResultText(pseudo) : topHighlightText(pseudo);
   await _doShare(rows, { courseName: r.courseName, tee: r.tee, holes: r.holes, date: r.date, highlight });
 }
 
@@ -3629,15 +3725,23 @@ function printRound(id) {
 }
 
 async function shareResult() {
-  const cards = document.querySelectorAll('#rankingContainer .ranking-card');
-  const rows = [];
-  cards.forEach(card => {
-    const name   = card.querySelector('.rank-name')?.textContent?.trim() || '';
-    const points = parseInt(card.querySelector('.rank-pts')?.textContent) || 0;
-    rows.push({ name, points });
-  });
+  const lr = window._lastResults;
+  let rows, highlight;
+  if (lr && lr.length) {
+    rows = lr.slice().sort((a, b) => b.totalPoints - a.totalPoints)
+      .map(r => ({ name: r.subj.name, points: r.totalPoints }));
+    highlight = lr[0]?.isMatch ? matchResultText(lr) : topHighlightText(lr);
+  } else {
+    rows = [];
+    document.querySelectorAll('#rankingContainer .ranking-card').forEach(card => {
+      rows.push({
+        name: card.querySelector('.rank-name')?.textContent?.trim() || '',
+        points: parseInt(card.querySelector('.rank-pts')?.textContent) || 0
+      });
+    });
+    highlight = '';
+  }
   const date = new Date().toLocaleDateString('sv-SE');
-  const highlight = topHighlightText(window._lastResults || []);
   await _doShare(rows, { courseName: state.courseName, tee: state.teeColor, holes: state.holes, date, highlight });
 }
 

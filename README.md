@@ -39,6 +39,9 @@ Spelhandicap = round((Spelhandicap spelare 1 + Spelhandicap spelare 2) / 2)
 
 Under scoreinmatningen visar appen vem i respektive lag som slår ut på varje hål (🎯) — ordningen växlar automatiskt hål för hål mellan lagmedlemmarna.
 
+### Matchspel (2 spelare, 1v1)
+Hål-för-hål-match mellan två spelare. Varje hål vinns av den med flest poäng (netto) — lika poäng ger delat hål. Den som är fler hål upp än det finns hål kvar vinner matchen. Under scoreinmatningen visas matchställningen live (**⚔️ X upp / Delad**) och resultatsidan visar utfallet, t.ex. **3&2** eller *Delad match*.
+
 ## Spelarregister
 
 Spara dina vanliga medspelare för snabb återanvändning:
