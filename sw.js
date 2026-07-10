@@ -1,4 +1,4 @@
-const CACHE = 'golf-v3'; // bump on each deploy
+const CACHE = 'golf-v4'; // bump on each deploy
 const SHELL = [
   './',
   './index.html',

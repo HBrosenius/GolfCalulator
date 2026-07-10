@@ -1984,6 +1984,7 @@ function buildScoreTable() {
   }
   updateMatchStatus();
   syncRoundMeta();
+  updateHonorBanner();
   setTimeout(() => document.getElementById('score_0_0')?.focus(), 100);
 }
 
@@ -2155,6 +2156,7 @@ function updateHonorBanner() {
   if (!banner) return;
   const n = numColumns();
   if (n < 2) { banner.style.display = 'none'; return; }
+  const subjects = isSharedScoreMode(state.gameMode) ? state.teams : state.players;
 
   // Find last hole where ALL players have scored
   let lastComplete = -1;
@@ -2166,23 +2168,33 @@ function updateHonorBanner() {
     if (allFilled) lastComplete = i;
   }
 
-  if (lastComplete < 0) { banner.style.display = 'none'; return; }
-  const nextHole = lastComplete + 2; // 1-indexed next hole
-  if (nextHole > state.holes) { banner.style.display = 'none'; return; }
-
-  // Find winner of that hole: most points, tie-break by fewest strokes
-  let best = null;
-  let bestPts = -1, bestStrokes = 999;
-  for (let p = 0; p < n; p++) {
-    const el = document.getElementById(`score_${p}_${lastComplete}`);
-    const strokes = parseInt(el.value);
-    const pts = calcLivePts(p, lastComplete, strokes);
-    if (pts > bestPts || (pts === bestPts && strokes < bestStrokes)) {
-      bestPts = pts; bestStrokes = strokes; best = p;
+  let best, nextHole;
+  if (lastComplete < 0) {
+    // No hole finished yet — lowest handicap tees off first on hole 1
+    best = 0;
+    let lowest = Infinity;
+    for (let p = 0; p < n; p++) {
+      const ph = subjects[p] ? subjects[p].playingHandicap : null;
+      if (ph != null && ph < lowest) { lowest = ph; best = p; }
+    }
+    nextHole = 1;
+  } else {
+    nextHole = lastComplete + 2; // 1-indexed next hole
+    if (nextHole > state.holes) { banner.style.display = 'none'; return; }
+    // Honor to the winner of the last finished hole: most points, tie-break by fewest strokes
+    best = 0;
+    let bestPts = -1, bestStrokes = 999;
+    for (let p = 0; p < n; p++) {
+      const el = document.getElementById(`score_${p}_${lastComplete}`);
+      const strokes = parseInt(el.value);
+      const pts = calcLivePts(p, lastComplete, strokes);
+      if (pts > bestPts || (pts === bestPts && strokes < bestStrokes)) {
+        bestPts = pts; bestStrokes = strokes; best = p;
+      }
     }
   }
 
-  const player = state.players[best];
+  const player = subjects[best];
   const playerName = (player && (player.nick || player.name)) || `Spelare ${best + 1}`;
   const photo = _photoForName(player && player.name);
 
