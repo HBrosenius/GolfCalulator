@@ -126,6 +126,7 @@ Appen levereras med kurs- och hålinformation för följande banor:
 | Saxnäs GK | Gul / Röd | 18 |
 | Långe Erik, Ekerum | Gul / Röd | 18 |
 | Långe Jan, Ekerum | Gul / Röd | 18 |
+| Oskarshamns Golfklubb | Gul / Röd | 18 |
 
 Data är hämtad från [mScorecard.com](https://www.mscorecard.com).
 
