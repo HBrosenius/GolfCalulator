@@ -2364,9 +2364,9 @@ function topHighlightText(results) {
   return b ? `🔥 Bästa hål: ${b.name} hål ${b.h} (${b.pts}p)` : '';
 }
 
-function buildRoundHighlights(results, markers) {
+function _collectHighlightItems(results, markers) {
   const anyPlayed = results.some(r => r.rows.some(row => !row.skipped));
-  if (!anyPlayed) return '';
+  if (!anyPlayed) return [];
 
   const items = [];
   const best = _bestHole(results);
@@ -2376,16 +2376,16 @@ function buildRoundHighlights(results, markers) {
   const leaderBy = pred => {
     let lead = null;
     results.forEach(r => {
-      const n = r.rows.filter(row => !row.skipped && pred(row.pts)).length;
+      const n = r.rows.filter(row => !row.skipped && pred(row)).length;
       if (n > 0 && (!lead || n > lead.n)) lead = { name: r.subj.name, n };
     });
     return lead;
   };
-  const birdies = leaderBy(p => p === 3);
+  const birdies = leaderBy(row => row.score === row.par - 1);
   if (birdies) items.push({ icon: '🐦', label: 'Flest birdies', value: `${birdies.name} · ${birdies.n} st` });
-  const eagles = leaderBy(p => p >= 4);
+  const eagles = leaderBy(row => row.score <= row.par - 2);
   if (eagles) items.push({ icon: '🦅', label: 'Eagle el. bättre', value: `${eagles.name} · ${eagles.n} st` });
-  const zeros = leaderBy(p => p === 0);
+  const zeros = leaderBy(row => row.pts === 0);
   if (zeros) items.push({ icon: '😬', label: 'Flest nollor', value: `${zeros.name} · ${zeros.n} st` });
 
   // Toughest hole (field average) — only meaningful with 2+ subjects
@@ -2409,19 +2409,26 @@ function buildRoundHighlights(results, markers) {
   if (markers) {
     const ctp = markers.ctp;
     if (ctp && ctp.player) {
-      items.push({ icon: '🎯', label: `Närmast pinnen${ctp.hole != null ? ' · hål ' + (ctp.hole + 1) : ''}`, value: escapeHtml(ctp.player) });
+      items.push({ icon: '🎯', label: `Närmast pinnen${ctp.hole != null ? ' · hål ' + (ctp.hole + 1) : ''}`, value: ctp.player });
     }
     const ld = markers.ld;
     if (ld && ld.player) {
-      items.push({ icon: '💥', label: `Längsta drive${ld.hole != null ? ' · hål ' + (ld.hole + 1) : ''}`, value: escapeHtml(ld.player) });
+      items.push({ icon: '💥', label: `Längsta drive${ld.hole != null ? ' · hål ' + (ld.hole + 1) : ''}`, value: ld.player });
     }
   }
+
+  return items;
+}
+
+function buildRoundHighlights(results, markers) {
+  const items = _collectHighlightItems(results, markers);
+  if (!items.length) return '';
 
   const rows = items.map(it => `
     <div style="display:flex;align-items:center;gap:10px;font-size:0.9rem;">
       <span style="font-size:1.1rem;">${it.icon}</span>
       <span style="flex:1;color:var(--muted);">${it.label}</span>
-      <span style="font-weight:700;color:var(--green-dark);">${it.value}</span>
+      <span style="font-weight:700;color:var(--green-dark);">${escapeHtml(String(it.value))}</span>
     </div>`).join('');
 
   return `
@@ -2429,6 +2436,12 @@ function buildRoundHighlights(results, markers) {
       <div class="card-title"><span class="icon">✨</span> Höjdpunkter</div>
       <div style="display:flex;flex-direction:column;gap:8px;">${rows}</div>
     </div>`;
+}
+
+function buildHighlightsText(results, markers) {
+  const items = _collectHighlightItems(results, markers);
+  if (!items.length) return '';
+  return items.map(it => `${it.icon} ${it.label}: ${it.value}`).join('\n');
 }
 
 function renderResults(playerResults, rankContainerId = 'rankingContainer', prContainerId = 'playerResultsContainer', markers = null) {
@@ -2547,6 +2560,7 @@ function renderResults(playerResults, rankContainerId = 'rankingContainer', prCo
   const hl = buildRoundHighlights(results, markers);
   if (hl) prContainer.innerHTML = hl + prContainer.innerHTML;
   window._lastResults = results;
+  window._lastMarkers = markers;
 }
 
 function newRound() {
@@ -4034,7 +4048,7 @@ async function shareRound(id) {
     .sort((a, b) => b.totalPoints - a.totalPoints)
     .map(s => ({ name: s.name, points: s.totalPoints }));
   const pseudo = r.subjects.map(s => ({ subj: { name: s.name }, rows: s.rows }));
-  const highlight = r.gameMode === 'match' ? matchResultText(pseudo) : topHighlightText(pseudo);
+  const highlight = r.gameMode === 'match' ? matchResultText(pseudo) : buildHighlightsText(pseudo, r.markers || null);
   await _doShare(rows, { courseName: r.courseName, tee: r.tee, holes: r.holes, date: r.date, highlight, weather: r.weather || null, note: r.note || '' });
 }
 
@@ -4067,7 +4081,7 @@ async function shareResult() {
   if (lr && lr.length) {
     rows = lr.slice().sort((a, b) => b.totalPoints - a.totalPoints)
       .map(r => ({ name: r.subj.name, points: r.totalPoints }));
-    highlight = lr[0]?.isMatch ? matchResultText(lr) : topHighlightText(lr);
+    highlight = lr[0]?.isMatch ? matchResultText(lr) : buildHighlightsText(lr, window._lastMarkers || null);
   } else {
     rows = [];
     document.querySelectorAll('#rankingContainer .ranking-card').forEach(card => {
