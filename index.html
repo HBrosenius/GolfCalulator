@@ -4082,7 +4082,9 @@ async function shareRound(id) {
     .sort((a, b) => b.totalPoints - a.totalPoints)
     .map(s => ({ name: s.name, points: s.totalPoints }));
   const pseudo = r.subjects.map(s => ({ subj: { name: s.name }, rows: s.rows }));
-  const highlight = r.gameMode === 'match' ? matchResultText(pseudo) : buildHighlightsText(pseudo, r.markers || null);
+  const matchLine = r.gameMode === 'match' ? matchResultText(pseudo) : '';
+  const highlightsText = buildHighlightsText(pseudo, r.markers || null);
+  const highlight = [matchLine, highlightsText].filter(Boolean).join('\n');
   await _doShare(rows, { courseName: r.courseName, tee: r.tee, holes: r.holes, date: r.date, highlight, weather: r.weather || null, note: r.note || '' });
 }
 
@@ -4115,7 +4117,9 @@ async function shareResult() {
   if (lr && lr.length) {
     rows = lr.slice().sort((a, b) => b.totalPoints - a.totalPoints)
       .map(r => ({ name: r.subj.name, points: r.totalPoints }));
-    highlight = lr[0]?.isMatch ? matchResultText(lr) : buildHighlightsText(lr, window._lastMarkers || null);
+    const matchLine = lr[0]?.isMatch ? matchResultText(lr) : '';
+    const highlightsText = buildHighlightsText(lr, window._lastMarkers || null);
+    highlight = [matchLine, highlightsText].filter(Boolean).join('\n');
   } else {
     rows = [];
     document.querySelectorAll('#rankingContainer .ranking-card').forEach(card => {
