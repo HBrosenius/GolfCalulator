@@ -3895,14 +3895,25 @@ function _loadImg(src) {
   });
 }
 
+function _fitText(ctx, text, maxWidth) {
+  if (ctx.measureText(text).width <= maxWidth) return text;
+  let t = text;
+  while (t.length > 1 && ctx.measureText(t + '…').width > maxWidth) t = t.slice(0, -1);
+  return t + '…';
+}
+
 async function buildShareImage(rows, meta) {
   // rows: [{ name, points }] already sorted
-  // meta: { courseName, tee, holes, date }
+  // meta: { courseName, tee, holes, date, highlight }
   const W = 480;
   const HEADER_H = 88;
   const ROW_H = 72;
   const FOOTER_H = 42;
-  const H = HEADER_H + rows.length * ROW_H + FOOTER_H;
+  const HL_LINE_H = 24;
+  const highlightLines = (meta.highlight || '').split('\n').map(l => l.trim()).filter(Boolean);
+  const HL_TITLE_H = highlightLines.length ? 34 : 0;
+  const HL_H = highlightLines.length ? HL_TITLE_H + highlightLines.length * HL_LINE_H + 14 : 0;
+  const H = HEADER_H + rows.length * ROW_H + HL_H + FOOTER_H;
   const AV = 46; // avatar diameter
   const MEDALS = ['🥇','🥈','🥉','🪙'];
 
@@ -3988,8 +3999,30 @@ async function buildShareImage(rows, meta) {
     ctx.fillText(`${points}p`, W - 16, rowY + ROW_H / 2 + 8);
   }
 
+  // Highlights section
+  if (highlightLines.length) {
+    const hlY = HEADER_H + rows.length * ROW_H;
+    ctx.fillStyle = '#f1f8e9';
+    ctx.fillRect(0, hlY, W, HL_H);
+    ctx.fillStyle = '#dcedc8';
+    ctx.fillRect(0, hlY, W, 1);
+
+    ctx.font = 'bold 14px system-ui, -apple-system, sans-serif';
+    ctx.textAlign = 'left';
+    ctx.fillStyle = '#1b5e20';
+    ctx.fillText('✨ Höjdpunkter', 16, hlY + 24);
+
+    ctx.font = '13px system-ui, -apple-system, sans-serif';
+    ctx.fillStyle = '#33691e';
+    const maxTextWidth = W - 32;
+    highlightLines.forEach((line, i) => {
+      const ly = hlY + HL_TITLE_H + i * HL_LINE_H + 14;
+      ctx.fillText(_fitText(ctx, line, maxTextWidth), 16, ly);
+    });
+  }
+
   // Footer
-  const footerY = HEADER_H + rows.length * ROW_H;
+  const footerY = HEADER_H + rows.length * ROW_H + HL_H;
   ctx.fillStyle = '#f1f8e9';
   ctx.fillRect(0, footerY, W, FOOTER_H);
   ctx.font = '13px system-ui, -apple-system, sans-serif';
@@ -3999,6 +4032,7 @@ async function buildShareImage(rows, meta) {
 
   return canvas;
 }
+
 
 function _shareTextFromRows(rows, meta) {
   const medals = ['🥇','🥈','🥉','🪙'];
