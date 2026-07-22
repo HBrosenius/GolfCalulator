@@ -2684,6 +2684,9 @@ function restoreScoresToTable() {
 }
 
 function discardInprogress() {
+  if (!confirm('Är du säker på att du vill slänga den pågående rundan? Detta går inte att ångra.')) {
+    return;
+  }
   inprogressClear();
   document.getElementById('resumeBanner').style.display = 'none';
 }
