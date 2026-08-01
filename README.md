@@ -74,11 +74,12 @@ Under Spelarregister → **📅 Säsong** kan du se en sammanlagd poängtabell f
 - **Poäng per hål** visas direkt under scoreinmatningen (färgkodad: bogey/par/birdie/eagle)
 - **Ledare markeras** med grön kolumn i scoretabellen — uppdateras efter varje hål
 - **Poängtotal** visas i tabellens sidfot och uppdateras löpande
+- **Sticky rubrik och totalsumma** — spelarnas namn ligger kvar överst och poängtotalen kvar längst ner medan du bläddrar genom hålen
 - **Äran-banner** — efter varje avslutat hål visas vem som har äran och startar nästa hål, med spelarens profilbild
 
 ## Återuppta pågående runda
 
-Rundan sparas automatiskt efter varje inmatad score. Om sidan laddas om eller webbläsaren stängs mitt i rundan visas en banner på startsidan med **Fortsätt rundan ▶** — alla inmatade scorer, poäng och ledarmarkering återställs. Snapshoten rensas när rundan beräknas klart eller när du väljer **Släng**.
+Rundan sparas automatiskt efter varje inmatad score. Om sidan laddas om eller webbläsaren stängs mitt i rundan visas en banner på startsidan med **Fortsätt rundan ▶** — alla inmatade scorer, poäng och ledarmarkering återställs. Snapshoten rensas när rundan beräknas klart eller när du väljer **Släng** (en bekräftelseruta visas innan rundan slängs, så du inte råkar radera av misstag).
 
 ## Rundhistorik
 
@@ -95,14 +96,15 @@ Alla spelade rundor sparas automatiskt och kan bläddras i efterhand:
 
 Resultatsidan och sparade rundor kan delas via **📤 Dela**-knappen:
 
-- På mobil delas en **bildkort** (PNG) med profilbilder, rankning och poäng
-- På desktop kopieras resultattexten till urklipp som reserv
+- På mobil delas en **bildkort** (PNG) med profilbilder, rankning, poäng och en **✨ Höjdpunkter**-sektion (bästa hål, flest birdies/eagles, tuffaste hålet, närmast pinnen, längsta drive m.m.) — höjdpunkterna ritas direkt in i bilden så att de alltid syns, oavsett vilken app du delar till
+- På desktop kopieras resultattexten till urklipp som reserv, med samma höjdpunkter som text
 - Bilden innehåller kursnamn, tee, antal hål och datum
-- Den delade texten innehåller även rundans bästa hål
 
 ## Höjdpunkter
 
-Resultatsidan (och en återöppnad sparad runda) visar ett **✨ Höjdpunkter**-kort med rundans roligaste statistik: bästa hål, flest birdies, eagles, flest nollor och tuffaste hålet.
+Resultatsidan (och en återöppnad sparad runda) visar ett **✨ Höjdpunkter**-kort med rundans roligaste statistik: bästa hål, flest birdies, eagle eller bättre, flest nollor och tuffaste hålet. Birdies och eagles räknas på det faktiska slagresultatet mot par (inte poängbogey-poängen), så en spelare får bara credit för en riktig birdie eller eagle.
+
+I matchspel visas höjdpunkterna tillsammans med matchresultatet (t.ex. **3&2**), inte istället för det.
 
 I början av varje runda lottas ett par-3-hål för **🎯 närmast pinnen** och ett par-4/5-hål för **💥 längsta drive**. När du matar in scoren dyker en vinnarväljare upp direkt vid det utlottade hålet, och vinnarna visas sedan i höjdpunkterna.
 
