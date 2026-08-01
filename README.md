@@ -142,10 +142,13 @@ All lokal data kan säkerhetskopieras och återställas via **📅 Sparade rundo
 
 ## Cloud-backup (Google Drive)
 
-Under **📅 Sparade rundor → ☁️ Cloud-backup** kan all data (banor, rundor, spelare) säkerhetskopieras till en fil i din egen Google Drive, och återställas därifrån:
+Under **📅 Sparade rundor → ☁️ Cloud-backup** kan all data (banor, rundor, spelare) säkerhetskopieras till Google Drive, och återställas därifrån:
 
-- **Säkerhetskopiera** loggar in med ditt Google-konto (första gången) och sparar all data som `golf-backup.json` i din egen Drive — appen har bara åtkomst till filer den själv skapat, inte resten av din Drive
-- **Återställ** hämtar filen och sammanfogar den med lokal data via samma deduplicering som vanlig import — inget skrivs över
+- **Varje enhet/webbläsare får sin egen säkerhetskopia** — appen ger varje enhet ett unikt, sparat ID vid första användningen, så en säkerhetskopia från mobilen skriver inte över en från datorn
+- **Namn på denna enhet** kan anges (t.ex. "Henriks iPhone") och sparas tillsammans med filen i Drive, så den går att känna igen senare
+- **Säkerhetskopiera** loggar in med ditt Google-konto (första gången) och sparar all data i din egen Drive — appen har bara åtkomst till filer den själv skapat, inte resten av din Drive
+- **Återställ** listar alla säkerhetskopior som finns i kontots Drive; finns det fler än en (flera enheter) visas en väljare med enhetsnamn och tidpunkt så du kan välja rätt en. En äldre säkerhetskopia från innan enhetsstöd fanns känns också igen automatiskt.
+- Vald säkerhetskopia sammanfogas med lokal data via samma deduplicering som vanlig import — inget skrivs över
 - Senaste säkerhetskopieringstidpunkt visas ovanför knapparna
 - Varje användares data hamnar i just deras egen Drive — inget går via en delad server eller utvecklarens konto
 
@@ -186,5 +189,6 @@ Håldata valideras innan rundan startar: varje hål måste ha par och ett unikt 
   - `golf_rounds_db` — rundhistorik
   - `golf_players_db` — spelarregister (inkl. profilbilder som base64)
   - `golf_last_cloud_backup` — tidpunkt för senaste Google Drive-säkerhetskopiering
+  - `golf_origin_id` / `golf_origin_label` — unikt ID och namn för denna enhet/webbläsare, används för att skilja säkerhetskopior åt i Google Drive
 - Fungerar offline efter första laddning — Google Identity Services laddas endast in på begäran när cloud-backup används, så vanligt spel påverkas inte
 - Profilbilder komprimeras till 160×160 px JPEG via canvas innan lagring
