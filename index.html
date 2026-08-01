@@ -158,11 +158,18 @@
   .btn.secondary:hover { background: var(--bg); }
 
   /* Score table */
+  .score-table-wrap {
+    overflow: auto;
+    -webkit-overflow-scrolling: touch;
+    max-height: 62vh;
+    border-radius: 8px;
+  }
   .score-table { width: 100%; border-collapse: collapse; }
   .score-table thead th {
     background: var(--green); color: white;
     padding: 8px 4px; font-size: 0.72rem; text-align: center;
     font-weight: 600; text-transform: uppercase; letter-spacing: 0.3px;
+    position: sticky; top: 0; z-index: 3;
   }
   .score-table thead th:first-child { border-radius: 6px 0 0 0; }
   .score-table thead th:last-child { border-radius: 0 6px 0 0; }
@@ -360,6 +367,9 @@
     text-align: center;
     border-top: 2px solid var(--green);
     background: #f0faf4;
+    position: sticky;
+    bottom: 0;
+    z-index: 3;
   }
   .score-table tfoot .totals-row td.leader {
     background: var(--green);
@@ -978,7 +988,7 @@
         <div style="flex:1;font-size:0.85rem;color:var(--green-dark);" id="honorText"></div>
       </div>
       <div id="matchStatus" style="display:none;background:var(--green-dark);color:white;border-radius:8px;padding:10px 12px;margin-bottom:10px;font-weight:700;text-align:center;font-size:0.95rem;"></div>
-      <div style="overflow-x:auto;">
+      <div class="score-table-wrap">
         <table class="score-table">
           <thead id="scoreTableHead"></thead>
           <tbody id="scoreTableBody"></tbody>
