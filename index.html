@@ -708,7 +708,11 @@
     </div>
     <div class="card" style="margin-top:10px;">
       <div class="card-title" style="margin-bottom:10px;"><span class="icon">☁️</span> Cloud-backup (Google Drive)</div>
-      <p style="font-size:0.82rem;color:var(--muted);margin:0 0 6px;">Säkerhetskopiera all data (banor, rundor, spelare) till en fil i ditt eget Google Drive, eller återställ därifrån.</p>
+      <p style="font-size:0.82rem;color:var(--muted);margin:0 0 6px;">Säkerhetskopiera all data (banor, rundor, spelare) till en fil i ditt eget Google Drive, eller återställ därifrån. Varje enhet/webbläsare får sin egen säkerhetskopia.</p>
+      <div style="margin-bottom:10px;">
+        <label style="font-size:0.78rem;color:var(--muted);">Namn på denna enhet</label>
+        <input type="text" id="driveOriginLabelInput" placeholder="t.ex. Henriks iPhone" style="font-size:0.85rem;padding:6px 8px;" onchange="driveSetOriginLabel(this.value)">
+      </div>
       <p id="driveLastBackup" style="font-size:0.78rem;color:var(--muted);margin:0 0 12px;">Ingen säkerhetskopia gjord än.</p>
       <div style="display:flex;gap:10px;flex-wrap:wrap;">
         <button class="btn" style="flex:1;" onclick="driveBackupNow()">⬆☁ Säkerhetskopiera</button>
@@ -2459,6 +2463,85 @@ function buildHighlightsText(results, markers) {
   return items.map(it => `${it.icon} ${it.label}: ${it.value}`).join('\n');
 }
 
+// ---- Skins game ----
+// One skin per hole, awarded to whoever has the sole best score (net or gross).
+// Ties carry the skin(s) over to the next hole. Holes where any subject
+// didn't play (skipped) are excluded and don't affect the carry.
+function computeSkins(results, basis) {
+  if (!results || results.length < 2) return null;
+  const numHoles = Math.max(...results.map(r => r.rows.length));
+  let carry = 0;
+  const skinsWon = {};
+  const perHole = [];
+
+  for (let i = 0; i < numHoles; i++) {
+    const rowsAtHole = results.map(r => r.rows[i]);
+    if (rowsAtHole.some(row => !row || row.skipped)) continue;
+
+    const vals = results.map(r => ({ name: r.subj.name, val: basis === 'gross' ? r.rows[i].score : r.rows[i].netto }));
+    const min = Math.min(...vals.map(v => v.val));
+    const winners = vals.filter(v => v.val === min);
+    const atStake = 1 + carry;
+
+    if (winners.length === 1) {
+      skinsWon[winners[0].name] = (skinsWon[winners[0].name] || 0) + atStake;
+      perHole.push({ h: rowsAtHole[0].h, winner: winners[0].name, atStake });
+      carry = 0;
+    } else {
+      perHole.push({ h: rowsAtHole[0].h, winner: null, atStake });
+      carry = atStake;
+    }
+  }
+
+  return { skinsWon, perHole, unresolvedCarry: carry };
+}
+
+window._skinsStore = window._skinsStore || {};
+
+function buildSkinsCard(key, results, basis) {
+  window._skinsStore[key] = results;
+  const sk = computeSkins(results, basis);
+  if (!sk || Object.keys(sk.skinsWon).length === 0) return '';
+
+  const sorted = Object.entries(sk.skinsWon).sort((a, b) => b[1] - a[1]);
+  const rows = sorted.map(([name, n]) => `
+    <div style="display:flex;align-items:center;gap:10px;font-size:0.9rem;">
+      <span style="flex:1;">${escapeHtml(name)}</span>
+      <span style="font-weight:700;color:var(--green-dark);">${n} skin${n === 1 ? '' : 's'}</span>
+    </div>`).join('');
+  const carryNote = sk.unresolvedCarry > 0
+    ? `<div style="font-size:0.78rem;color:var(--muted);margin-top:8px;">${sk.unresolvedCarry} oavgjord${sk.unresolvedCarry === 1 ? '' : 'a'} skin${sk.unresolvedCarry === 1 ? '' : 's'} kvar (delat på sista hålet)</div>`
+    : '';
+
+  return `
+    <div class="card" data-skins-key="${escapeHtml(key)}" data-basis="${basis}">
+      <div class="card-title" style="display:flex;justify-content:space-between;align-items:center;">
+        <span><span class="icon">🎲</span> Skins</span>
+        <button class="btn secondary" style="width:auto;margin:0;padding:4px 10px;font-size:0.72rem;" onclick="toggleSkinsBasis(this)">${basis === 'net' ? 'Visa brutto' : 'Visa netto'}</button>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:8px;">${rows}</div>
+      ${carryNote}
+    </div>`;
+}
+
+function toggleSkinsBasis(btn) {
+  const card = btn.closest('[data-skins-key]');
+  if (!card) return;
+  const key = card.dataset.skinsKey;
+  const results = window._skinsStore[key];
+  if (!results) return;
+  const newBasis = card.dataset.basis === 'net' ? 'gross' : 'net';
+  card.outerHTML = buildSkinsCard(key, results, newBasis);
+}
+
+function buildSkinsText(results, basis) {
+  const sk = computeSkins(results, basis);
+  if (!sk || Object.keys(sk.skinsWon).length === 0) return '';
+  const sorted = Object.entries(sk.skinsWon).sort((a, b) => b[1] - a[1]);
+  const label = basis === 'net' ? 'Skins (netto)' : 'Skins (brutto)';
+  return `🎲 ${label}: ` + sorted.map(([name, n]) => `${name} ${n}`).join(', ');
+}
+
 function renderResults(playerResults, rankContainerId = 'rankingContainer', prContainerId = 'playerResultsContainer', markers = null) {
   // Sort for ranking (higher points = better)
   const results = playerResults; // alias (passed from calculateAll)
@@ -2573,7 +2656,8 @@ function renderResults(playerResults, rankContainerId = 'rankingContainer', prCo
   });
 
   const hl = buildRoundHighlights(results, markers);
-  if (hl) prContainer.innerHTML = hl + prContainer.innerHTML;
+  const skinsCard = buildSkinsCard('live', results, 'net');
+  if (hl || skinsCard) prContainer.innerHTML = hl + skinsCard + prContainer.innerHTML;
   window._lastResults = results;
   window._lastMarkers = markers;
 }
@@ -2860,14 +2944,64 @@ function importData(input) {
 // JavaScript origin, and add each user's Google account as a test user
 // on the OAuth consent screen (no verification needed for a small group).
 const GOOGLE_DRIVE_CLIENT_ID = '843215891614-p30e6kdiqs5nafe9blrksgn7ss59tv04.apps.googleusercontent.com';
-const DRIVE_BACKUP_FILENAME = 'golf-backup.json';
 const DRIVE_SCOPE = 'https://www.googleapis.com/auth/drive.file';
 const LAST_BACKUP_KEY = 'golf_last_cloud_backup';
+const ORIGIN_ID_KEY = 'golf_origin_id';
+const ORIGIN_LABEL_KEY = 'golf_origin_label';
+const LEGACY_BACKUP_FILENAME = 'golf-backup.json'; // pre-multi-device filename, still recognized on restore
 
 let _gisScriptPromise = null;
 let _driveTokenClient = null;
 let _driveAccessToken = null;
 let _driveTokenExpiresAt = 0;
+
+// Every browser/device gets a stable random ID (persisted locally) so each
+// one backs up to its own file in Drive instead of overwriting a shared one.
+function _getOriginId() {
+  let id = localStorage.getItem(ORIGIN_ID_KEY);
+  if (!id) {
+    id = 'o' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+    try { localStorage.setItem(ORIGIN_ID_KEY, id); } catch(e) {}
+  }
+  return id;
+}
+
+function _guessOriginLabel() {
+  const ua = navigator.userAgent || '';
+  let device = 'Okänd enhet';
+  if (/iPhone/.test(ua)) device = 'iPhone';
+  else if (/iPad/.test(ua)) device = 'iPad';
+  else if (/Android/.test(ua)) device = 'Android';
+  else if (/Macintosh/.test(ua)) device = 'Mac';
+  else if (/Windows/.test(ua)) device = 'Windows';
+  let browser = '';
+  if (/Edg\//.test(ua)) browser = 'Edge';
+  else if (/Chrome\//.test(ua) && !/Edg\//.test(ua)) browser = 'Chrome';
+  else if (/Firefox\//.test(ua)) browser = 'Firefox';
+  else if (/Safari\//.test(ua) && !/Chrome/.test(ua)) browser = 'Safari';
+  return browser ? `${browser} på ${device}` : device;
+}
+
+function _getOriginLabel() {
+  let label = localStorage.getItem(ORIGIN_LABEL_KEY);
+  if (!label) {
+    label = _guessOriginLabel();
+    try { localStorage.setItem(ORIGIN_LABEL_KEY, label); } catch(e) {}
+  }
+  return label;
+}
+
+function driveSetOriginLabel(value) {
+  const v = (value || '').trim() || _guessOriginLabel();
+  try { localStorage.setItem(ORIGIN_LABEL_KEY, v); } catch(e) {}
+  const el = document.getElementById('driveOriginLabelInput');
+  if (el) el.value = v;
+}
+
+function _populateOriginLabelInput() {
+  const el = document.getElementById('driveOriginLabelInput');
+  if (el) el.value = _getOriginLabel();
+}
 
 function _loadGis() {
   if (_gisScriptPromise) return _gisScriptPromise;
@@ -2917,14 +3051,66 @@ function _getDriveToken() {
   });
 }
 
-async function _driveFindBackupFileId(token) {
-  const q = encodeURIComponent(`name='${DRIVE_BACKUP_FILENAME}' and trashed=false`);
+// Finds this device's own backup file (by its unique filename), if it exists.
+async function _driveFindThisOriginFileId(token, filename) {
+  const q = encodeURIComponent(`name='${filename}' and trashed=false`);
   const res = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}&spaces=drive&fields=files(id,name)`, {
     headers: { Authorization: `Bearer ${token}` }
   });
   if (!res.ok) throw new Error('Kunde inte söka i Google Drive.');
   const data = await res.json();
   return (data.files && data.files[0]) ? data.files[0].id : null;
+}
+
+// Lists every backup file this app has created across all devices/browsers
+// (including a single legacy fixed-name file from before multi-device support).
+async function _driveListBackupFiles(token) {
+  const q = encodeURIComponent(`(name contains 'golf-backup-' or name='${LEGACY_BACKUP_FILENAME}') and trashed=false`);
+  const res = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}&spaces=drive&fields=files(id,name,modifiedTime,appProperties)&orderBy=modifiedTime desc`, {
+    headers: { Authorization: `Bearer ${token}` }
+  });
+  if (!res.ok) throw new Error('Kunde inte söka i Google Drive.');
+  const data = await res.json();
+  return data.files || [];
+}
+
+function _driveFileLabel(f) {
+  if (f.appProperties && f.appProperties.originLabel) return f.appProperties.originLabel;
+  if (f.name === LEGACY_BACKUP_FILENAME) return 'Äldre säkerhetskopia (okänd enhet)';
+  return f.name;
+}
+
+// Simple modal for choosing which device's backup to restore, when there's more than one.
+function _showDrivePicker(files) {
+  return new Promise(resolve => {
+    const overlay = document.createElement('div');
+    overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:1000;display:flex;align-items:center;justify-content:center;padding:20px;';
+    const box = document.createElement('div');
+    box.style.cssText = 'background:#fff;border-radius:12px;padding:20px;max-width:400px;width:100%;max-height:80vh;overflow-y:auto;';
+    box.innerHTML = `
+      <div style="font-weight:700;font-size:1rem;margin-bottom:4px;color:var(--green-dark);">Välj säkerhetskopia</div>
+      <div style="font-size:0.8rem;color:var(--muted);margin-bottom:12px;">Hittade flera enheter med säkerhetskopior i Google Drive.</div>
+      <div id="drivePickerList" style="display:flex;flex-direction:column;gap:8px;"></div>
+      <button class="btn secondary" style="margin-top:14px;" id="drivePickerCancel">Avbryt</button>
+    `;
+    overlay.appendChild(box);
+    document.body.appendChild(overlay);
+
+    const cleanup = (result) => { document.body.removeChild(overlay); resolve(result); };
+
+    const list = box.querySelector('#drivePickerList');
+    files.forEach(f => {
+      const row = document.createElement('button');
+      row.className = 'btn secondary';
+      row.style.cssText = 'text-align:left;width:100%;margin:0;';
+      const modified = f.modifiedTime ? new Date(f.modifiedTime).toLocaleString('sv-SE') : '';
+      row.innerHTML = `<div style="font-weight:600;">${escapeHtml(_driveFileLabel(f))}</div><div style="font-size:0.78rem;color:var(--muted);">${modified}</div>`;
+      row.onclick = () => cleanup(f);
+      list.appendChild(row);
+    });
+
+    box.querySelector('#drivePickerCancel').onclick = () => cleanup(null);
+  });
 }
 
 function _driveStatusEl() { return document.getElementById('driveBackupStatus'); }
@@ -2949,48 +3135,57 @@ async function driveBackupNow() {
   _setDriveStatus('⏳ Säkerhetskopierar…', 'warn');
   try {
     const token = await _getDriveToken();
+    const originId = _getOriginId();
+    const originLabel = _getOriginLabel();
+    const filename = `golf-backup-${originId}.json`;
     const payload = _buildDataPayload(true, true, true);
     const content = JSON.stringify(payload);
-    const existingId = await _driveFindBackupFileId(token);
+    const existingId = await _driveFindThisOriginFileId(token, filename);
 
-    if (existingId) {
-      const res = await fetch(`https://www.googleapis.com/upload/drive/v3/files/${existingId}?uploadType=media`, {
-        method: 'PATCH',
-        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-        body: content
-      });
-      if (!res.ok) throw new Error('Uppladdning misslyckades.');
-    } else {
-      const boundary = 'golfbackupboundary';
-      const metadata = { name: DRIVE_BACKUP_FILENAME, mimeType: 'application/json' };
-      const body =
-        `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${JSON.stringify(metadata)}\r\n` +
-        `--${boundary}\r\nContent-Type: application/json\r\n\r\n${content}\r\n--${boundary}--`;
-      const res = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart', {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${token}`, 'Content-Type': `multipart/related; boundary=${boundary}` },
-        body
-      });
-      if (!res.ok) throw new Error('Uppladdning misslyckades.');
-    }
+    // Multipart for both create and update, so the device label metadata
+    // (appProperties) stays fresh even if the user renamed it since last backup.
+    const boundary = 'golfbackupboundary';
+    const metadata = { name: filename, mimeType: 'application/json', appProperties: { originId, originLabel } };
+    const body =
+      `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${JSON.stringify(metadata)}\r\n` +
+      `--${boundary}\r\nContent-Type: application/json\r\n\r\n${content}\r\n--${boundary}--`;
+
+    const url = existingId
+      ? `https://www.googleapis.com/upload/drive/v3/files/${existingId}?uploadType=multipart`
+      : `https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart`;
+    const res = await fetch(url, {
+      method: existingId ? 'PATCH' : 'POST',
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': `multipart/related; boundary=${boundary}` },
+      body
+    });
+    if (!res.ok) throw new Error('Uppladdning misslyckades.');
 
     localStorage.setItem(LAST_BACKUP_KEY, new Date().toISOString());
     _updateLastBackupLabel();
-    _setDriveStatus('✅ Säkerhetskopierat till Google Drive.', 'ok');
+    _setDriveStatus(`✅ Säkerhetskopierat till Google Drive (${originLabel}).`, 'ok');
   } catch (err) {
     _setDriveStatus('❌ ' + (err.message || 'Något gick fel.'), 'error');
   }
 }
 
 async function driveRestoreNow() {
-  if (!confirm('Återställ från Google Drive? Detta lägger till/uppdaterar data från molnkopian i din lokala data.')) return;
-  _setDriveStatus('⏳ Hämtar från Google Drive…', 'warn');
+  _setDriveStatus('⏳ Söker säkerhetskopior…', 'warn');
   try {
     const token = await _getDriveToken();
-    const fileId = await _driveFindBackupFileId(token);
-    if (!fileId) { _setDriveStatus('⚠️ Ingen säkerhetskopia hittades i Google Drive.', 'warn'); return; }
+    const files = await _driveListBackupFiles(token);
+    if (!files.length) { _setDriveStatus('⚠️ Ingen säkerhetskopia hittades i Google Drive.', 'warn'); return; }
 
-    const res = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`, {
+    let chosen = files[0];
+    if (files.length > 1) {
+      _driveStatusEl().style.display = 'none';
+      chosen = await _showDrivePicker(files);
+      if (!chosen) return; // cancelled
+    }
+
+    if (!confirm(`Återställ från "${_driveFileLabel(chosen)}"? Detta lägger till/uppdaterar data från molnkopian i din lokala data.`)) return;
+
+    _setDriveStatus('⏳ Hämtar från Google Drive…', 'warn');
+    const res = await fetch(`https://www.googleapis.com/drive/v3/files/${chosen.id}?alt=media`, {
       headers: { Authorization: `Bearer ${token}` }
     });
     if (!res.ok) throw new Error('Kunde inte hämta säkerhetskopian.');
@@ -4002,6 +4197,7 @@ function renderHistoryList() {
           ${r.note ? `<div style="font-style:italic;color:var(--muted);font-size:0.85rem;margin:4px 0 8px;">📝 "${escapeHtml(r.note)}"</div>` : ''}
           <div class="hi-ranking">${rankRows}</div>
           ${buildRoundHighlights(r.subjects.map(s => ({ subj: { name: s.name }, rows: s.rows })), r.markers)}
+          ${buildSkinsCard('hist-' + r.id, r.subjects.map(s => ({ subj: { name: s.name }, rows: s.rows })), 'net')}
           ${detailTables}
         </div>
       </div>`;
@@ -4328,6 +4524,7 @@ try { seedDefaultCourses(); } catch(e) {}
 try { renderSavedCourses(); } catch(e) {}
 try { showResumeBannerIfAny(); } catch(e) {}
 try { _updateLastBackupLabel(); } catch(e) {}
+try { _populateOriginLabelInput(); } catch(e) {}
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('sw.js').catch(() => {});
 }
