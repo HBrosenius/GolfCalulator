@@ -140,6 +140,17 @@ All lokal data kan säkerhetskopieras och återställas via **📅 Sparade rundo
 - Exporten sparas som en JSON-fil med dagens datum
 - Import sammanfogar data utan att skriva över befintliga poster (deduplicering via ID)
 
+## Cloud-backup (Google Drive)
+
+Under **📅 Sparade rundor → ☁️ Cloud-backup** kan all data (banor, rundor, spelare) säkerhetskopieras till en fil i din egen Google Drive, och återställas därifrån:
+
+- **Säkerhetskopiera** loggar in med ditt Google-konto (första gången) och sparar all data som `golf-backup.json` i din egen Drive — appen har bara åtkomst till filer den själv skapat, inte resten av din Drive
+- **Återställ** hämtar filen och sammanfogar den med lokal data via samma deduplicering som vanlig import — inget skrivs över
+- Senaste säkerhetskopieringstidpunkt visas ovanför knapparna
+- Varje användares data hamnar i just deras egen Drive — inget går via en delad server eller utvecklarens konto
+
+> **För utvecklare:** kräver en Google OAuth 2.0 Client ID (se `GOOGLE_DRIVE_CLIENT_ID` i koden) från [Google Cloud Console](https://console.cloud.google.com/), med Drive API aktiverat. Så länge OAuth-samtycket är i **Testing**-läge måste varje användares Google-konto läggas till manuellt som testanvändare (max 100, ingen Google-verifiering krävs) — perfekt för en mindre grupp. Testanvändare behöver klicka igenom en "ej verifierad app"-varning, och åtkomsten förnyas var 7:e dag.
+
 ## Senaste banor
 
 De tre mest spelade banorna visas som snabbvalsknappar längst upp på startsidan, rangordnade efter antal spelade rundor.
@@ -174,5 +185,6 @@ Håldata valideras innan rundan startar: varje hål måste ha par och ett unikt 
   - `golf_courses_db` — bandata
   - `golf_rounds_db` — rundhistorik
   - `golf_players_db` — spelarregister (inkl. profilbilder som base64)
-- Fungerar offline efter första laddning
+  - `golf_last_cloud_backup` — tidpunkt för senaste Google Drive-säkerhetskopiering
+- Fungerar offline efter första laddning — Google Identity Services laddas endast in på begäran när cloud-backup används, så vanligt spel påverkas inte
 - Profilbilder komprimeras till 160×160 px JPEG via canvas innan lagring
