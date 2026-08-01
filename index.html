@@ -1211,7 +1211,7 @@ function renderGroups(groups) {
     <div class="course-group">
       <div class="cg-header">
         <div style="min-width:0;">
-          <div class="cg-name">${g.name}</div>
+          <div class="cg-name">${escapeHtml(g.name)}</div>
           <div class="cg-holes">${g.holes} hål</div>
         </div>
       </div>
@@ -1271,7 +1271,7 @@ function renderRecentCourses() {
     return `<button class="recent-course-btn" onclick="loadSavedCourseAndAdvance(window._recentCourses[${idx}])">
       <span class="recent-course-icon">${teeIcon}</span>
       <span class="recent-course-info">
-        <span class="recent-course-name">${c.name}</span>
+        <span class="recent-course-name">${escapeHtml(c.name)}</span>
         <span class="recent-course-sub">${c.tee} · ${c.holes} hål</span>
       </span>
       <span class="recent-course-arrow">→</span>
@@ -1333,7 +1333,7 @@ function loadSavedCourseAndAdvance(entry) {
   state.par           = entry.par;
 
   document.getElementById('step2CourseInfo').innerHTML =
-    `<strong>${entry.name}</strong> · ${entry.tee}<br>
+    `<strong>${escapeHtml(entry.name)}</strong> · ${entry.tee}<br>
      ${entry.holes} hål · Slope&nbsp;${entry.slope} · CR&nbsp;${entry.cr} · Par&nbsp;${entry.par}`;
 
   // Show play-mode toggle only for 9-hole courses
@@ -1728,7 +1728,7 @@ function buildPlayerCards() {
     const savedPlayers = playersLoad();
     const pickerOptions = savedPlayers.length
       ? `<option value="">— Välj sparad spelare —</option>` +
-        savedPlayers.map(sp => `<option value="${sp.id}">${sp.name} (${sp.hi})</option>`).join('')
+        savedPlayers.map(sp => `<option value="${sp.id}">${escapeHtml(sp.name)} (${sp.hi})</option>`).join('')
       : null;
     const pickerHtml = pickerOptions
       ? `<select class="player-picker-select" onchange="pickSavedPlayer(${p}, this)">${pickerOptions}</select>`
@@ -1802,13 +1802,13 @@ function buildTeamInfo() {
     const cls = t === 'A' ? 'team-a' : 'team-b';
     let phLabel;
     if (isFourball) {
-      phLabel = members.map(m => `${m.name}${m.ph !== null ? ' (+' + m.ph + ')' : ''}`).join(' & ');
+      phLabel = members.map(m => `${escapeHtml(m.name)}${m.ph !== null ? ' (+' + m.ph + ')' : ''}`).join(' & ');
     } else if (isFoursome) {
       const ph = phs.length === 2 ? calcFoursomeHandicap(phs[0], phs[1]) : '–';
-      phLabel = `${members.map(m=>m.name).join(' & ')} · Spelhandicap: <strong>${ph}</strong>`;
+      phLabel = `${members.map(m=>escapeHtml(m.name)).join(' & ')} · Spelhandicap: <strong>${ph}</strong>`;
     } else {
       const ph = his.length === 2 ? calcScrambleHandicap(his[0], his[1]) : '–';
-      phLabel = `${members.map(m=>m.name).join(' & ')} · Spelhandicap: <strong>${ph}</strong>`;
+      phLabel = `${members.map(m=>escapeHtml(m.name)).join(' & ')} · Spelhandicap: <strong>${ph}</strong>`;
     }
     el.innerHTML = (el.innerHTML || '').replace(`<!-- team${t} -->`, '');
     el.querySelector(`#teamBox${t}`)?.remove();
@@ -2369,11 +2369,6 @@ function _bestHole(results) {
   return best;
 }
 
-function topHighlightText(results) {
-  const b = results && results.length ? _bestHole(results) : null;
-  return b ? `🔥 Bästa hål: ${b.name} hål ${b.h} (${b.pts}p)` : '';
-}
-
 function _collectHighlightItems(results, markers) {
   const anyPlayed = results.some(r => r.rows.some(row => !row.skipped));
   if (!anyPlayed) return [];
@@ -2472,10 +2467,10 @@ function renderResults(playerResults, rankContainerId = 'rankingContainer', prCo
     const mr = computeMatchResult(results);
     const A = results[0], B = results[1];
     const title = (mr && mr.winnerIdx !== null)
-      ? `🏆 ${results[mr.winnerIdx].subj.name} vann ${mr.text}`
+      ? `🏆 ${escapeHtml(results[mr.winnerIdx].subj.name)} vann ${escapeHtml(mr.text)}`
       : '🤝 Delad match';
     const tally = mr
-      ? `Hål vunna: ${A.subj.name} ${mr.aWon} – ${mr.bWon} ${B.subj.name}${mr.halved ? ` · ${mr.halved} delade` : ''}`
+      ? `Hål vunna: ${escapeHtml(A.subj.name)} ${mr.aWon} – ${mr.bWon} ${escapeHtml(B.subj.name)}${mr.halved ? ` · ${mr.halved} delade` : ''}`
       : '';
     rankContainer.innerHTML = `
       <div class="ranking-card" style="flex-direction:column;align-items:stretch;gap:6px;">
@@ -2545,9 +2540,9 @@ function renderResults(playerResults, rankContainerId = 'rankingContainer', prCo
       <td colspan="3"><strong>Totalt</strong></td><td>${r.totalBrutto}</td><td></td><td></td><td>${r.totalPoints}</td></tr>`;
 
     const subLabel = isFourball
-      ? `Lag ${r.teamId} (bästboll)${r.teammateName ? ' · med ' + r.teammateName : ''} · Spelhandicap +${r.ph} · Brutto ${r.totalBrutto} · ${holesPlayed} hål`
+      ? `Lag ${r.teamId} (bästboll)${r.teammateName ? ' · med ' + escapeHtml(r.teammateName) : ''} · Spelhandicap +${r.ph} · Brutto ${r.totalBrutto} · ${holesPlayed} hål`
       : (isScramble || isFoursome)
-      ? `Spelhandicap +${r.ph} · ${r.subj.members.map(m=>m.name).join(' & ')}${isFoursome ? ' · Foursome' : ''}`
+      ? `Spelhandicap +${r.ph} · ${r.subj.members.map(m=>escapeHtml(m.name)).join(' & ')}${isFoursome ? ' · Foursome' : ''}`
       : `Spelhandicap +${r.ph} · Brutto ${r.totalBrutto} · ${holesPlayed} hål`;
 
     const sectionPhoto = _photoForName(r.subj.name);
@@ -2555,7 +2550,7 @@ function renderResults(playerResults, rankContainerId = 'rankingContainer', prCo
       <div class="player-result-section"><div class="card">
         <div class="card-title" style="display:flex;align-items:center;gap:8px;">
           ${_resultAvatarHtml(sectionPhoto, 'result-section-avatar')}
-          <span>📊 ${r.subj.name} · ${r.totalPoints} poäng</span>
+          <span>📊 ${escapeHtml(r.subj.name)} · ${r.totalPoints} poäng</span>
         </div>
         <div style="font-size:0.8rem;color:var(--muted);margin-bottom:10px;">${subLabel}</div>
         <div style="overflow-x:auto;">
@@ -2983,7 +2978,7 @@ function openPlayerHistory(id) {
   headerEl.innerHTML = `
     ${avatarHtml(player.photo || null, 'avatar')}
     <div>
-      <div style="font-weight:700;font-size:1rem;color:var(--green-dark);">${player.name}${player.lastName ? ' ' + player.lastName : ''}${player.nick ? ` <span style="font-weight:400;color:var(--muted);">"${player.nick}"</span>` : ''}</div>
+      <div style="font-weight:700;font-size:1rem;color:var(--green-dark);">${escapeHtml(player.name)}${player.lastName ? ' ' + escapeHtml(player.lastName) : ''}${player.nick ? ` <span style="font-weight:400;color:var(--muted);">"${escapeHtml(player.nick)}"</span>` : ''}</div>
       <div style="font-size:0.78rem;color:var(--muted);">HCP-index: ${player.hi} · ${rounds.length} rundor</div>
     </div>`;
 
@@ -3577,7 +3572,7 @@ function renderSavedPlayersList() {
     <div class="saved-player-row" style="cursor:pointer;" data-player-id="${p.id}" onclick="openPlayerHistory(${p.id})">
       ${avatarHtml(p.photo || null, 'avatar')}
       <div class="saved-player-info">
-        <div class="saved-player-name">${p.name}${p.lastName ? ' ' + p.lastName : ''}${p.nick ? ` <span style="font-weight:400;color:var(--muted);">"${p.nick}"</span>` : ''}</div>
+        <div class="saved-player-name">${escapeHtml(p.name)}${p.lastName ? ' ' + escapeHtml(p.lastName) : ''}${p.nick ? ` <span style="font-weight:400;color:var(--muted);">"${escapeHtml(p.nick)}"</span>` : ''}</div>
         <div class="saved-player-hi">HCP-index: ${p.hi}</div>
       </div>
       <button class="avatar-edit-btn" onclick="event.stopPropagation();triggerPlayerPhotoEdit(${p.id})" title="Byt bild">📷</button>
@@ -3621,11 +3616,11 @@ function editSavedPlayer(id) {
     <div class="saved-player-edit-form" data-player-id="${id}">
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px;">
         <div><label style="margin-top:0;font-size:0.8rem;">Förnamn</label>
-          <input type="text" id="edit_name_${id}" value="${p.name}" style="font-size:0.9rem;padding:6px 8px;"></div>
+          <input type="text" id="edit_name_${id}" value="${escapeHtml(p.name)}" style="font-size:0.9rem;padding:6px 8px;"></div>
         <div><label style="margin-top:0;font-size:0.8rem;">Efternamn</label>
-          <input type="text" id="edit_lastName_${id}" value="${p.lastName || ''}" style="font-size:0.9rem;padding:6px 8px;"></div>
+          <input type="text" id="edit_lastName_${id}" value="${escapeHtml(p.lastName || '')}" style="font-size:0.9rem;padding:6px 8px;"></div>
         <div><label style="margin-top:0;font-size:0.8rem;">Smeknamn</label>
-          <input type="text" id="edit_nick_${id}" value="${p.nick || ''}" style="font-size:0.9rem;padding:6px 8px;"></div>
+          <input type="text" id="edit_nick_${id}" value="${escapeHtml(p.nick || '')}" style="font-size:0.9rem;padding:6px 8px;"></div>
         <div><label style="margin-top:0;font-size:0.8rem;">Handicapindex</label>
           <input type="number" id="edit_hi_${id}" value="${p.hi}" step="0.1" min="0" max="54" inputmode="decimal" style="font-size:0.9rem;padding:6px 8px;"></div>
       </div>
@@ -3783,21 +3778,21 @@ function renderHistoryList() {
     if (r.gameMode === 'match') {
       const pseudo = r.subjects.map(s => ({ subj: { name: s.name }, rows: s.rows }));
       const mr = computeMatchResult(pseudo);
-      const result = matchResultText(pseudo) || '🤝 Delad match';
+      const result = escapeHtml(matchResultText(pseudo) || '🤝 Delad match');
       const hasWinner = mr && mr.winnerIdx !== null;
       topLine = result;
       const tally = (mr && r.subjects.length === 2)
-        ? `Hål vunna: ${r.subjects[0].name} ${mr.aWon} – ${mr.bWon} ${r.subjects[1].name}${mr.halved ? ` · ${mr.halved} delade` : ''}`
+        ? `Hål vunna: ${escapeHtml(r.subjects[0].name)} ${mr.aWon} – ${mr.bWon} ${escapeHtml(r.subjects[1].name)}${mr.halved ? ` · ${mr.halved} delade` : ''}`
         : '';
       rankRows = `
         <div class="hi-rank-row" style="justify-content:center;font-weight:700;color:var(--green-dark);">${hasWinner ? '🏆 ' : ''}${result}</div>
         ${tally ? `<div class="hi-rank-row" style="justify-content:center;color:var(--muted);font-size:0.8rem;">${tally}</div>` : ''}`;
     } else {
-      topLine = sorted.map((s, i) => `${medals[i]||''} ${s.name} ${s.totalPoints}p`).join(' · ');
+      topLine = sorted.map((s, i) => `${medals[i]||''} ${escapeHtml(s.name)} ${s.totalPoints}p`).join(' · ');
       rankRows = sorted.map((s, i) => `
         <div class="hi-rank-row">
           <span>${medals[i]||''}</span>
-          <span class="hi-rank-name">${s.name}${s.members ? ` <span style="font-weight:400;color:var(--muted)">(${s.members.join(' & ')})</span>` : ''}${s.teamId ? ` <span style="font-weight:400;color:var(--muted)">(Lag ${s.teamId}${s.teammate ? ' · med ' + s.teammate : ''})</span>` : ''}</span>
+          <span class="hi-rank-name">${escapeHtml(s.name)}${s.members ? ` <span style="font-weight:400;color:var(--muted)">(${s.members.map(escapeHtml).join(' & ')})</span>` : ''}${s.teamId ? ` <span style="font-weight:400;color:var(--muted)">(Lag ${s.teamId}${s.teammate ? ' · med ' + escapeHtml(s.teammate) : ''})</span>` : ''}</span>
           <span style="color:var(--muted);font-size:0.75rem;margin-right:6px;">HCP +${s.ph}</span>
           <span class="hi-rank-pts">${s.totalPoints} p</span>
         </div>`).join('');
@@ -3811,7 +3806,7 @@ function renderHistoryList() {
         </tr>`).join('');
       return `
         <div style="margin-top:10px;">
-          <div style="font-weight:600;font-size:0.85rem;margin-bottom:6px;">${s.name} · ${s.totalPoints} poäng</div>
+          <div style="font-weight:600;font-size:0.85rem;margin-bottom:6px;">${escapeHtml(s.name)} · ${s.totalPoints} poäng</div>
           <div style="overflow-x:auto;">
             <table class="result-table">
               <thead><tr><th>Hål</th><th>Par</th><th>Hcp</th><th>Slag</th><th>Poäng</th></tr></thead>
@@ -3825,7 +3820,7 @@ function renderHistoryList() {
         <div class="hi-header" onclick="toggleHistoryItem(this)">
           <div style="flex:1;min-width:0;">
             <div class="hi-date">${r.date} · ${r.holes} hål · ${r.tee === 'Gul' ? '🟡' : '🔴'} ${r.tee}${r.weather && WEATHER[r.weather] ? ' · ' + WEATHER[r.weather].e : ''}</div>
-            <div class="hi-course">${r.courseName}</div>
+            <div class="hi-course">${escapeHtml(r.courseName)}</div>
             <div class="hi-meta">${topLine}</div>
           </div>
           <span class="hi-chevron">▶</span>
