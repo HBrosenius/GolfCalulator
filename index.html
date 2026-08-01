@@ -706,6 +706,16 @@
       <input type="file" id="importFileInput" accept=".json" style="display:none;" onchange="importData(this)">
       <div id="importResult" style="display:none;margin-top:10px;font-size:0.85rem;border-radius:8px;padding:8px 12px;"></div>
     </div>
+    <div class="card" style="margin-top:10px;">
+      <div class="card-title" style="margin-bottom:10px;"><span class="icon">☁️</span> Cloud-backup (Google Drive)</div>
+      <p style="font-size:0.82rem;color:var(--muted);margin:0 0 6px;">Säkerhetskopiera all data (banor, rundor, spelare) till en fil i ditt eget Google Drive, eller återställ därifrån.</p>
+      <p id="driveLastBackup" style="font-size:0.78rem;color:var(--muted);margin:0 0 12px;">Ingen säkerhetskopia gjord än.</p>
+      <div style="display:flex;gap:10px;flex-wrap:wrap;">
+        <button class="btn" style="flex:1;" onclick="driveBackupNow()">⬆☁ Säkerhetskopiera</button>
+        <button class="btn secondary" style="flex:1;" onclick="driveRestoreNow()">⬇☁ Återställ</button>
+      </div>
+      <div id="driveBackupStatus" style="display:none;margin-top:10px;font-size:0.85rem;border-radius:8px;padding:8px 12px;"></div>
+    </div>
   </div>
 
   <!-- SPELARREGISTER -->
@@ -2745,6 +2755,16 @@ function roundDelete(id) {
   roundsSave(roundsLoad().filter(r => r.id !== id));
 }
 
+function _buildDataPayload(inclCourses, inclRounds, inclPlayers) {
+  return {
+    version: 1,
+    exportedAt: new Date().toISOString(),
+    courses:  inclCourses  ? dbLoad()        : [],
+    rounds:   inclRounds   ? roundsLoad()    : [],
+    players:  inclPlayers  ? playersLoad()   : []
+  };
+}
+
 function exportData() {
   const inclRounds   = document.getElementById('exportRounds').checked;
   const inclCourses  = document.getElementById('exportCourses').checked;
@@ -2757,13 +2777,7 @@ function exportData() {
     r.textContent = '⚠️ Välj minst ett alternativ att exportera.';
     return;
   }
-  const payload = {
-    version: 1,
-    exportedAt: new Date().toISOString(),
-    courses:  inclCourses  ? dbLoad()        : [],
-    rounds:   inclRounds   ? roundsLoad()    : [],
-    players:  inclPlayers  ? playersLoad()   : []
-  };
+  const payload = _buildDataPayload(inclCourses, inclRounds, inclPlayers);
   const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
@@ -2774,6 +2788,47 @@ function exportData() {
   URL.revokeObjectURL(url);
 }
 
+// Applies an import payload (from file or cloud) using the same merge/dedup logic.
+// Returns { addedCourses, addedRounds, addedPlayers }. Throws on invalid payload.
+function _applyImportPayload(payload) {
+  if (!payload.version || (!payload.courses && !payload.rounds)) throw new Error('Ogiltigt format');
+
+  let addedCourses = 0, addedRounds = 0, addedPlayers = 0;
+
+  if (Array.isArray(payload.courses)) {
+    const existing = dbLoad();
+    payload.courses.forEach(c => {
+      const idx = existing.findIndex(x => x.name === c.name && x.tee === c.tee && x.holes === c.holes);
+      if (idx >= 0) existing[idx] = { ...existing[idx], ...c };
+      else { existing.push(c); addedCourses++; }
+    });
+    dbSave(existing);
+    renderSavedCourses();
+  }
+
+  if (Array.isArray(payload.rounds)) {
+    const existing = roundsLoad();
+    const existingIds = new Set(existing.map(r => r.id));
+    payload.rounds.forEach(r => {
+      if (!existingIds.has(r.id)) { existing.push(r); addedRounds++; }
+    });
+    roundsSave(existing);
+    renderHistoryList();
+  }
+
+  if (Array.isArray(payload.players)) {
+    const existing = playersLoad();
+    const existingIds = new Set(existing.map(p => p.id));
+    payload.players.forEach(p => {
+      if (!existingIds.has(p.id)) { existing.push(p); addedPlayers++; }
+    });
+    playersSave(existing);
+    if (document.getElementById('savedPlayersList')) renderSavedPlayersList();
+  }
+
+  return { addedCourses, addedRounds, addedPlayers };
+}
+
 function importData(input) {
   const file = input.files[0];
   if (!file) return;
@@ -2782,42 +2837,7 @@ function importData(input) {
   reader.onload = e => {
     try {
       const payload = JSON.parse(e.target.result);
-      if (!payload.version || (!payload.courses && !payload.rounds)) throw new Error('Ogiltigt format');
-
-      let addedCourses = 0, addedRounds = 0;
-
-      if (Array.isArray(payload.courses)) {
-        const existing = dbLoad();
-        payload.courses.forEach(c => {
-          const idx = existing.findIndex(x => x.name === c.name && x.tee === c.tee && x.holes === c.holes);
-          if (idx >= 0) existing[idx] = { ...existing[idx], ...c };
-          else { existing.push(c); addedCourses++; }
-        });
-        dbSave(existing);
-        renderSavedCourses();
-      }
-
-      if (Array.isArray(payload.rounds)) {
-        const existing = roundsLoad();
-        const existingIds = new Set(existing.map(r => r.id));
-        payload.rounds.forEach(r => {
-          if (!existingIds.has(r.id)) { existing.push(r); addedRounds++; }
-        });
-        roundsSave(existing);
-        renderHistoryList();
-      }
-
-      let addedPlayers = 0;
-      if (Array.isArray(payload.players)) {
-        const existing = playersLoad();
-        const existingIds = new Set(existing.map(p => p.id));
-        payload.players.forEach(p => {
-          if (!existingIds.has(p.id)) { existing.push(p); addedPlayers++; }
-        });
-        playersSave(existing);
-        if (document.getElementById('savedPlayersList')) renderSavedPlayersList();
-      }
-
+      const { addedCourses, addedRounds, addedPlayers } = _applyImportPayload(payload);
       resultEl.style.display = 'block';
       resultEl.style.background = '#e8f5e9';
       resultEl.style.color = '#2e7d32';
@@ -2831,6 +2851,155 @@ function importData(input) {
     input.value = '';
   };
   reader.readAsText(file);
+}
+
+// ---- Google Drive cloud backup ----
+// One-time setup required (see README): create an OAuth 2.0 Client ID
+// (type: Web application) in Google Cloud Console, enable the Drive API,
+// and paste the client ID below. Add your hosted domain as an authorized
+// JavaScript origin, and add each user's Google account as a test user
+// on the OAuth consent screen (no verification needed for a small group).
+const GOOGLE_DRIVE_CLIENT_ID = '843215891614-p30e6kdiqs5nafe9blrksgn7ss59tv04.apps.googleusercontent.com';
+const DRIVE_BACKUP_FILENAME = 'golf-backup.json';
+const DRIVE_SCOPE = 'https://www.googleapis.com/auth/drive.file';
+const LAST_BACKUP_KEY = 'golf_last_cloud_backup';
+
+let _gisScriptPromise = null;
+let _driveTokenClient = null;
+let _driveAccessToken = null;
+let _driveTokenExpiresAt = 0;
+
+function _loadGis() {
+  if (_gisScriptPromise) return _gisScriptPromise;
+  _gisScriptPromise = new Promise((resolve, reject) => {
+    if (window.google && window.google.accounts && window.google.accounts.oauth2) { resolve(); return; }
+    const s = document.createElement('script');
+    s.src = 'https://accounts.google.com/gsi/client';
+    s.async = true;
+    s.onload = resolve;
+    s.onerror = () => reject(new Error('Kunde inte ladda Google-inloggning. Kontrollera internetanslutningen.'));
+    document.head.appendChild(s);
+  });
+  return _gisScriptPromise;
+}
+
+function _getDriveToken() {
+  return new Promise(async (resolve, reject) => {
+    if (GOOGLE_DRIVE_CLIENT_ID.startsWith('YOUR_CLIENT_ID')) {
+      reject(new Error('Cloud-backup är inte konfigurerad ännu (saknar Google Client ID).'));
+      return;
+    }
+    // Reuse a still-valid cached token so re-backups don't need a popup every time.
+    if (_driveAccessToken && Date.now() < _driveTokenExpiresAt - 60000) {
+      resolve(_driveAccessToken);
+      return;
+    }
+    try {
+      await _loadGis();
+    } catch (e) {
+      reject(e);
+      return;
+    }
+    if (!_driveTokenClient) {
+      _driveTokenClient = google.accounts.oauth2.initTokenClient({
+        client_id: GOOGLE_DRIVE_CLIENT_ID,
+        scope: DRIVE_SCOPE,
+        callback: () => {} // overridden per-request below
+      });
+    }
+    _driveTokenClient.callback = (resp) => {
+      if (resp.error) { reject(new Error('Inloggning misslyckades: ' + resp.error)); return; }
+      _driveAccessToken = resp.access_token;
+      _driveTokenExpiresAt = Date.now() + (resp.expires_in || 3600) * 1000;
+      resolve(_driveAccessToken);
+    };
+    _driveTokenClient.requestAccessToken({ prompt: '' });
+  });
+}
+
+async function _driveFindBackupFileId(token) {
+  const q = encodeURIComponent(`name='${DRIVE_BACKUP_FILENAME}' and trashed=false`);
+  const res = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}&spaces=drive&fields=files(id,name)`, {
+    headers: { Authorization: `Bearer ${token}` }
+  });
+  if (!res.ok) throw new Error('Kunde inte söka i Google Drive.');
+  const data = await res.json();
+  return (data.files && data.files[0]) ? data.files[0].id : null;
+}
+
+function _driveStatusEl() { return document.getElementById('driveBackupStatus'); }
+
+function _setDriveStatus(msg, kind) {
+  const el = _driveStatusEl();
+  if (!el) return;
+  el.style.display = 'block';
+  el.style.background = kind === 'error' ? '#fdecea' : kind === 'warn' ? '#fff8e1' : '#e8f5e9';
+  el.style.color = kind === 'error' ? '#c62828' : kind === 'warn' ? '#e65100' : '#2e7d32';
+  el.textContent = msg;
+}
+
+function _updateLastBackupLabel() {
+  const el = document.getElementById('driveLastBackup');
+  if (!el) return;
+  const iso = localStorage.getItem(LAST_BACKUP_KEY);
+  el.textContent = iso ? `Senaste säkerhetskopia: ${new Date(iso).toLocaleString('sv-SE')}` : 'Ingen säkerhetskopia gjord än.';
+}
+
+async function driveBackupNow() {
+  _setDriveStatus('⏳ Säkerhetskopierar…', 'warn');
+  try {
+    const token = await _getDriveToken();
+    const payload = _buildDataPayload(true, true, true);
+    const content = JSON.stringify(payload);
+    const existingId = await _driveFindBackupFileId(token);
+
+    if (existingId) {
+      const res = await fetch(`https://www.googleapis.com/upload/drive/v3/files/${existingId}?uploadType=media`, {
+        method: 'PATCH',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: content
+      });
+      if (!res.ok) throw new Error('Uppladdning misslyckades.');
+    } else {
+      const boundary = 'golfbackupboundary';
+      const metadata = { name: DRIVE_BACKUP_FILENAME, mimeType: 'application/json' };
+      const body =
+        `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${JSON.stringify(metadata)}\r\n` +
+        `--${boundary}\r\nContent-Type: application/json\r\n\r\n${content}\r\n--${boundary}--`;
+      const res = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': `multipart/related; boundary=${boundary}` },
+        body
+      });
+      if (!res.ok) throw new Error('Uppladdning misslyckades.');
+    }
+
+    localStorage.setItem(LAST_BACKUP_KEY, new Date().toISOString());
+    _updateLastBackupLabel();
+    _setDriveStatus('✅ Säkerhetskopierat till Google Drive.', 'ok');
+  } catch (err) {
+    _setDriveStatus('❌ ' + (err.message || 'Något gick fel.'), 'error');
+  }
+}
+
+async function driveRestoreNow() {
+  if (!confirm('Återställ från Google Drive? Detta lägger till/uppdaterar data från molnkopian i din lokala data.')) return;
+  _setDriveStatus('⏳ Hämtar från Google Drive…', 'warn');
+  try {
+    const token = await _getDriveToken();
+    const fileId = await _driveFindBackupFileId(token);
+    if (!fileId) { _setDriveStatus('⚠️ Ingen säkerhetskopia hittades i Google Drive.', 'warn'); return; }
+
+    const res = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`, {
+      headers: { Authorization: `Bearer ${token}` }
+    });
+    if (!res.ok) throw new Error('Kunde inte hämta säkerhetskopian.');
+    const payload = await res.json();
+    const { addedCourses, addedRounds, addedPlayers } = _applyImportPayload(payload);
+    _setDriveStatus(`✅ Återställt: ${addedCourses} nya banor, ${addedRounds} nya rundor, ${addedPlayers} nya spelare.`, 'ok');
+  } catch (err) {
+    _setDriveStatus('❌ ' + (err.message || 'Något gick fel.'), 'error');
+  }
 }
 
 function saveCurrentRound(playerResults) {
@@ -4158,6 +4327,7 @@ if (!_lsOk) document.getElementById('lsBanner').classList.remove('hidden');
 try { seedDefaultCourses(); } catch(e) {}
 try { renderSavedCourses(); } catch(e) {}
 try { showResumeBannerIfAny(); } catch(e) {}
+try { _updateLastBackupLabel(); } catch(e) {}
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('sw.js').catch(() => {});
 }
