@@ -1104,6 +1104,13 @@ function escapeHtml(s) {
   return String(s).replace(/[&<>"]/g, c => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;' }[c]));
 }
 
+// Photos are only ever produced locally by the crop tool as base64 data URLs.
+// Reject anything else (e.g. a crafted string from an imported backup file)
+// before it's ever interpolated into an <img src="..."> attribute.
+function isValidPhotoUrl(photo) {
+  return typeof photo === 'string' && /^data:image\/(png|jpe?g|webp);base64,[A-Za-z0-9+/=]+$/.test(photo);
+}
+
 let state = {
   courseName: null, teeColor: null, holes: 18,
   slope: null, cr: null, par: null,
@@ -2341,14 +2348,14 @@ function updateHonorBanner() {
   const photo = _photoForName(player && player.name);
 
   const avatarEl = document.getElementById('honorAvatar');
-  if (photo) {
+  if (isValidPhotoUrl(photo)) {
     avatarEl.innerHTML = `<img src="${photo}" style="width:100%;height:100%;object-fit:cover;">`;
   } else {
     avatarEl.textContent = playerName.charAt(0).toUpperCase();
   }
 
   document.getElementById('honorText').innerHTML =
-    `<strong>${playerName}</strong> har äran och startar hål ${nextHole} 🏌️`;
+    `<strong>${escapeHtml(playerName)}</strong> har äran och startar hål ${nextHole} 🏌️`;
   banner.style.display = 'flex';
 }
 
@@ -2483,7 +2490,7 @@ function _photoForName(displayName) {
 }
 
 function _resultAvatarHtml(photo, cls) {
-  if (photo) return `<div class="${cls}"><img src="${photo}" alt=""></div>`;
+  if (isValidPhotoUrl(photo)) return `<div class="${cls}"><img src="${photo}" alt=""></div>`;
   return `<div class="${cls}">🏌️</div>`;
 }
 
@@ -2881,7 +2888,7 @@ function showResumeBannerIfAny() {
   })();
   const when = new Date(snap.savedAt).toLocaleString('sv-SE', { dateStyle: 'short', timeStyle: 'short' });
   document.getElementById('resumeText').innerHTML =
-    `Du har en pågående runda på <strong>${s.courseName}</strong> (${s.teeColor} tee, ${s.holes} hål) — ` +
+    `Du har en pågående runda på <strong>${escapeHtml(s.courseName)}</strong> (${escapeHtml(s.teeColor)} tee, ${s.holes} hål) — ` +
     `${holesScored} hål med score inmatade. Senast sparad ${when}.`;
   banner.style.display = 'block';
 }
@@ -3026,6 +3033,9 @@ function _applyImportPayload(payload) {
     const existing = playersLoad();
     const existingIds = new Set(existing.map(p => p.id));
     payload.players.forEach(p => {
+      // Drop any photo that isn't a genuine base64 image data URL — imported
+      // data is untrusted and this field is rendered via innerHTML elsewhere.
+      if (p.photo && !isValidPhotoUrl(p.photo)) p = { ...p, photo: null };
       if (!existingIds.has(p.id)) { existing.push(p); addedPlayers++; }
     });
     playersSave(existing);
@@ -3876,7 +3886,7 @@ const _crop = {
 };
 
 function avatarHtml(photo, cls) {
-  if (photo) return `<div class="${cls}"><img src="${photo}" alt=""></div>`;
+  if (isValidPhotoUrl(photo)) return `<div class="${cls}"><img src="${photo}" alt=""></div>`;
   return `<div class="${cls}"><span class="avatar-placeholder">🏌️</span></div>`;
 }
 
@@ -4175,7 +4185,7 @@ function pickSavedPlayer(slotIndex, selectEl) {
   // Update avatar in card title
   const avatarEl = document.getElementById(`pcard_avatar_${slotIndex}`);
   if (avatarEl) {
-    if (player.photo) {
+    if (isValidPhotoUrl(player.photo)) {
       avatarEl.innerHTML = `<img src="${player.photo}" alt="">`;
     } else {
       avatarEl.innerHTML = '<span class="avatar-placeholder">🏌️</span>';
