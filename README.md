@@ -8,7 +8,7 @@ Mobilanpassad webbapp för att beräkna poängbogey-resultat under en golfrunda.
 - **Scramble-, Bästboll- och Foursome-läge** för 4 spelare i 2 lag — laghandicap/spelhandicap beräknas automatiskt
 - **Spelhandicap** beräknas med slope-formeln: `HI × (Slope / 113) + (CR − Par)`
 - Stöd för **9 och 18 hål**, samt möjlighet att spela en 9-hålsbana som 18 hål (dubbelrunda)
-- **Gul och Röd tee**
+- **Gul och Röd tee** — spelare i samma runda kan spela från **olika tee** och ändå tävla rättvist mot varandra
 - Hålvis inmatning av par (3/4/5-knappar) och Hcp/Index från scorekortet
 - **Sparar bandata** automatiskt — slope, CR, par och håldata återladdas nästa runda
 - Rankingresultat med guld/silver/brons för alla spelare eller lag
@@ -41,6 +41,14 @@ Under scoreinmatningen visar appen vem i respektive lag som slår ut på varje h
 
 ### Matchspel (2 spelare, 1v1)
 Hål-för-hål-match mellan två spelare. Varje hål vinns av den med flest poäng (netto) — lika poäng ger delat hål. Den som är fler hål upp än det finns hål kvar vinner matchen. Under scoreinmatningen visas matchställningen live (**⚔️ X upp / Delad**) och resultatsidan visar utfallet, t.ex. **3&2** eller *Delad match*.
+
+## Olika tee i samma runda
+
+I spelformer där varje spelare spelar sin egen boll (Individuellt, Bästboll och Matchspel) kan varje spelare välja **eget tee** i spelarkortet — t.ex. en från Gul och en från Röd i samma boll. Väljaren visas bara när banan har mer än ett tee registrerat.
+
+Rättvisan sköter sig själv via spelhandicapformeln: `HI × (Slope / 113) + (CR − Par)`. Termen `(CR − Par)` är precis den tee-justering som gör att nettoresultat från olika tee går att jämföra — den som spelar från ett svårare tee får fler slag. Hålens par och index är desamma oavsett tee, så poängbogey-poängen blir direkt jämförbara.
+
+Under scoreinmatningen visas varje spelares tee i tabellhuvudet, och i historiken märks sådana rundor som **⛳ Blandat tee**. Scramble och Foursome spelar en gemensam boll och använder därför rundans gemensamma tee.
 
 ## Spelarregister
 

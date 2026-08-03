@@ -1092,6 +1092,7 @@ let state = {
   hpar: [], si: [],
   numPlayers: 1, players: [], scores: [],
   gameMode: 'individual', teamAssign: ['A','A','B','B'], teams: null,
+  playerTees: [],
   note: '', weather: null,
   markers: { ctp: { hole: null, player: '' }, ld: { hole: null, player: '' } }
 };
@@ -1674,6 +1675,51 @@ function calcPlayingHandicap(hi, slope, cr, par, holes) {
   return holes === 9 ? Math.round(ph18 / 2) : ph18;
 }
 
+// ── Per-player tees ──────────────────────────────────────────
+// Players in the same round may play different tees. Per-hole par and stroke
+// index are course-wide (identical across tees), so only slope/CR/par — and
+// thereby the playing handicap — differ per player. The (CR − Par) term in the
+// formula above is exactly the tee adjustment that keeps net scoring fair.
+
+// All tees available for the current course + hole count.
+function availableTees() {
+  if (!state.courseName) return [];
+  const tees = dbLoad()
+    .filter(e => e.name === state.courseName && e.holes === state.holes)
+    .map(e => e.tee);
+  if (state.teeColor && !tees.includes(state.teeColor)) tees.unshift(state.teeColor);
+  return tees;
+}
+
+// Slope/CR/par for a given tee, falling back to the round-level values.
+function teeData(teeColor) {
+  const entry = teeColor ? dbFind(state.courseName, teeColor, state.holes) : null;
+  if (entry) return { tee: teeColor, slope: entry.slope, cr: entry.cr, par: entry.par };
+  return { tee: state.teeColor, slope: state.slope, cr: state.cr, par: state.par };
+}
+
+// The tee player p plays from (defaults to the round tee chosen in step 1).
+function playerTee(p) {
+  return (state.playerTees && state.playerTees[p]) || state.teeColor;
+}
+
+function setPlayerTee(p, tee) {
+  if (!state.playerTees) state.playerTees = [];
+  state.playerTees[p] = tee || state.teeColor;
+  updatePlayerPH(p);
+  if (isTeamMode(state.gameMode)) buildTeamInfo();
+}
+
+function teeIconFor(tee) {
+  return tee === 'Gul' ? '🟡' : (tee === 'Röd' ? '🔴' : '⛳');
+}
+
+// True when the players in this round are not all on the same tee.
+function hasMixedTees(subjects) {
+  const tees = (subjects || []).map(s => s.tee).filter(Boolean);
+  return tees.length > 1 && new Set(tees).size > 1;
+}
+
 // Team formats: 4 players split into 2 teams. "Shared score" formats (Scramble,
 // Foursome) enter one score per team per hole; Fourball enters one score per player.
 const TEAM_MODES = ['scramble', 'fourball', 'foursome'];
@@ -1752,6 +1798,18 @@ function buildPlayerCards() {
       sp.name && existing.name && sp.name === existing.name);
     const cardPhoto = existingPlayer?.photo || null;
 
+    // Per-player tee — only when each player plays their own ball and the
+    // course actually has more than one tee to choose from.
+    const tees = isSharedScoreMode(state.gameMode) ? [] : availableTees();
+    const myTee = playerTee(p);
+    const teeHtml = tees.length > 1 ? `
+      <div style="margin-top:8px;">
+        <label style="margin-top:0;">Tee</label>
+        <select id="ptee_${p}" onchange="setPlayerTee(${p}, this.value)">
+          ${tees.map(t => `<option value="${escapeHtml(t)}"${t === myTee ? ' selected' : ''}>${teeIconFor(t)} ${escapeHtml(t)}</option>`).join('')}
+        </select>
+      </div>` : '';
+
     container.innerHTML += `
       <div class="player-card" id="playerCard_${p}">
         <div class="player-card-title" style="display:flex;align-items:center;gap:8px;">
@@ -1771,6 +1829,7 @@ function buildPlayerCards() {
               value="${hiVal}" oninput="onPlayerInput(${p})" inputmode="decimal">
           </div>
         </div>
+        ${teeHtml}
         ${teamBtns}
         <div class="ph-display" id="phDisplay_${p}"></div>
       </div>`;
@@ -1803,8 +1862,9 @@ function buildTeamInfo() {
   for (let p = 0; p < 4; p++) {
     const hi  = parseFloat(document.getElementById(`phi_${p}`)?.value);
     const name = document.getElementById(`pname_${p}`)?.value.trim() || `Spelare ${p+1}`;
-    const ph  = !isNaN(hi) && state.slope && state.cr && state.par
-      ? calcPlayingHandicap(hi, state.slope, state.cr, state.par, state.holes)
+    const td  = teeData(playerTee(p));
+    const ph  = !isNaN(hi) && td.slope && td.cr && td.par
+      ? calcPlayingHandicap(hi, td.slope, td.cr, td.par, state.holes)
       : null;
     const t   = state.teamAssign[p] || 'A';
     teams[t].push({ name, hi, ph });
@@ -1850,8 +1910,11 @@ function updatePlayerPH(p) {
     dispEl.innerHTML = '';
     return;
   }
-  const ph = calcPlayingHandicap(hi, state.slope, state.cr, state.par, state.holes);
-  dispEl.innerHTML = `Spelhandicap: <span class="ph-badge">+${ph}</span>`;
+  const td = teeData(playerTee(p));
+  const ph = calcPlayingHandicap(hi, td.slope, td.cr, td.par, state.holes);
+  const teeNote = (td.tee && td.tee !== state.teeColor)
+    ? ` <span style="color:var(--muted);font-weight:400;">(${teeIconFor(td.tee)} ${escapeHtml(td.tee)})</span>` : '';
+  dispEl.innerHTML = `Spelhandicap: <span class="ph-badge">+${ph}</span>${teeNote}`;
 }
 
 // ============================================================
@@ -1876,8 +1939,9 @@ function goToStep4Score() {
       return;
     }
     const name = (nameEl && nameEl.value.trim()) ? nameEl.value.trim() : `Spelare ${p+1}`;
-    const ph = calcPlayingHandicap(hi, state.slope, state.cr, state.par, state.holes);
-    players.push({ name, hi, playingHandicap: ph });
+    const td = teeData(playerTee(p));
+    const ph = calcPlayingHandicap(hi, td.slope, td.cr, td.par, state.holes);
+    players.push({ name, hi, tee: td.tee, slope: td.slope, cr: td.cr, par: td.par, playingHandicap: ph });
   }
 
   const seenNames = new Set();
@@ -1906,7 +1970,7 @@ function goToStep4Score() {
       const ph  = state.gameMode === 'foursome'
                 ? (phs.length === 2 ? calcFoursomeHandicap(phs[0], phs[1]) : phs.length === 1 ? phs[0] : 0)
                 : (his.length === 2 ? calcScrambleHandicap(his[0], his[1])
-                : his.length === 1 ? calcPlayingHandicap(his[0], state.slope, state.cr, state.par, state.holes)
+                : his.length === 1 ? members[0].playingHandicap
                 : 0);
       return { name: `Lag ${t}`, members, playingHandicap: ph };
     });
@@ -1957,12 +2021,15 @@ function buildScoreTable() {
   const isFoursome = state.gameMode === 'foursome';
   const cols = isSharedScore ? state.teams : state.players;
 
-  // Header
+  // Header — show each player's tee when the group isn't all on the same one
+  const mixedTees = !isSharedScore && hasMixedTees(cols);
   let hd = '<tr><th>Hål</th><th>Par</th><th>Hcp</th>';
   cols.forEach(c => {
     const label = c.name;
     const ph    = c.playingHandicap;
-    hd += `<th style="min-width:52px;">${label}<span class="ph-header-badge">+${ph}</span></th>`;
+    const teeTag = mixedTees && c.tee
+      ? `<span style="display:block;font-size:0.65rem;font-weight:400;">${teeIconFor(c.tee)} ${escapeHtml(c.tee)}</span>` : '';
+    hd += `<th style="min-width:52px;">${label}<span class="ph-header-badge">+${ph}</span>${teeTag}</th>`;
   });
   thead.innerHTML = hd + '</tr>';
 
@@ -2551,6 +2618,7 @@ function renderResults(playerResults, rankContainerId = 'rankingContainer', prCo
   const isFourball = results[0]?.isFourball;
   const isFoursome = results[0]?.isFoursome;
   const isMatch    = results[0]?.isMatch;
+  const mixedTees  = hasMixedTees(results.map(r => r.subj));
 
   // Ranking
   const rankContainer = document.getElementById(rankContainerId);
@@ -2574,11 +2642,12 @@ function renderResults(playerResults, rankContainerId = 'rankingContainer', prCo
   sorted.forEach((r, rank) => {
     const holesPlayed = r.rows.filter(row => !row.skipped).length;
     const name     = r.subj.name;
+    const teeLbl = (mixedTees && r.subj.tee) ? ` · ${teeIconFor(r.subj.tee)} ${escapeHtml(r.subj.tee)}` : '';
     const subLabel = isFourball
-      ? `Lag ${r.teamId} (bästboll)${r.teammateName ? ' · med ' + r.teammateName : ''} · HI ${r.subj.hi} · Spelhandicap +${r.ph}`
+      ? `Lag ${r.teamId} (bästboll)${r.teammateName ? ' · med ' + r.teammateName : ''} · HI ${r.subj.hi} · Spelhandicap +${r.ph}${teeLbl}`
       : (isScramble || isFoursome)
       ? `Spelhandicap +${r.ph} · ${r.subj.members.map(m=>m.name).join(' & ')}${isFoursome ? ' · Foursome' : ''}`
-      : `HI ${r.subj.hi} · Spelhandicap +${r.ph} · ${holesPlayed} hål`;
+      : `HI ${r.subj.hi} · Spelhandicap +${r.ph}${teeLbl} · ${holesPlayed} hål`;
     const photo = _photoForName(name);
     rankContainer.innerHTML += `
       <div class="ranking-card">
@@ -2632,11 +2701,12 @@ function renderResults(playerResults, rankContainerId = 'rankingContainer', prCo
     rtbodyHtml += `<tr class="total-row${state.holes===9?'':' half-row'}">
       <td colspan="3"><strong>Totalt</strong></td><td>${r.totalBrutto}</td><td></td><td></td><td>${r.totalPoints}</td></tr>`;
 
+    const teeLbl2 = (mixedTees && r.subj.tee) ? ` · ${teeIconFor(r.subj.tee)} ${escapeHtml(r.subj.tee)}` : '';
     const subLabel = isFourball
-      ? `Lag ${r.teamId} (bästboll)${r.teammateName ? ' · med ' + escapeHtml(r.teammateName) : ''} · Spelhandicap +${r.ph} · Brutto ${r.totalBrutto} · ${holesPlayed} hål`
+      ? `Lag ${r.teamId} (bästboll)${r.teammateName ? ' · med ' + escapeHtml(r.teammateName) : ''} · Spelhandicap +${r.ph}${teeLbl2} · Brutto ${r.totalBrutto} · ${holesPlayed} hål`
       : (isScramble || isFoursome)
       ? `Spelhandicap +${r.ph} · ${r.subj.members.map(m=>escapeHtml(m.name)).join(' & ')}${isFoursome ? ' · Foursome' : ''}`
-      : `Spelhandicap +${r.ph} · Brutto ${r.totalBrutto} · ${holesPlayed} hål`;
+      : `Spelhandicap +${r.ph}${teeLbl2} · Brutto ${r.totalBrutto} · ${holesPlayed} hål`;
 
     const sectionPhoto = _photoForName(r.subj.name);
     prContainer.innerHTML += `
@@ -2670,6 +2740,7 @@ function newRound() {
     hpar: [], si: [],
     numPlayers: 1, players: [], scores: [],
     gameMode: 'individual', teamAssign: ['A','A','B','B'], teams: null,
+    playerTees: [],
     note: '', weather: null,
     markers: { ctp: { hole: null, player: '' }, ld: { hole: null, player: '' } }
   };
@@ -3209,6 +3280,10 @@ function saveCurrentRound(playerResults) {
     name: r.subj.name,
     hi: hasSharedScore ? null : r.subj.hi,
     ph: r.ph,
+    tee: hasSharedScore ? null : (r.subj.tee || state.teeColor),
+    slope: hasSharedScore ? null : (r.subj.slope != null ? r.subj.slope : state.slope),
+    cr: hasSharedScore ? null : (r.subj.cr != null ? r.subj.cr : state.cr),
+    par: hasSharedScore ? null : (r.subj.par != null ? r.subj.par : state.par),
     totalPoints: r.totalPoints,
     totalBrutto: r.totalBrutto,
     members: hasSharedScore ? r.subj.members.map(m => m.name) : null,
@@ -3216,12 +3291,14 @@ function saveCurrentRound(playerResults) {
     teammate: isFourball ? r.teammateName : null,
     rows: r.rows
   }));
+  const mixedTees = hasMixedTees(subjects);
   const isEditing = !!state.editingId;
   const roundData = {
     id: isEditing ? state.editingId : now.getTime(),
     date: isEditing ? state.editingDate : dateStr,
     courseName: state.courseName,
     tee: state.teeColor,
+    mixedTees,
     holes: state.holes,
     slope: state.slope,
     cr: state.cr,
@@ -3475,13 +3552,14 @@ function openPlayerHistory(id) {
         const pts = subj ? subj.totalPoints : '–';
         const sorted = [...r.subjects].sort((a, b) => b.totalPoints - a.totalPoints);
         const rank = sorted.findIndex(s => s.name === displayName || s.name === player.name);
-        const teeIcon = r.tee === 'Gul' ? '🟡' : '🔴';
+        const myTee = (subj && subj.tee) || r.tee;
+        const teeIcon = teeIconFor(myTee);
         return `
           <div class="player-history-row">
             <div class="player-history-medal">${medals[rank] || ''}</div>
             <div class="player-history-info">
               <div class="player-history-course">${r.courseName}</div>
-              <div class="player-history-meta">${r.date} · ${teeIcon} ${r.tee} · ${r.holes} hål</div>
+              <div class="player-history-meta">${r.date} · ${teeIcon} ${escapeHtml(myTee || '')} · ${r.holes} hål</div>
             </div>
             <div>
               <div class="player-history-pts">${pts}p</div>
@@ -4157,7 +4235,7 @@ function renderHistoryList() {
         <div class="hi-rank-row">
           <span>${medals[i]||''}</span>
           <span class="hi-rank-name">${escapeHtml(s.name)}${s.members ? ` <span style="font-weight:400;color:var(--muted)">(${s.members.map(escapeHtml).join(' & ')})</span>` : ''}${s.teamId ? ` <span style="font-weight:400;color:var(--muted)">(Lag ${s.teamId}${s.teammate ? ' · med ' + escapeHtml(s.teammate) : ''})</span>` : ''}</span>
-          <span style="color:var(--muted);font-size:0.75rem;margin-right:6px;">HCP +${s.ph}</span>
+          <span style="color:var(--muted);font-size:0.75rem;margin-right:6px;">HCP +${s.ph}${hasMixedTees(r.subjects) && s.tee ? ` · ${teeIconFor(s.tee)}` : ''}</span>
           <span class="hi-rank-pts">${s.totalPoints} p</span>
         </div>`).join('');
     }
@@ -4183,7 +4261,7 @@ function renderHistoryList() {
       <div class="history-item" data-id="${r.id}">
         <div class="hi-header" onclick="toggleHistoryItem(this)">
           <div style="flex:1;min-width:0;">
-            <div class="hi-date">${r.date} · ${r.holes} hål · ${r.tee === 'Gul' ? '🟡' : '🔴'} ${r.tee}${r.weather && WEATHER[r.weather] ? ' · ' + WEATHER[r.weather].e : ''}</div>
+            <div class="hi-date">${r.date} · ${r.holes} hål · ${hasMixedTees(r.subjects) ? '⛳ Blandat tee' : `${teeIconFor(r.tee)} ${escapeHtml(r.tee || '')}`}${r.weather && WEATHER[r.weather] ? ' · ' + WEATHER[r.weather].e : ''}</div>
             <div class="hi-course">${escapeHtml(r.courseName)}</div>
             <div class="hi-meta">${topLine}</div>
           </div>
@@ -4227,6 +4305,7 @@ function editRound(id) {
     numPlayers: shared ? r.subjects.reduce((n, s) => n + (s.members ? s.members.length : 1), 0) : r.subjects.length,
     players: [], teams: null,
     teamAssign: ['A','A','B','B'],
+    playerTees: [],
     scores: r.subjects.map(s => s.rows.map(row =>
       (row.skipped || row.score === '–' || row.score == null) ? '' : row.score)),
     note: r.note || '', weather: r.weather || null,
@@ -4240,7 +4319,14 @@ function editRound(id) {
       playingHandicap: s.ph
     }));
   } else {
-    state.players = r.subjects.map(s => ({ name: s.name, hi: s.hi, playingHandicap: s.ph }));
+    state.players = r.subjects.map(s => ({
+      name: s.name, hi: s.hi, playingHandicap: s.ph,
+      tee: s.tee || r.tee,
+      slope: s.slope != null ? s.slope : r.slope,
+      cr: s.cr != null ? s.cr : r.cr,
+      par: s.par != null ? s.par : r.par
+    }));
+    state.playerTees = state.players.map(pl => pl.tee);
     if (r.gameMode === 'fourball') state.teamAssign = r.subjects.map(s => s.teamId || 'A');
   }
   document.getElementById('historyView').classList.add('hidden');
@@ -4304,8 +4390,8 @@ async function buildShareImage(rows, meta) {
   ctx.fillText(`⛳ ${meta.courseName}`, 16, 34);
   ctx.font = '14px system-ui, -apple-system, sans-serif';
   ctx.fillStyle = '#a5d6a7';
-  const teeIcon = meta.tee === 'Gul' ? '🟡' : '🔴';
-  ctx.fillText(`${teeIcon} ${meta.tee} · ${meta.holes} hål · ${meta.date}`, 16, 62);
+  const teeLabel = meta.mixedTees ? '⛳ Blandat tee' : `${teeIconFor(meta.tee)} ${meta.tee}`;
+  ctx.fillText(`${teeLabel} · ${meta.holes} hål · ${meta.date}`, 16, 62);
 
   // Player rows
   for (let i = 0; i < rows.length; i++) {
@@ -4406,9 +4492,9 @@ async function buildShareImage(rows, meta) {
 
 function _shareTextFromRows(rows, meta) {
   const medals = ['🥇','🥈','🥉','🪙'];
-  const teeIcon = meta.tee === 'Gul' ? '🟡' : '🔴';
+  const teeLabel = meta.mixedTees ? '⛳ Blandat tee' : `${teeIconFor(meta.tee)} ${meta.tee}`;
   const wx = meta.weather && WEATHER[meta.weather] ? ` · ${WEATHER[meta.weather].e} ${WEATHER[meta.weather].l}` : '';
-  const header = `⛳ ${meta.courseName} · ${teeIcon} ${meta.tee} · ${meta.holes} hål · ${meta.date}${wx}`;
+  const header = `⛳ ${meta.courseName} · ${teeLabel} · ${meta.holes} hål · ${meta.date}${wx}`;
   const lines = rows.map((r, i) => `${medals[i]||''} ${r.name}: ${r.points} poäng`);
   const tailParts = [];
   if (meta.highlight) tailParts.push(meta.highlight);
@@ -4455,7 +4541,7 @@ async function shareRound(id) {
   const matchLine = r.gameMode === 'match' ? matchResultText(pseudo) : '';
   const highlightsText = buildHighlightsText(pseudo, r.markers || null);
   const highlight = [matchLine, highlightsText].filter(Boolean).join('\n');
-  await _doShare(rows, { courseName: r.courseName, tee: r.tee, holes: r.holes, date: r.date, highlight, weather: r.weather || null, note: r.note || '' });
+  await _doShare(rows, { courseName: r.courseName, tee: r.tee, mixedTees: hasMixedTees(r.subjects), holes: r.holes, date: r.date, highlight, weather: r.weather || null, note: r.note || '' });
 }
 
 function printRound(id) {
@@ -4465,7 +4551,7 @@ function printRound(id) {
   const isFourball  = round.gameMode === 'fourball';
   const isFoursome  = round.gameMode === 'foursome';
   const results = round.subjects.map(s => ({
-    subj: { name: s.name, hi: s.hi, members: s.members ? s.members.map(m => ({ name: m })) : null },
+    subj: { name: s.name, hi: s.hi, tee: s.tee || round.tee, members: s.members ? s.members.map(m => ({ name: m })) : null },
     ph: s.ph,
     totalPoints: s.totalPoints,
     totalBrutto: s.totalBrutto,
@@ -4501,7 +4587,7 @@ async function shareResult() {
     highlight = '';
   }
   const date = new Date().toLocaleDateString('sv-SE');
-  await _doShare(rows, { courseName: state.courseName, tee: state.teeColor, holes: state.holes, date, highlight, weather: state.weather || null, note: state.note || '' });
+  await _doShare(rows, { courseName: state.courseName, tee: state.teeColor, mixedTees: hasMixedTees(state.players), holes: state.holes, date, highlight, weather: state.weather || null, note: state.note || '' });
 }
 
 function showShareToast(msg) {
