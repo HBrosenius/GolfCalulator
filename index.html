@@ -3504,10 +3504,11 @@ function openPlayerHistory(id) {
       (subj.rows || []).forEach(row => {
         if (row.skipped) return;
         totalHoles++;
-        if (row.pts >= 4) eagles++;
-        else if (row.pts === 3) birdies++;
-        else if (row.pts === 2) pars++;
-        else if (row.pts === 1) bogeys++;
+        const toPar = row.score - row.par;
+        if (toPar <= -2) eagles++;
+        else if (toPar === -1) birdies++;
+        else if (toPar === 0) pars++;
+        else if (toPar === 1) bogeys++;
         else doubles++;
       });
     });
@@ -3730,10 +3731,11 @@ function openHallOfFame() {
         (subj.rows || []).forEach(row => {
           if (row.skipped) return;
           s.holes++;
-          if (row.pts >= 4) s.eagles++;
-          else if (row.pts === 3) s.birdies++;
-          else if (row.pts === 2) s.pars++;
-          else if (row.pts === 1) s.bogeys++;
+          const toPar = row.score - row.par;
+          if (toPar <= -2) s.eagles++;
+          else if (toPar === -1) s.birdies++;
+          else if (toPar === 0) s.pars++;
+          else if (toPar === 1) s.bogeys++;
           else s.doubles++;
         });
       });
