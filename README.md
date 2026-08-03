@@ -77,6 +77,10 @@ Klicka på en spelare i registret för att se spelhistorik och statistik:
 - **HCP-utveckling** — linjediagram över spelarens handicapindex över tid, baserat på HI:t som angavs vid varje runda
 - **Hall of Fame** — jämförelsestatistik mellan alla sparade spelare (bästa runda, flest vinster, flest birdies m.m.)
 
+## Banrekord
+
+Under Spelarregister → **🏟️ Banrekord** visas en topp 3-lista per bana (grupperat på banans namn och antal hål) över de bästa enskilda rundorna som spelats där, med spelare, poäng, datum och tee. Precis som i Säsong räknas Scramble- och Foursome-rundor inte in eftersom laget delar en gemensam score som inte kan knytas till en enskild spelares prestation.
+
 ## Säsong / Order of Merit
 
 Under Spelarregister → **📅 Säsong** kan du se en sammanlagd poängtabell för alla spelare inom ett valfritt datumintervall (standard: innevarande år). Rundor spelade i Scramble- eller Foursome-läge räknas inte in eftersom laget då inte är knutet till enskilda spelare — Individuellt och Bästboll räknas båda in per spelare.

@@ -669,6 +669,7 @@
     body.printing-history #step4, body.printing-history #step5,
     body.printing-history #historyView, body.printing-history #playersView,
     body.printing-history #hallOfFameView, body.printing-history #seasonView,
+    body.printing-history #courseRecordsView,
     body.printing-history #playerHistoryView { display: none !important; }
     body.printing-history #printOnlyResults { display: block !important; }
   }
@@ -778,6 +779,7 @@
         <div style="display:flex;gap:8px;align-items:center;">
           <button onclick="openSeasonView()" style="background:none;border:1px solid var(--green);border-radius:6px;padding:4px 10px;font-size:0.8rem;color:var(--heading);cursor:pointer;">📅 Säsong</button>
           <button onclick="openHallOfFame()" style="background:none;border:1px solid var(--green);border-radius:6px;padding:4px 10px;font-size:0.8rem;color:var(--heading);cursor:pointer;">🏆 Hall of Fame</button>
+          <button onclick="openCourseRecordsView()" style="background:none;border:1px solid var(--green);border-radius:6px;padding:4px 10px;font-size:0.8rem;color:var(--heading);cursor:pointer;">🏟️ Banrekord</button>
           <button onclick="closePlayersView()" style="background:none;border:none;font-size:1.4rem;cursor:pointer;color:var(--muted);padding:0 4px;">✕</button>
         </div>
       </div>
@@ -846,6 +848,17 @@
         </div>
       </div>
       <div id="seasonContent"></div>
+    </div>
+  </div>
+
+  <!-- BANREKORD -->
+  <div id="courseRecordsView" class="hidden">
+    <div class="card">
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:16px;">
+        <button onclick="closeCourseRecordsView()" style="background:none;border:none;font-size:1.2rem;cursor:pointer;color:var(--muted);padding:0 4px;">←</button>
+        <div class="card-title" style="margin:0;"><span class="icon">🏟️</span> Banrekord</div>
+      </div>
+      <div id="courseRecordsContent"></div>
     </div>
   </div>
 
@@ -3938,6 +3951,68 @@ function computeSeasonStandings() {
         <div class="hof-val">${s.totalPts}p</div>
       </div>`).join('') +
     `</div>`;
+}
+
+// ============================================================
+// BANREKORD
+// ============================================================
+function openCourseRecordsView() {
+  computeCourseRecords();
+  document.getElementById('playersView').classList.add('hidden');
+  document.getElementById('courseRecordsView').classList.remove('hidden');
+}
+
+function closeCourseRecordsView() {
+  document.getElementById('courseRecordsView').classList.add('hidden');
+  document.getElementById('playersView').classList.remove('hidden');
+}
+
+function computeCourseRecords() {
+  const contentEl = document.getElementById('courseRecordsContent');
+  const players = playersLoad();
+  // Scramble/Foursome ger en gemensam lagscore som inte går att koppla till en
+  // enskild spelares prestation, precis som i Säsong/Order of Merit.
+  const rounds = roundsLoad().filter(r => r.gameMode !== 'scramble' && r.gameMode !== 'foursome');
+
+  if (rounds.length === 0) {
+    contentEl.innerHTML = '<p style="font-size:0.85rem;color:var(--muted);text-align:center;padding:16px 0;">Inga rundor hittades ännu.</p>';
+    return;
+  }
+
+  const byCourse = {};
+  rounds.forEach(r => {
+    const key = `${r.courseName}||${r.holes}`;
+    const group = byCourse[key] || (byCourse[key] = { courseName: r.courseName, holes: r.holes, entries: [] });
+    r.subjects.forEach(subj => {
+      const p = players.find(p => (p.nick || p.name) === subj.name || p.name === subj.name);
+      group.entries.push({
+        display: subj.name,
+        photo: p ? p.photo : null,
+        points: subj.totalPoints,
+        date: r.date,
+        tee: r.tee
+      });
+    });
+  });
+
+  const groups = Object.values(byCourse).sort((a, b) => a.courseName.localeCompare(b.courseName, 'sv') || a.holes - b.holes);
+
+  const medals = ['🥇','🥈','🥉'];
+  const rowCls = ['gold','silver','bronze'];
+
+  contentEl.innerHTML = groups.map(g => {
+    const top3 = [...g.entries].sort((a, b) => b.points - a.points).slice(0, 3);
+    const rows = top3.map((e, i) => `
+      <div class="hof-row ${rowCls[i] || ''}">
+        <div class="hof-rank">${medals[i] || ''}</div>
+        ${avatarHtml(e.photo, 'player-card-avatar')}
+        <div class="hof-info"><div class="hof-name">${escapeHtml(e.display)}</div>
+          <div style="font-size:0.75rem;color:var(--muted);">${e.date}${e.tee ? ' · ' + escapeHtml(e.tee) : ''}</div>
+        </div>
+        <div class="hof-val">${e.points}p</div>
+      </div>`).join('');
+    return `<div class="hof-category"><p class="hof-category-title">⛳ ${escapeHtml(g.courseName)} (${g.holes} hål)</p>${rows}</div>`;
+  }).join('');
 }
 
 function openPlayersView() {
