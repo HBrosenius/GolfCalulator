@@ -3492,6 +3492,8 @@ function openPlayerHistory(id) {
     // Collect all per-hole rows and round-level data for this player
     let totalPts = 0, best = 0, wins = 0, totalHoles = 0;
     let eagles = 0, birdies = 0, pars = 0, bogeys = 0, doubles = 0;
+    let longDrives = 0, closestToPin = 0;
+    const isMe = name => name === displayName || name === player.name;
 
     rounds.forEach(r => {
       const subj = r.subjects.find(s => s.name === displayName || s.name === player.name);
@@ -3500,6 +3502,11 @@ function openPlayerHistory(id) {
       if (subj.totalPoints > best) best = subj.totalPoints;
 
       if (subjectWonRound(r, subj)) wins++;
+
+      if (r.markers) {
+        if (r.markers.ld && r.markers.ld.player && isMe(r.markers.ld.player)) longDrives++;
+        if (r.markers.ctp && r.markers.ctp.player && isMe(r.markers.ctp.player)) closestToPin++;
+      }
 
       (subj.rows || []).forEach(row => {
         if (row.skipped) return;
@@ -3599,6 +3606,8 @@ function openPlayerHistory(id) {
         ${statBox('✅', pars, 'Pars')}
         ${statBox('😬', bogeys, 'Bogeys')}
         ${statBox('💀', doubles, 'Dubbel+')}
+        ${statBox('💥', longDrives, 'Längsta drive')}
+        ${statBox('📍', closestToPin, 'Närmast pinnen')}
       </div>
       ${chartPts.length >= 2 ? `<p class="player-stats-section-title" style="margin-top:16px;">Senaste ${chartPts.length} rundor</p>
       <div style="background:#f0faf4;border-radius:10px;padding:10px 8px 4px;margin-bottom:16px;">${chart}</div>` : ''}
