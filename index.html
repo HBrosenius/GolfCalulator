@@ -11,11 +11,23 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Poängbogey">
+<script>
+// Apply saved/system theme before first paint to avoid a flash of the wrong theme.
+(function() {
+  try {
+    var saved = localStorage.getItem('golf_theme');
+    if (saved === 'dark' || saved === 'light') {
+      document.documentElement.setAttribute('data-theme', saved);
+    }
+  } catch (e) {}
+})();
+</script>
 <style>
   :root {
     --green: #2d6a4f;
     --green-light: #40916c;
     --green-dark: #1b4332;
+    --heading: #1b4332;
     --accent: #74c69d;
     --bg: #f8fdf9;
     --card: #ffffff;
@@ -26,6 +38,40 @@
     --gold: #f4a261;
     --shadow: 0 2px 12px rgba(0,0,0,0.08);
     --radius: 12px;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --green: #40916c;
+      --green-light: #52b788;
+      --green-dark: #0f2a1d;
+      --heading: #95d5b2;
+      --accent: #74c69d;
+      --bg: #121814;
+      --card: #1b241d;
+      --text: #e8f0e9;
+      --muted: #9aa79d;
+      --border: #344037;
+      --danger: #ff6b6b;
+      --gold: #f4a261;
+      --shadow: 0 2px 12px rgba(0,0,0,0.4);
+    }
+  }
+
+  :root[data-theme="dark"] {
+    --green: #40916c;
+    --green-light: #52b788;
+    --green-dark: #0f2a1d;
+    --heading: #95d5b2;
+    --accent: #74c69d;
+    --bg: #121814;
+    --card: #1b241d;
+    --text: #e8f0e9;
+    --muted: #9aa79d;
+    --border: #344037;
+    --danger: #ff6b6b;
+    --gold: #f4a261;
+    --shadow: 0 2px 12px rgba(0,0,0,0.4);
   }
 
   * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -39,6 +85,7 @@
   }
 
   header {
+    position: relative;
     background: linear-gradient(135deg, var(--green-dark), var(--green));
     color: white;
     padding: 20px 16px 16px;
@@ -71,8 +118,8 @@
     font-size: 0.75rem; font-weight: 600;
     transition: all 0.3s;
   }
-  .step-dot.active { background: white; color: var(--green-dark); }
-  .step-dot.done { background: var(--accent); color: var(--green-dark); }
+  .step-dot.active { background: white; color: var(--heading); }
+  .step-dot.done { background: var(--accent); color: var(--heading); }
 
   .container { max-width: 480px; margin: 0 auto; padding: 16px; }
 
@@ -87,7 +134,7 @@
   .card-title {
     font-size: 1rem;
     font-weight: 700;
-    color: var(--green-dark);
+    color: var(--heading);
     margin-bottom: 16px;
     display: flex;
     align-items: center;
@@ -175,7 +222,7 @@
   .score-table thead th:last-child { border-radius: 0 6px 0 0; }
   .score-table tbody tr:nth-child(even) { background: #f8fdf9; }
   .score-table tbody td { padding: 4px 3px; text-align: center; vertical-align: middle; }
-  .score-table td.hole-num { font-weight: 700; color: var(--green-dark); font-size: 0.9rem; }
+  .score-table td.hole-num { font-weight: 700; color: var(--heading); font-size: 0.9rem; }
   .score-table td.par { font-size: 0.85rem; color: var(--muted); }
   .score-table td.si { font-size: 0.75rem; color: var(--muted); }
   .live-pts { font-size: 0.7rem; font-weight: 700; margin-top: 2px; min-height: 12px; }
@@ -225,7 +272,7 @@
     line-height: 1;
   }
   .par-btn.selected-3 { background: #dff0ea; border-color: #52b788; color: #1b4332; }
-  .par-btn.selected-4 { background: #e8f5e9; border-color: var(--green); color: var(--green-dark); }
+  .par-btn.selected-4 { background: #e8f5e9; border-color: var(--green); color: var(--heading); }
   .par-btn.selected-5 { background: #fff8e1; border-color: #f4a261; color: #7a3e00; }
   .idx-input {
     width: 100%; padding: 8px 6px;
@@ -291,7 +338,7 @@
     border-bottom: 1px solid var(--border); font-size: 0.85rem; }
   .hi-rank-row:last-child { border-bottom: none; }
   .hi-rank-name { flex: 1; font-weight: 600; }
-  .hi-rank-pts { font-weight: 700; color: var(--green-dark); }
+  .hi-rank-pts { font-weight: 700; color: var(--heading); }
   .hi-share, .hi-edit { background: none; border: none; cursor: pointer; color: var(--muted);
     font-size: 1rem; padding: 4px 6px; flex-shrink: 0; }
   .hi-share:hover, .hi-edit:hover { color: var(--accent); }
@@ -339,7 +386,7 @@
   .player-card-title {
     font-size: 0.8rem;
     font-weight: 700;
-    color: var(--green-dark);
+    color: var(--heading);
     text-transform: uppercase;
     letter-spacing: 0.5px;
     margin-bottom: 10px;
@@ -347,7 +394,7 @@
   .player-card .ph-display {
     margin-top: 8px;
     font-size: 0.82rem;
-    color: var(--green-dark);
+    color: var(--heading);
   }
   .ph-badge {
     display: inline-block;
@@ -413,7 +460,7 @@
     background: white; border-radius: 10px; padding: 14px;
     box-shadow: var(--shadow); text-align: center;
   }
-  .result-stat .stat-value { font-size: 1.6rem; font-weight: 800; color: var(--green-dark); }
+  .result-stat .stat-value { font-size: 1.6rem; font-weight: 800; color: var(--heading); }
   .result-stat .stat-label { font-size: 0.75rem; color: var(--muted); margin-top: 2px; }
 
   .result-table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
@@ -437,7 +484,7 @@
   .info-box {
     background: #e8f5e9; border-left: 3px solid var(--green);
     border-radius: 0 8px 8px 0; padding: 10px 14px;
-    font-size: 0.82rem; color: var(--green-dark); margin-top: 12px;
+    font-size: 0.82rem; color: var(--heading); margin-top: 12px;
   }
 
   /* Ranking card */
@@ -464,14 +511,14 @@
   }
   .result-section-avatar img { width: 100%; height: 100%; object-fit: cover; }
   .rank-info { flex: 1; }
-  .rank-name { font-size: 1rem; font-weight: 700; color: var(--green-dark); }
+  .rank-name { font-size: 1rem; font-weight: 700; color: var(--heading); }
   .rank-sub { font-size: 0.78rem; color: var(--muted); margin-top: 2px; }
-  .rank-pts { font-size: 1.6rem; font-weight: 800; color: var(--green-dark); }
+  .rank-pts { font-size: 1.6rem; font-weight: 800; color: var(--heading); }
   .rank-pts-label { font-size: 0.72rem; color: var(--muted); }
 
   .player-result-section { margin-bottom: 20px; }
   .player-result-title {
-    font-size: 0.9rem; font-weight: 700; color: var(--green-dark);
+    font-size: 0.9rem; font-weight: 700; color: var(--heading);
     margin-bottom: 8px; display: flex; align-items: center; gap: 8px;
   }
 
@@ -506,11 +553,11 @@
     padding: 16px;
   }
   .crop-sheet {
-    background: #fff; border-radius: 16px;
+    background: var(--card); border-radius: 16px;
     width: 100%; max-width: 340px;
     padding: 16px; display: flex; flex-direction: column; gap: 12px;
   }
-  .crop-sheet h3 { margin: 0; font-size: 1rem; text-align: center; color: var(--green-dark); }
+  .crop-sheet h3 { margin: 0; font-size: 1rem; text-align: center; color: var(--heading); }
   .crop-viewport-wrap {
     position: relative; width: 100%; aspect-ratio: 1;
     border-radius: 50%; overflow: hidden;
@@ -537,9 +584,9 @@
   .player-history-row:last-child { border-bottom: none; }
   .player-history-medal { font-size: 1.3rem; width: 28px; text-align: center; flex-shrink: 0; }
   .player-history-info { flex: 1; }
-  .player-history-course { font-weight: 600; font-size: 0.92rem; color: var(--green-dark); }
+  .player-history-course { font-weight: 600; font-size: 0.92rem; color: var(--heading); }
   .player-history-meta { font-size: 0.78rem; color: var(--muted); margin-top: 2px; }
-  .player-history-pts { font-size: 1.3rem; font-weight: 800; color: var(--green-dark); white-space: nowrap; }
+  .player-history-pts { font-size: 1.3rem; font-weight: 800; color: var(--heading); white-space: nowrap; }
   .player-history-pts-label { font-size: 0.7rem; color: var(--muted); text-align: right; }
   .hof-category { margin-bottom: 20px; }
   .hof-category-title {
@@ -555,15 +602,15 @@
   .hof-row.bronze { background: #fbe9e7; }
   .hof-rank { font-size: 1.2rem; width: 28px; text-align: center; flex-shrink: 0; }
   .hof-info { flex: 1; }
-  .hof-name { font-weight: 600; font-size: 0.92rem; color: var(--green-dark); }
-  .hof-val  { font-size: 1.1rem; font-weight: 800; color: var(--green-dark); white-space: nowrap; }
+  .hof-name { font-weight: 600; font-size: 0.92rem; color: var(--heading); }
+  .hof-val  { font-size: 1.1rem; font-weight: 800; color: var(--heading); white-space: nowrap; }
   .player-stat-grid {
     display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 16px;
   }
   .player-stat-box {
     background: #f0faf4; border-radius: 8px; padding: 9px 6px; text-align: center;
   }
-  .player-stat-val { font-size: 1.25rem; font-weight: 800; color: var(--green-dark); line-height: 1.1; }
+  .player-stat-val { font-size: 1.25rem; font-weight: 800; color: var(--heading); line-height: 1.1; }
   .player-stat-lbl { font-size: 0.68rem; color: var(--muted); margin-top: 3px; }
   .player-stat-icon { font-size: 1rem; display: block; margin-bottom: 2px; }
   .player-stats-section-title {
@@ -579,7 +626,7 @@
   .recent-course-btn:active { background: #e0f2e9; }
   .recent-course-icon { font-size: 1.2rem; flex-shrink: 0; }
   .recent-course-info { flex: 1; display: flex; flex-direction: column; gap: 1px; }
-  .recent-course-name { font-weight: 600; font-size: 0.95rem; color: var(--green-dark); }
+  .recent-course-name { font-weight: 600; font-size: 0.95rem; color: var(--heading); }
   .recent-course-sub { font-size: 0.78rem; color: var(--muted); }
   .recent-course-arrow { color: var(--green); font-size: 1rem; flex-shrink: 0; }
 
@@ -630,6 +677,7 @@
 <body>
 
 <header class="no-print">
+  <button id="themeToggle" onclick="cycleTheme()" title="Byt tema" style="position:absolute;top:14px;right:14px;background:rgba(255,255,255,0.15);border:none;border-radius:50%;width:36px;height:36px;font-size:1.1rem;cursor:pointer;color:white;">🌙</button>
   <h1>⛳ Poängbogey</h1>
   <p>Golfkalkylator</p>
 </header>
@@ -656,7 +704,7 @@
         <div class="card-title" style="margin:0;"><span class="icon">📅</span> Sparade rundor</div>
         <button onclick="closeHistory()" style="background:none;border:none;font-size:1.4rem;cursor:pointer;color:var(--muted);padding:0 4px;">✕</button>
       </div>
-      <button id="historyFilterToggle" onclick="toggleHistoryFilters()" style="background:none;border:1px solid var(--border);border-radius:8px;padding:7px 12px;font-size:0.85rem;color:var(--green-dark);cursor:pointer;margin-bottom:10px;">🔎 Filter</button>
+      <button id="historyFilterToggle" onclick="toggleHistoryFilters()" style="background:none;border:1px solid var(--border);border-radius:8px;padding:7px 12px;font-size:0.85rem;color:var(--heading);cursor:pointer;margin-bottom:10px;">🔎 Filter</button>
       <div id="historyFilters" class="hidden" style="background:#f0faf5;border-radius:8px;padding:10px 12px;margin-bottom:10px;">
         <label style="margin-top:0;font-size:0.8rem;">Bana</label>
         <select id="histFilterCourse" onchange="renderHistoryList()"></select>
@@ -728,8 +776,8 @@
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;">
         <div class="card-title" style="margin:0;"><span class="icon">👤</span> Spelarregister</div>
         <div style="display:flex;gap:8px;align-items:center;">
-          <button onclick="openSeasonView()" style="background:none;border:1px solid var(--green);border-radius:6px;padding:4px 10px;font-size:0.8rem;color:var(--green-dark);cursor:pointer;">📅 Säsong</button>
-          <button onclick="openHallOfFame()" style="background:none;border:1px solid var(--green);border-radius:6px;padding:4px 10px;font-size:0.8rem;color:var(--green-dark);cursor:pointer;">🏆 Hall of Fame</button>
+          <button onclick="openSeasonView()" style="background:none;border:1px solid var(--green);border-radius:6px;padding:4px 10px;font-size:0.8rem;color:var(--heading);cursor:pointer;">📅 Säsong</button>
+          <button onclick="openHallOfFame()" style="background:none;border:1px solid var(--green);border-radius:6px;padding:4px 10px;font-size:0.8rem;color:var(--heading);cursor:pointer;">🏆 Hall of Fame</button>
           <button onclick="closePlayersView()" style="background:none;border:none;font-size:1.4rem;cursor:pointer;color:var(--muted);padding:0 4px;">✕</button>
         </div>
       </div>
@@ -819,7 +867,7 @@
     <div id="resumeBanner" class="card" style="display:none;margin-bottom:10px;background:#e8f5e9;border:1px solid var(--green-light);">
       <div style="display:flex;align-items:center;gap:10px;">
         <div style="font-size:1.4rem;">⛳</div>
-        <div style="flex:1;font-size:0.85rem;color:var(--green-dark);" id="resumeText"></div>
+        <div style="flex:1;font-size:0.85rem;color:var(--heading);" id="resumeText"></div>
       </div>
       <div style="display:flex;gap:8px;margin-top:10px;">
         <button class="btn" style="flex:1;width:auto;margin-top:0;" onclick="resumeRound()">Fortsätt rundan ▶</button>
@@ -912,8 +960,8 @@
       </div>
       <!-- Collapsed view for saved courses -->
       <div id="savedDataCollapsed" class="hidden" style="display:flex;align-items:center;justify-content:space-between;background:#e8f5e9;border-radius:8px;padding:10px 12px;margin-bottom:10px;">
-        <span style="font-size:0.85rem;color:var(--green-dark);">✅ Håldata laddad</span>
-        <button onclick="expandHoleData()" style="background:none;border:1px solid var(--green);border-radius:6px;padding:4px 10px;font-size:0.8rem;color:var(--green-dark);cursor:pointer;">Redigera</button>
+        <span style="font-size:0.85rem;color:var(--heading);">✅ Håldata laddad</span>
+        <button onclick="expandHoleData()" style="background:none;border:1px solid var(--green);border-radius:6px;padding:4px 10px;font-size:0.8rem;color:var(--heading);cursor:pointer;">Redigera</button>
       </div>
 
       <!-- Full hole editor (hidden when data is pre-loaded) -->
@@ -998,7 +1046,7 @@
       </div>
       <div id="honorBanner" style="display:none;align-items:center;gap:10px;background:#e8f5e9;border-radius:8px;padding:9px 12px;margin-bottom:10px;">
         <div id="honorAvatar" style="width:32px;height:32px;border-radius:50%;background:#c8e6c9;border:2px solid var(--green);display:flex;align-items:center;justify-content:center;overflow:hidden;flex-shrink:0;font-size:1rem;"></div>
-        <div style="flex:1;font-size:0.85rem;color:var(--green-dark);" id="honorText"></div>
+        <div style="flex:1;font-size:0.85rem;color:var(--heading);" id="honorText"></div>
       </div>
       <div id="matchStatus" style="display:none;background:var(--green-dark);color:white;border-radius:8px;padding:10px 12px;margin-bottom:10px;font-weight:700;text-align:center;font-size:0.95rem;"></div>
       <div class="score-table-wrap">
@@ -1076,6 +1124,29 @@
 <div id="saveToast">✅ Baninformation sparad</div>
 
 <script>
+// ============================================================
+// THEME
+// ============================================================
+const THEME_KEY = 'golf_theme';
+
+function currentTheme() {
+  return document.documentElement.getAttribute('data-theme')
+    || (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+}
+
+function applyTheme(theme) {
+  document.documentElement.setAttribute('data-theme', theme);
+  const btn = document.getElementById('themeToggle');
+  if (btn) btn.textContent = theme === 'dark' ? '☀️' : '🌙';
+  try { localStorage.setItem(THEME_KEY, theme); } catch (e) {}
+}
+
+function cycleTheme() {
+  applyTheme(currentTheme() === 'dark' ? 'light' : 'dark');
+}
+
+applyTheme(currentTheme());
+
 // ============================================================
 // STATE
 // ============================================================
@@ -2106,7 +2177,7 @@ function buildScoreTable() {
     people.map(n => `<option value="${escapeHtml(n)}"${n === sel ? ' selected' : ''}>${escapeHtml(n)}</option>`).join('');
   const markerRow = (icon, label, onchange, sel) =>
     `<tr class="marker-row"><td colspan="${totalCols}" style="background:#fff8e1;text-align:left;padding:8px 10px;">
-      <span style="font-size:0.85rem;font-weight:600;color:var(--green-dark);">${icon} ${label}:</span>
+      <span style="font-size:0.85rem;font-weight:600;color:var(--heading);">${icon} ${label}:</span>
       <select style="margin-left:8px;max-width:60%;padding:6px 8px;" onchange="${onchange}(this.value)">${markerOpts(sel)}</select>
     </td></tr>`;
 
@@ -2572,7 +2643,7 @@ function buildRoundHighlights(results, markers) {
     <div style="display:flex;align-items:center;gap:10px;font-size:0.9rem;">
       <span style="font-size:1.1rem;">${it.icon}</span>
       <span style="flex:1;color:var(--muted);">${it.label}</span>
-      <span style="font-weight:700;color:var(--green-dark);">${escapeHtml(String(it.value))}</span>
+      <span style="font-weight:700;color:var(--heading);">${escapeHtml(String(it.value))}</span>
     </div>`).join('');
 
   return `
@@ -2632,7 +2703,7 @@ function buildSkinsCard(key, results, basis) {
   const rows = sorted.map(([name, n]) => `
     <div style="display:flex;align-items:center;gap:10px;font-size:0.9rem;">
       <span style="flex:1;">${escapeHtml(name)}</span>
-      <span style="font-weight:700;color:var(--green-dark);">${n} skin${n === 1 ? '' : 's'}</span>
+      <span style="font-weight:700;color:var(--heading);">${n} skin${n === 1 ? '' : 's'}</span>
     </div>`).join('');
   const carryNote = sk.unresolvedCarry > 0
     ? `<div style="font-size:0.78rem;color:var(--muted);margin-top:8px;">${sk.unresolvedCarry} oavgjord${sk.unresolvedCarry === 1 ? '' : 'a'} skin${sk.unresolvedCarry === 1 ? '' : 's'} kvar (delat på sista hålet)</div>`
@@ -2693,7 +2764,7 @@ function renderResults(playerResults, rankContainerId = 'rankingContainer', prCo
       : '';
     rankContainer.innerHTML = `
       <div class="ranking-card" style="flex-direction:column;align-items:stretch;gap:6px;">
-        <div style="font-size:1.15rem;font-weight:800;color:var(--green-dark);text-align:center;">${title}</div>
+        <div style="font-size:1.15rem;font-weight:800;color:var(--heading);text-align:center;">${title}</div>
         <div style="text-align:center;color:var(--muted);font-size:0.85rem;">${tally}</div>
       </div>`;
   } else
@@ -3218,9 +3289,9 @@ function _showDrivePicker(files) {
     const overlay = document.createElement('div');
     overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:1000;display:flex;align-items:center;justify-content:center;padding:20px;';
     const box = document.createElement('div');
-    box.style.cssText = 'background:#fff;border-radius:12px;padding:20px;max-width:400px;width:100%;max-height:80vh;overflow-y:auto;';
+    box.style.cssText = 'background:var(--card);border-radius:12px;padding:20px;max-width:400px;width:100%;max-height:80vh;overflow-y:auto;';
     box.innerHTML = `
-      <div style="font-weight:700;font-size:1rem;margin-bottom:4px;color:var(--green-dark);">Välj säkerhetskopia</div>
+      <div style="font-weight:700;font-size:1rem;margin-bottom:4px;color:var(--heading);">Välj säkerhetskopia</div>
       <div style="font-size:0.8rem;color:var(--muted);margin-bottom:12px;">Hittade flera enheter med säkerhetskopior i Google Drive.</div>
       <div id="drivePickerList" style="display:flex;flex-direction:column;gap:8px;"></div>
       <button class="btn secondary" style="margin-top:14px;" id="drivePickerCancel">Avbryt</button>
@@ -3480,7 +3551,7 @@ function openPlayerHistory(id) {
   headerEl.innerHTML = `
     ${avatarHtml(player.photo || null, 'avatar')}
     <div>
-      <div style="font-weight:700;font-size:1rem;color:var(--green-dark);">${escapeHtml(player.name)}${player.lastName ? ' ' + escapeHtml(player.lastName) : ''}${player.nick ? ` <span style="font-weight:400;color:var(--muted);">"${escapeHtml(player.nick)}"</span>` : ''}</div>
+      <div style="font-weight:700;font-size:1rem;color:var(--heading);">${escapeHtml(player.name)}${player.lastName ? ' ' + escapeHtml(player.lastName) : ''}${player.nick ? ` <span style="font-weight:400;color:var(--muted);">"${escapeHtml(player.nick)}"</span>` : ''}</div>
       <div style="font-size:0.78rem;color:var(--muted);">HCP-index: ${player.hi} · ${rounds.length} rundor</div>
     </div>`;
 
@@ -4299,7 +4370,7 @@ function renderHistoryList() {
         ? `Hål vunna: ${escapeHtml(r.subjects[0].name)} ${mr.aWon} – ${mr.bWon} ${escapeHtml(r.subjects[1].name)}${mr.halved ? ` · ${mr.halved} delade` : ''}`
         : '';
       rankRows = `
-        <div class="hi-rank-row" style="justify-content:center;font-weight:700;color:var(--green-dark);">${hasWinner ? '🏆 ' : ''}${result}</div>
+        <div class="hi-rank-row" style="justify-content:center;font-weight:700;color:var(--heading);">${hasWinner ? '🏆 ' : ''}${result}</div>
         ${tally ? `<div class="hi-rank-row" style="justify-content:center;color:var(--muted);font-size:0.8rem;">${tally}</div>` : ''}`;
     } else {
       topLine = sorted.map((s, i) => `${medals[i]||''} ${escapeHtml(s.name)} ${s.totalPoints}p`).join(' · ');
