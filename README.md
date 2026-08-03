@@ -8,7 +8,7 @@ Mobilanpassad webbapp för att beräkna poängbogey-resultat under en golfrunda.
 - **Scramble-, Bästboll- och Foursome-läge** för 4 spelare i 2 lag — laghandicap/spelhandicap beräknas automatiskt
 - **Spelhandicap** beräknas med slope-formeln: `HI × (Slope / 113) + (CR − Par)`
 - Stöd för **9 och 18 hål**, samt möjlighet att spela en 9-hålsbana som 18 hål (dubbelrunda)
-- **Gul och Röd tee** — spelare i samma runda kan spela från **olika tee** och ändå tävla rättvist mot varandra
+- Stöd för både **traditionella teefärger** (Gul, Röd) och **Hektometersystemet** (T60, T57, T53, T48, m.fl.) — spelare i samma runda kan spela från **olika tee** och ändå tävla rättvist mot varandra
 - Hålvis inmatning av par (3/4/5-knappar) och Hcp/Index från scorekortet
 - **Sparar bandata** automatiskt — slope, CR, par och håldata återladdas nästa runda
 - Rankingresultat med guld/silver/brons för alla spelare eller lag
@@ -49,6 +49,10 @@ I spelformer där varje spelare spelar sin egen boll (Individuellt, Bästboll oc
 Rättvisan sköter sig själv via spelhandicapformeln: `HI × (Slope / 113) + (CR − Par)`. Termen `(CR − Par)` är precis den tee-justering som gör att nettoresultat från olika tee går att jämföra — den som spelar från ett svårare tee får fler slag. Hålens par och index är desamma oavsett tee, så poängbogey-poängen blir direkt jämförbara.
 
 Under scoreinmatningen visas varje spelares tee i tabellhuvudet, och i historiken märks sådana rundor som **⛳ Blandat tee**. Scramble och Foursome spelar en gemensam boll och använder därför rundans gemensamma tee.
+
+### Tee-namn och Hektometersystemet
+
+När en bana läggs till kan tee väljas bland snabbvalen **Gul, Röd, T60, T57, T53, T48** eller anges fritt (t.ex. `T65`). Hektometersystemet namnger tee efter ungefärlig längd i hektometer (100 m) istället för färg, så att spelare väljer tee efter slaglängd snarare än kön — men Course Rating och Slope gäller per tee precis som förut, så spelhandicap-formeln och poängberäkningen är exakt densamma oavsett vilket namnsystem banan använder. Färg- och hektometer-tee kan finnas sida vid sida på samma bana.
 
 ## Spelarregister
 

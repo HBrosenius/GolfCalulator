@@ -866,10 +866,9 @@
       </div>
 
       <label>Tee</label>
-      <div class="toggle-row">
-        <button class="toggle-btn" id="teeGul" onclick="selectTee('Gul')">🟡 Gul</button>
-        <button class="toggle-btn" id="teeRod" onclick="selectTee('Röd')">🔴 Röd</button>
-      </div>
+      <div class="toggle-row" id="teePresetRow"></div>
+      <input type="text" id="customTeeName" placeholder="Eget tee-namn, t.ex. T57" maxlength="12"
+        autocomplete="off" style="margin-top:8px;" oninput="onTeeNameInput(this.value)">
 
       <div style="margin-top:14px; border-top:1px solid var(--border); padding-top:14px;">
         <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px;">
@@ -1082,6 +1081,25 @@
 // ============================================================
 const WEATHER = { sun:{e:'☀️',l:'Sol'}, cloud:{e:'⛅',l:'Växlande'}, rain:{e:'🌧️',l:'Regn'}, wind:{e:'💨',l:'Blåst'} };
 
+// Tee names — traditional colours plus Hektometersystemet (T60/T57/T53/T48),
+// which names a tee by its approximate length in hectometres so players pick
+// by hitting distance rather than gender. Course Rating/Slope still apply
+// per tee exactly as before; this only affects how the tee is labelled.
+const TEE_PRESETS = ['Gul', 'Röd', 'T60', 'T57', 'T53', 'T48'];
+
+function teeSortKey(tee) {
+  const m = /^T(\d{2,3})$/.exec(tee || '');
+  if (m) return [0, -parseInt(m[1])];
+  return [1, (tee || '').toLowerCase()];
+}
+function sortTees(tees) {
+  return tees.slice().sort((a, b) => {
+    const ka = teeSortKey(a), kb = teeSortKey(b);
+    if (ka[0] !== kb[0]) return ka[0] - kb[0];
+    return ka[1] < kb[1] ? -1 : (ka[1] > kb[1] ? 1 : 0);
+  });
+}
+
 function escapeHtml(s) {
   return String(s).replace(/[&<>"]/g, c => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;' }[c]));
 }
@@ -1218,6 +1236,11 @@ function buildCourseGroups(courses) {
     if (seen[key] === undefined) { seen[key] = groups.length; groups.push({ name: e.name, holes: e.holes, tees: [] }); }
     groups[seen[key]].tees.push({ entry: e, i });
   });
+  groups.forEach(g => g.tees.sort((a, b) => {
+    const ka = teeSortKey(a.entry.tee), kb = teeSortKey(b.entry.tee);
+    if (ka[0] !== kb[0]) return ka[0] - kb[0];
+    return ka[1] < kb[1] ? -1 : (ka[1] > kb[1] ? 1 : 0);
+  }));
   return groups;
 }
 
@@ -1233,7 +1256,7 @@ function renderGroups(groups) {
       <div class="cg-tees">
         ${g.tees.map(t => `
           <button class="cg-tee-btn" data-i="${t.i}">
-            ${t.entry.tee === 'Gul' ? '🟡' : '🔴'} ${t.entry.tee}
+            ${teeIconFor(t.entry.tee)} ${escapeHtml(t.entry.tee)}
             <span class="cg-tee-meta">· S${t.entry.slope} CR${t.entry.cr}</span>
           </button>
           <button class="cg-delete" data-del="${t.i}" title="Ta bort">🗑</button>
@@ -1399,8 +1422,8 @@ function resetCourseFields() {
   state.courseName = null;
   state.teeColor   = null;
   document.getElementById('customCourseName').value = '';
-  document.getElementById('teeGul').classList.remove('active');
-  document.getElementById('teeRod').classList.remove('active');
+  document.getElementById('customTeeName').value = '';
+  renderTeePresets();
   document.getElementById('manualSlope').value = '';
   document.getElementById('manualCR').value    = '';
   document.getElementById('manualPar').value   = '';
@@ -1409,11 +1432,39 @@ function resetCourseFields() {
 function onCourseNameInput() {
   state.courseName = document.getElementById('customCourseName').value.trim() || null;
   state.teeColor   = null;
-  document.getElementById('teeGul').classList.remove('active');
-  document.getElementById('teeRod').classList.remove('active');
+  document.getElementById('customTeeName').value = '';
+  renderTeePresets();
   document.getElementById('manualSlope').value = '';
   document.getElementById('manualCR').value    = '';
   document.getElementById('manualPar').value   = '';
+}
+
+// Preset buttons: the fixed TEE_PRESETS list plus any tee names already saved
+// for this course (so a previously-entered custom tee reappears as a preset).
+function renderTeePresets() {
+  const row = document.getElementById('teePresetRow');
+  if (!row) return;
+  const saved = state.courseName
+    ? dbLoad().filter(e => e.name === state.courseName).map(e => e.tee)
+    : [];
+  const names = sortTees([...new Set([...TEE_PRESETS, ...saved])]);
+  row.innerHTML = names.map(t => `
+    <button type="button" class="toggle-btn${t === state.teeColor ? ' active' : ''}" onclick="selectTee('${t.replace(/'/g,"\\'")}')">${teeIconFor(t)} ${escapeHtml(t)}</button>
+  `).join('');
+}
+
+// Free-text tee name — used when the desired tee isn't one of the presets.
+function onTeeNameInput(v) {
+  const name = v.trim();
+  state.teeColor = name || null;
+  renderTeePresets();
+  if (!name) return;
+  const saved = loadCurrentCourseData();
+  if (saved && saved.slope) {
+    document.getElementById('manualSlope').value = saved.slope;
+    document.getElementById('manualCR').value    = saved.cr;
+    document.getElementById('manualPar').value   = saved.par;
+  }
 }
 
 // ── Storage ──────────────────────────────────────────────────
@@ -1445,8 +1496,8 @@ function showSaveToast() {
 
 function selectTee(color) {
   state.teeColor = color;
-  document.getElementById('teeGul').classList.toggle('active', color === 'Gul');
-  document.getElementById('teeRod').classList.toggle('active', color === 'Röd');
+  document.getElementById('customTeeName').value = '';
+  renderTeePresets();
   // Pre-fill slope/CR/par if this course+tee has been saved before
   const saved = loadCurrentCourseData();
   if (saved && saved.slope) {
@@ -1496,7 +1547,7 @@ function goToStep2() {
   const parVal     = parseInt(document.getElementById('manualPar').value);
 
   if (!courseName)                                          { showStep1Error('Ange ett bananamn.'); return; }
-  if (!teeColor)                                            { showStep1Error('Välj tee: Gul eller Röd.'); return; }
+  if (!teeColor)                                            { showStep1Error('Välj eller ange ett tee.'); return; }
   if (isNaN(slopeVal) || slopeVal < 55 || slopeVal > 155)  { showStep1Error('Ange Slope (55–155). Finns på scorekortet.'); return; }
   if (isNaN(crVal)    || crVal < 50   || crVal > 85)        { showStep1Error('Ange Course Rating (50–85). Finns på scorekortet.'); return; }
   if (isNaN(parVal)   || parVal < 27  || parVal > 73)       { showStep1Error('Ange Par (27–73).'); return; }
@@ -1688,7 +1739,7 @@ function availableTees() {
     .filter(e => e.name === state.courseName && e.holes === state.holes)
     .map(e => e.tee);
   if (state.teeColor && !tees.includes(state.teeColor)) tees.unshift(state.teeColor);
-  return tees;
+  return sortTees(tees);
 }
 
 // Slope/CR/par for a given tee, falling back to the round-level values.
