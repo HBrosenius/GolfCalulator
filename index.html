@@ -241,6 +241,10 @@
   }
   .score-input:focus { outline: none; border-color: var(--green); background: #f0faf5; }
   .score-input.has-value { border-color: var(--green-light); }
+  .score-input.live-readonly {
+    background: var(--border); color: var(--muted); cursor: not-allowed;
+  }
+  .score-input.live-readonly:focus { border-color: var(--border); background: var(--border); }
 
   .half-divider td {
     border-top: 2px solid var(--green); padding-top: 6px !important;
@@ -670,7 +674,9 @@
     body.printing-history #historyView, body.printing-history #playersView,
     body.printing-history #hallOfFameView, body.printing-history #seasonView,
     body.printing-history #courseRecordsView,
-    body.printing-history #playerHistoryView { display: none !important; }
+    body.printing-history #playerHistoryView,
+    body.printing-history #liveCodeModal,
+    body.printing-history #joinLiveModal { display: none !important; }
     body.printing-history #printOnlyResults { display: block !important; }
   }
 </style>
@@ -957,6 +963,7 @@
       <button class="btn secondary" style="flex:1;" onclick="openHistory()">📅 Sparade rundor</button>
       <button class="btn secondary" style="flex:1;" onclick="openPlayersView()">👤 Spelare</button>
     </div>
+    <button class="btn secondary" style="margin-top:10px;" onclick="openJoinLiveModal()">📡 Anslut till live-runda</button>
   </div>
 
   <!-- STEG 2: Håldata -->
@@ -1053,6 +1060,7 @@
       <button class="btn secondary" onclick="goToStep(2)">← Tillbaka</button>
       <button class="btn" onclick="goToStep4Score()">Nästa →</button>
     </div>
+    <button class="btn secondary" id="startLiveRoundBtn" style="margin-top:10px;" onclick="startLiveRound()">📡 Starta som live-runda</button>
   </div>
 
   <!-- STEG 4: Score -->
@@ -1119,6 +1127,46 @@
 </div><!-- /container -->
 
 <footer class="app-footer no-print">Poängbogey-kalkylator v1.0</footer>
+
+<!-- LIVE-RUNDA KOD MODAL -->
+<div id="liveCodeModal" class="crop-modal hidden">
+  <div class="crop-sheet">
+    <h3>📡 Live-runda startad</h3>
+    <p style="font-size:0.85rem;color:var(--muted);text-align:center;margin:0;">
+      Dela koden med de andra spelarna så de kan ansluta från sina egna enheter.
+    </p>
+    <div style="font-size:2.4rem;font-weight:700;letter-spacing:0.15em;text-align:center;color:var(--heading);padding:10px 0;" id="liveCodeText"></div>
+    <button class="btn secondary" onclick="copyLiveCode()">📋 Kopiera kod</button>
+    <button class="btn" onclick="closeLiveCodeModal()">Fortsätt →</button>
+  </div>
+</div>
+
+<!-- ANSLUT TILL LIVE-RUNDA MODAL -->
+<div id="joinLiveModal" class="crop-modal hidden">
+  <div class="crop-sheet">
+    <h3>📡 Anslut till live-runda</h3>
+    <div id="joinLiveError" class="hidden" style="background:#fdecea;border-left:3px solid var(--danger);border-radius:0 8px 8px 0;padding:8px 12px;font-size:0.82rem;color:var(--danger);"></div>
+
+    <div id="joinLiveCodeStep">
+      <p style="font-size:0.85rem;color:var(--muted);text-align:center;margin:0;">
+        Ange koden du fått av den som startade rundan.
+      </p>
+      <input type="text" id="joinLiveCodeInput" maxlength="4" placeholder="t.ex. 4GSP"
+        style="text-align:center;font-size:1.6rem;letter-spacing:0.15em;text-transform:uppercase;margin-top:10px;"
+        oninput="this.value = this.value.toUpperCase()" onkeydown="if(event.key==='Enter') fetchLiveRoom()">
+      <button class="btn" id="joinLiveFetchBtn" style="margin-top:12px;" onclick="fetchLiveRoom()">Hämta runda</button>
+      <button class="btn secondary" style="margin-top:8px;" onclick="closeJoinLiveModal()">Avbryt</button>
+    </div>
+
+    <div id="joinLiveSeatStep" class="hidden">
+      <p style="font-size:0.85rem;color:var(--muted);text-align:center;margin:0 0 10px;">
+        Vem är du? Grå platser är redan upptagna.
+      </p>
+      <div id="joinLiveSeatList" style="display:flex;flex-direction:column;gap:8px;"></div>
+      <button class="btn secondary" style="margin-top:12px;" onclick="backToJoinLiveCodeStep()">← Ändra kod</button>
+    </div>
+  </div>
+</div>
 
 <!-- CROP MODAL -->
 <div id="cropModal" class="crop-modal hidden">
@@ -1208,7 +1256,8 @@ let state = {
   gameMode: 'individual', teamAssign: ['A','A','B','B'], teams: null,
   playerTees: [],
   note: '', weather: null,
-  markers: { ctp: { hole: null, player: '' }, ld: { hole: null, player: '' } }
+  markers: { ctp: { hole: null, player: '' }, ld: { hole: null, player: '' } },
+  liveRoomCode: null, liveSeat: null
 };
 
 // ============================================================
@@ -2120,6 +2169,14 @@ function strokesOnHole(ph, si, totalHoles) {
 }
 
 function goToStep4Score() {
+  if (!buildStep4State()) return;
+  goToStep(4);
+}
+
+// Validates step-3 player inputs and builds state.players/state.teams/state.scores.
+// Shared by goToStep4Score() and startLiveRound() — the latter needs the built
+// roster/seat count before it can create the room.
+function buildStep4State() {
   const players = [];
   for (let p = 0; p < state.numPlayers; p++) {
     const nameEl = document.getElementById(`pname_${p}`);
@@ -2127,7 +2184,7 @@ function goToStep4Score() {
     const hi = parseFloat(hiEl ? hiEl.value : '');
     if (isNaN(hi) || hi < 0) {
       alert(`Ange ett giltigt handicapindex för spelare ${p+1}.`);
-      return;
+      return false;
     }
     const name = (nameEl && nameEl.value.trim()) ? nameEl.value.trim() : `Spelare ${p+1}`;
     const td = teeData(playerTee(p));
@@ -2140,7 +2197,7 @@ function goToStep4Score() {
     const key = players[p].name.trim().toLowerCase();
     if (seenNames.has(key)) {
       alert(`"${players[p].name}" är tillagd mer än en gång — varje spelare kan bara vara med en gång per runda.`);
-      return;
+      return false;
     }
     seenNames.add(key);
   }
@@ -2174,7 +2231,7 @@ function goToStep4Score() {
   assignRandomMarkerHoles();
   buildScoreTable();
   inprogressSave();
-  goToStep(4);
+  return true;
 }
 
 // Pick one random par-3 for närmast pinnen and one random par-4/5 for längsta drive.
@@ -2237,10 +2294,13 @@ function buildScoreTable() {
   const people = _markerPeople();
   const markerOpts = sel => `<option value="">— välj vinnare —</option>` +
     people.map(n => `<option value="${escapeHtml(n)}"${n === sel ? ' selected' : ''}>${escapeHtml(n)}</option>`).join('');
-  const markerRow = (icon, label, onchange, sel) =>
+  // Only the round's originator (host, seat 0) may set CTP/longest-drive winners —
+  // everyone else just sees the host's picks, refreshed via liveSyncApplyRoom().
+  const canEditMarkers = !state.liveRoomCode || state.liveSeat === 0;
+  const markerRow = (icon, label, onchange, sel, id) =>
     `<tr class="marker-row"><td colspan="${totalCols}" style="background:#fff8e1;text-align:left;padding:8px 10px;">
       <span style="font-size:0.85rem;font-weight:600;color:var(--heading);">${icon} ${label}:</span>
-      <select style="margin-left:8px;max-width:60%;padding:6px 8px;" onchange="${onchange}(this.value)">${markerOpts(sel)}</select>
+      <select id="${id}" style="margin-left:8px;max-width:60%;padding:6px 8px;" onchange="${onchange}(this.value)"${canEditMarkers ? '' : ' disabled title="Endast den som startade live-rundan kan ändra"'}>${markerOpts(sel)}</select>
     </td></tr>`;
 
   tbody.innerHTML = '';
@@ -2254,14 +2314,17 @@ function buildScoreTable() {
     cols.forEach((c, p) => {
       const val = state.scores[p] && state.scores[p][i] !== '' ? state.scores[p][i] : '';
       const teeTag = isFoursome ? `<div class="tee-order">🎯 ${foursomeStarterName(c, i)}</div>` : '';
-      cells += `<td>${teeTag}<input type="number" class="score-input${val ? ' has-value' : ''}" id="score_${p}_${i}"
-        min="1" max="15" inputmode="numeric" value="${val}"
+      // In a live round, only the seat this device owns is editable — other seats are
+      // filled in by their own devices and refreshed here from liveSyncPollNow().
+      const isReadonly = state.liveRoomCode && state.liveSeat !== p;
+      cells += `<td>${teeTag}<input type="number" class="score-input${val ? ' has-value' : ''}${isReadonly ? ' live-readonly' : ''}" id="score_${p}_${i}"
+        min="1" max="15" inputmode="numeric" value="${val}"${isReadonly ? ' readonly tabindex="-1"' : ''}
         oninput="onScoreInput(${p},${i},this)" onkeydown="scoreKeyDown(event,${p},${i})">
         <div class="live-pts" id="pts_${p}_${i}"></div></td>`;
     });
     let extra = '';
-    if (people.length >= 2 && markers.ctp && markers.ctp.hole === i) extra += markerRow('🎯', 'Närmast pinnen', 'setCtpPlayer', markers.ctp.player);
-    if (people.length >= 2 && markers.ld && markers.ld.hole === i) extra += markerRow('💥', 'Längsta drive', 'setLdPlayer', markers.ld.player);
+    if (people.length >= 2 && markers.ctp && markers.ctp.hole === i) extra += markerRow('🎯', 'Närmast pinnen', 'setCtpPlayer', markers.ctp.player, 'ctpPlayerSelect');
+    if (people.length >= 2 && markers.ld && markers.ld.hole === i) extra += markerRow('💥', 'Längsta drive', 'setLdPlayer', markers.ld.player, 'ldPlayerSelect');
     tbody.innerHTML += `<tr${rowClass}>${cells}</tr>${extra}`;
   }
   updateMatchStatus();
@@ -2298,11 +2361,13 @@ function setCtpPlayer(v) {
   if (!state.markers) return;
   state.markers.ctp.player = v || '';
   inprogressSave();
+  if (state.liveRoomCode && state.liveSeat === 0) liveSyncPushMarkers();
 }
 function setLdPlayer(v) {
   if (!state.markers) return;
   state.markers.ld.player = v || '';
   inprogressSave();
+  if (state.liveRoomCode && state.liveSeat === 0) liveSyncPushMarkers();
 }
 
 // Match play (1v1): compare the two subjects' per-hole net points.
@@ -2511,6 +2576,7 @@ function onScoreInput(p, i, el) {
   updateHonorBanner();
   updateMatchStatus();
   inprogressSave();
+  if (state.liveSeat === p) liveSyncPush();
   if (el.value !== '') {
     const n = numColumns();
     const nextP = p + 1;
@@ -2933,7 +2999,8 @@ function newRound() {
     gameMode: 'individual', teamAssign: ['A','A','B','B'], teams: null,
     playerTees: [],
     note: '', weather: null,
-    markers: { ctp: { hole: null, player: '' }, ld: { hole: null, player: '' } }
+    markers: { ctp: { hole: null, player: '' }, ld: { hole: null, player: '' } },
+    liveRoomCode: null, liveSeat: null
   };
   resetCourseFields();
   try { document.getElementById('holeDataBody').innerHTML = ''; } catch(e) {}
@@ -2979,6 +3046,338 @@ function goToStep(n) {
     else if (i < n) dot.classList.add('done');
   });
   window.scrollTo({ top: 0, behavior: 'smooth' });
+  if (n === 4) liveSyncStart(); else liveSyncStop();
+}
+
+// ============================================================
+// LIVE SYNC (multi-device scoring via Cloudflare Worker relay)
+// ============================================================
+// Fetch wrappers + debounced push + poll loop only. Room create/join/claim
+// UI comes in later phases — until state.liveRoomCode is set (by that UI),
+// every function here is a guarded no-op, so solo scoring is unaffected.
+const LIVE_SYNC_BASE = 'https://golfcalc-sync.golfcalc-sync.workers.dev';
+const LIVE_SYNC_POLL_MS = 4000;
+const LIVE_SYNC_PUSH_DEBOUNCE_MS = 600;
+
+function liveDeviceId() {
+  let id = _lsOk ? localStorage.getItem('golf_device_id') : null;
+  if (!id) {
+    id = 'dev_' + Date.now().toString(36) + Math.random().toString(36).slice(2);
+    if (_lsOk) { try { localStorage.setItem('golf_device_id', id); } catch(e) {} }
+  }
+  return id;
+}
+
+let _livePushTimer = null;
+let _livePollTimer = null;
+
+function liveSyncPushNow() {
+  if (!state.liveRoomCode || state.liveSeat == null) return;
+  fetch(`${LIVE_SYNC_BASE}/room/${state.liveRoomCode}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ seat: state.liveSeat, scores: state.scores[state.liveSeat] || [] }),
+  }).catch(() => {}); // network failure must never block local scoring
+}
+
+function liveSyncPush() {
+  if (!state.liveRoomCode || state.liveSeat == null) return;
+  clearTimeout(_livePushTimer);
+  _livePushTimer = setTimeout(liveSyncPushNow, LIVE_SYNC_PUSH_DEBOUNCE_MS);
+}
+
+function liveSyncApplyRoom(room) {
+  if (!room || !room.seats) return;
+  Object.keys(room.seats).forEach(seatKey => {
+    const seat = Number(seatKey);
+    if (seat === state.liveSeat) return; // never let a poll clobber our own seat
+    const seatData = room.seats[seatKey];
+    if (!seatData || !Array.isArray(seatData.scores)) return;
+    if (!state.scores[seat]) state.scores[seat] = new Array(state.holes).fill('');
+    seatData.scores.forEach((val, i) => { state.scores[seat][i] = val; });
+  });
+  if (typeof renderLiveSeatCells === 'function') renderLiveSeatCells(room);
+
+  // Only the host (seat 0) may set marker winners — everyone else mirrors the
+  // host's picks here instead of editing them locally.
+  if (state.liveSeat !== 0 && room.markers && state.markers) {
+    state.markers.ctp.player = (room.markers.ctp && room.markers.ctp.player) || '';
+    state.markers.ld.player  = (room.markers.ld  && room.markers.ld.player)  || '';
+    renderLiveMarkerSelects();
+  }
+}
+
+function liveSyncPushMarkers() {
+  if (!state.liveRoomCode) return;
+  fetch(`${LIVE_SYNC_BASE}/room/${state.liveRoomCode}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ markers: state.markers }),
+  }).catch(() => {});
+}
+
+function renderLiveMarkerSelects() {
+  const ctpSel = document.getElementById('ctpPlayerSelect');
+  if (ctpSel && ctpSel.value !== (state.markers.ctp.player || '')) ctpSel.value = state.markers.ctp.player || '';
+  const ldSel = document.getElementById('ldPlayerSelect');
+  if (ldSel && ldSel.value !== (state.markers.ld.player || '')) ldSel.value = state.markers.ld.player || '';
+}
+
+// Refreshes the read-only score cells for every seat this device doesn't own,
+// without rebuilding the table (so it doesn't steal focus from the seat being typed into).
+function renderLiveSeatCells(room) {
+  if (state.liveSeat == null) return;
+  const n = numColumns();
+  let changed = false;
+  for (let p = 0; p < n; p++) {
+    if (p === state.liveSeat) continue;
+    for (let i = 0; i < state.holes; i++) {
+      const el = document.getElementById(`score_${p}_${i}`);
+      if (!el) continue;
+      const val = state.scores[p] && state.scores[p][i] !== '' ? state.scores[p][i] : '';
+      if (String(el.value) === String(val)) continue;
+      changed = true;
+      el.value = val;
+      el.classList.toggle('has-value', val !== '');
+      const ptsEl = document.getElementById(`pts_${p}_${i}`);
+      if (!ptsEl) continue;
+      if (val !== '') {
+        const pts = calcLivePts(p, i, val);
+        ptsEl.textContent = pts + 'p';
+        ptsEl.className = `live-pts pts-${Math.min(pts, 4)}`;
+      } else {
+        ptsEl.textContent = '';
+        ptsEl.className = 'live-pts';
+      }
+    }
+  }
+  if (changed) {
+    updateLiveLeader();
+    updateHonorBanner();
+    updateMatchStatus();
+  }
+}
+
+function liveSyncPollNow() {
+  if (!state.liveRoomCode) return;
+  fetch(`${LIVE_SYNC_BASE}/room/${state.liveRoomCode}`)
+    .then(r => r.ok ? r.json() : null)
+    .then(room => { if (room) liveSyncApplyRoom(room); })
+    .catch(() => {}); // offline: keep last-known scores, retry next tick
+}
+
+function liveSyncStart() {
+  clearInterval(_livePollTimer);
+  _livePollTimer = null;
+  if (!state.liveRoomCode) return;
+  liveSyncPollNow();
+  _livePollTimer = setInterval(liveSyncPollNow, LIVE_SYNC_POLL_MS);
+}
+
+function liveSyncStop() {
+  clearInterval(_livePollTimer);
+  _livePollTimer = null;
+  clearTimeout(_livePushTimer);
+  _livePushTimer = null;
+}
+
+// ============================================================
+// LIVE SYNC — HOST UI (start a live round, show the join code)
+// ============================================================
+function startLiveRound() {
+  if (!buildStep4State()) return;
+
+  const btn = document.getElementById('startLiveRoundBtn');
+  if (btn) { btn.disabled = true; btn.textContent = 'Startar…'; }
+
+  const payload = {
+    courseName: state.courseName || 'Okänd bana',
+    teeColor: state.teeColor,
+    holes: state.holes,
+    slope: state.slope, cr: state.cr, par: state.par,
+    hpar: state.hpar, si: state.si,
+    gameMode: state.gameMode,
+    teams: state.teams,
+    players: state.players,
+    seatCount: numColumns(),
+    markers: state.markers,
+  };
+
+  fetch(`${LIVE_SYNC_BASE}/room`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  })
+    .then(r => r.ok ? r.json() : Promise.reject(new Error('http ' + r.status)))
+    .then(data => {
+      if (!data || !data.code) throw new Error('no code in response');
+      state.liveRoomCode = data.code;
+      state.liveSeat = 0; // host always owns seat 0
+      buildScoreTable(); // rebuild now that liveRoomCode/liveSeat are set, so other seats render read-only
+      inprogressSave();
+      showLiveCodeModal(data.code);
+      // Claim seat 0 for this device so a joiner can't take it before the host's first push.
+      fetch(`${LIVE_SYNC_BASE}/room/${data.code}/claim`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ seat: 0, deviceId: liveDeviceId() }),
+      }).catch(() => {});
+    })
+    .catch(() => {
+      alert('Kunde inte starta live-runda (nätverksfel). Fortsätter offline istället.');
+      goToStep(4);
+    })
+    .finally(() => {
+      if (btn) { btn.disabled = false; btn.textContent = '📡 Starta som live-runda'; }
+    });
+}
+
+function showLiveCodeModal(code) {
+  document.getElementById('liveCodeText').textContent = code;
+  document.getElementById('liveCodeModal').classList.remove('hidden');
+}
+
+function closeLiveCodeModal() {
+  document.getElementById('liveCodeModal').classList.add('hidden');
+  goToStep(4);
+}
+
+function copyLiveCode() {
+  const code = document.getElementById('liveCodeText').textContent;
+  if (navigator.clipboard) navigator.clipboard.writeText(code).catch(() => {});
+}
+
+// ============================================================
+// LIVE SYNC — JOIN UI (enter a code, pick a seat)
+// ============================================================
+let _joinLiveRoom = null; // last fetched room, kept while the seat-picker step is open
+let _joinLiveCode = null;
+
+function openJoinLiveModal() {
+  _joinLiveRoom = null;
+  _joinLiveCode = null;
+  document.getElementById('joinLiveCodeInput').value = '';
+  document.getElementById('joinLiveError').classList.add('hidden');
+  backToJoinLiveCodeStep();
+  document.getElementById('joinLiveModal').classList.remove('hidden');
+}
+
+function closeJoinLiveModal() {
+  document.getElementById('joinLiveModal').classList.add('hidden');
+}
+
+function backToJoinLiveCodeStep() {
+  document.getElementById('joinLiveSeatStep').classList.add('hidden');
+  document.getElementById('joinLiveCodeStep').classList.remove('hidden');
+}
+
+function showJoinLiveError(msg) {
+  const el = document.getElementById('joinLiveError');
+  el.textContent = msg;
+  el.classList.remove('hidden');
+}
+
+function fetchLiveRoom() {
+  const code = document.getElementById('joinLiveCodeInput').value.trim().toUpperCase();
+  if (!code) { showJoinLiveError('Ange en kod.'); return; }
+
+  const btn = document.getElementById('joinLiveFetchBtn');
+  document.getElementById('joinLiveError').classList.add('hidden');
+  btn.disabled = true; btn.textContent = 'Hämtar…';
+
+  fetch(`${LIVE_SYNC_BASE}/room/${code}`)
+    .then(r => r.ok ? r.json() : Promise.reject(new Error('http ' + r.status)))
+    .then(room => {
+      _joinLiveRoom = room;
+      _joinLiveCode = code;
+      document.getElementById('joinLiveError').classList.add('hidden');
+      renderJoinLiveSeatList(room, code);
+      document.getElementById('joinLiveCodeStep').classList.add('hidden');
+      document.getElementById('joinLiveSeatStep').classList.remove('hidden');
+    })
+    .catch(() => showJoinLiveError('Hittade ingen live-runda med den koden.'))
+    .finally(() => { btn.disabled = false; btn.textContent = 'Hämta runda'; });
+}
+
+function renderJoinLiveSeatList(room, code) {
+  const shared = isSharedScoreMode(room.gameMode);
+  const seatNames = shared
+    ? (room.teams || []).map(t => t.name)
+    : (room.players || []).map(p => p.name);
+
+  const list = document.getElementById('joinLiveSeatList');
+  list.innerHTML = seatNames.map((name, i) => {
+    const seatData = room.seats && room.seats[i];
+    const taken = !!(seatData && seatData.claimedBy);
+    return `<button class="btn ${taken ? 'secondary' : ''}" ${taken ? 'disabled' : ''}
+      style="${taken ? 'opacity:0.5;' : ''}" onclick="claimLiveSeat('${code}', ${i})">
+      ${escapeHtml(name)}${taken ? ' (upptagen)' : ''}
+    </button>`;
+  }).join('');
+}
+
+function claimLiveSeat(code, seat) {
+  fetch(`${LIVE_SYNC_BASE}/room/${code}/claim`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ seat, deviceId: liveDeviceId() }),
+  })
+    .then(r => r.json().then(body => ({ ok: r.ok, body })))
+    .then(({ ok, body }) => {
+      if (!ok) { renderJoinLiveSeatList(body.room || _joinLiveRoom, code); showJoinLiveError('Platsen är redan tagen — välj en annan.'); return; }
+      buildStateFromRoom(body, code, seat);
+      closeJoinLiveModal();
+      goToStep(4);
+    })
+    .catch(() => showJoinLiveError('Kunde inte ansluta (nätverksfel). Försök igen.'));
+}
+
+// Builds local `state` from a fetched room, the same way editRound() builds
+// state from a saved round — but seeded from the worker's room JSON instead
+// of localStorage, and tagged with the live room/seat so sync can resume.
+function buildStateFromRoom(room, code, seat) {
+  const shared = isSharedScoreMode(room.gameMode);
+  state = {
+    courseName: room.courseName, teeColor: room.teeColor, holes: room.holes,
+    slope: room.slope, cr: room.cr, par: room.par,
+    hpar: room.hpar || [], si: room.si || [],
+    gameMode: room.gameMode,
+    numPlayers: (room.players || []).length,
+    players: [], teams: null,
+    teamAssign: ['A','A','B','B'],
+    playerTees: [],
+    scores: [],
+    note: room.note || '', weather: room.weather || null,
+    markers: room.markers || { ctp: { hole: null, player: '' }, ld: { hole: null, player: '' } },
+    liveRoomCode: code, liveSeat: seat
+  };
+
+  if (shared) {
+    state.teams = (room.teams || []).map(t => ({
+      name: t.name,
+      members: (t.members || []).map(m => ({ name: m.name })),
+      playingHandicap: t.playingHandicap
+    }));
+  } else {
+    state.players = (room.players || []).map(p => {
+      const td = teeData(p.tee || room.teeColor);
+      const ph = calcPlayingHandicap(p.hi, td.slope, td.cr, td.par, room.holes);
+      return { name: p.name, hi: p.hi, playingHandicap: ph, tee: p.tee || room.teeColor, slope: td.slope, cr: td.cr, par: td.par };
+    });
+    state.playerTees = state.players.map(pl => pl.tee);
+  }
+
+  const seatCount = shared ? state.teams.length : state.players.length;
+  state.scores = Array.from({ length: seatCount }, (_, i) => {
+    const seatData = room.seats && room.seats[i];
+    return (seatData && Array.isArray(seatData.scores)) ? [...seatData.scores] : new Array(room.holes).fill('');
+  });
+
+  buildScoreTable();
+  restoreScoresToTable();
+  updateLiveLeader();
+  updateHonorBanner();
+  inprogressSave();
 }
 
 // ============================================================

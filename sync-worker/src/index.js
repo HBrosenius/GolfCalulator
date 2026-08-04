@@ -48,7 +48,7 @@ async function createRoom(request, env) {
   if (!body) return badRequest('Invalid JSON body');
 
   const { courseName, teeColor, holes, slope, cr, par, hpar, si,
-          gameMode, teams, players, seatCount } = body;
+          gameMode, teams, players, seatCount, markers } = body;
 
   if (!courseName || !teeColor || !holes || !Array.isArray(players) || !seatCount) {
     return badRequest('Missing required round fields (courseName, teeColor, holes, players, seatCount)');
@@ -68,7 +68,9 @@ async function createRoom(request, env) {
     // Photos are never sent — each device resolves avatars from its own local player register.
     players: players.map(p => ({ name: p.name, hi: p.hi, ph: p.ph, tee: p.tee || null })),
     seats,
-    markers: { ctp: { hole: null, player: '' }, ld: { hole: null, player: '' } },
+    // Host assigns which holes are CTP/longest-drive at creation time; only the
+    // host can ever change the winner (enforced client-side, this is a relay).
+    markers: markers || { ctp: { hole: null, player: '' }, ld: { hole: null, player: '' } },
     note: '',
     weather: null,
   };
