@@ -979,6 +979,11 @@
 
       <!-- Full hole editor (hidden when data is pre-loaded) -->
       <div id="holeDataEditor" class="hidden">
+        <div style="margin-bottom:12px;">
+          <label style="font-size:0.82rem;color:var(--muted);display:block;margin-bottom:6px;">Tee-namn</label>
+          <input type="text" id="editTeeName" placeholder="Tee-namn, t.ex. Gul eller T57" maxlength="12"
+            autocomplete="off" oninput="onEditTeeNameInput(this.value)">
+        </div>
         <p style="font-size:0.82rem; color:var(--muted); margin-bottom:10px;">
           Tryck på par (3/4/5) och ange Index per hål. Index hittar du i kolumnen <strong>Hcp</strong> eller <strong>Index</strong> på scorekortet — samma sak som SI.
         </p>
@@ -1252,6 +1257,22 @@ function dbDelete(name, tee, holes) {
   return dbSave(dbLoad().filter(e => !(e.name === name && e.tee === tee && e.holes === holes)));
 }
 
+// Renames a tee across all stored hole-count variants of a course (e.g. both the
+// 9-hole base entry and a separately-saved 18-hole doubled entry). Refuses if the
+// new name would collide with a different, already-existing tee for the same course.
+function renameCourseTee(name, oldTee, newTee) {
+  if (oldTee === newTee) return { ok: true };
+  const entries = dbLoad();
+  const toRename = entries.filter(e => e.name === name && e.tee === oldTee);
+  if (toRename.length === 0) return { ok: true }; // nothing persisted yet under the old name
+  const conflict = entries.some(e => e.name === name && e.tee === newTee &&
+    toRename.some(r => r.holes === e.holes));
+  if (conflict) return { ok: false, error: `Tee-namnet "${newTee}" finns redan för ${name}.` };
+  toRename.forEach(e => { e.tee = newTee; });
+  if (!dbSave(entries)) return { ok: false, error: '⚠ Kunde inte spara — localStorage-fel.' };
+  return { ok: true };
+}
+
 function getSavedCourses() {
   return dbLoad()
     .filter(e => e.slope) // only show complete entries
@@ -1460,10 +1481,9 @@ function loadSavedCourseAndAdvance(entry) {
   state.slope         = entry.slope;
   state.cr            = entry.cr;
   state.par           = entry.par;
+  state._originalTee  = entry.tee;
 
-  document.getElementById('step2CourseInfo').innerHTML =
-    `<strong>${escapeHtml(entry.name)}</strong> · ${entry.tee}<br>
-     ${entry.holes} hål · Slope&nbsp;${entry.slope} · CR&nbsp;${entry.cr} · Par&nbsp;${entry.par}`;
+  renderStep2CourseInfo();
 
   // Show play-mode toggle only for 9-hole courses
   const toggle = document.getElementById('playModeToggle');
@@ -1542,6 +1562,14 @@ function renderTeePresets() {
   row.innerHTML = names.map(t => `
     <button type="button" class="toggle-btn${t === state.teeColor ? ' active' : ''}" onclick="selectTee('${t.replace(/'/g,"\\'")}')">${teeIconFor(t)} ${escapeHtml(t)}</button>
   `).join('');
+}
+
+// Tee-name field inside the hole-data editor (step 2) — lets an existing
+// course/tee be renamed, since tee names are free text (Hektometersystemet etc.).
+function onEditTeeNameInput(v) {
+  const name = v.trim();
+  if (name) state.teeColor = name;
+  renderStep2CourseInfo();
 }
 
 // Free-text tee name — used when the desired tee isn't one of the presets.
@@ -1628,6 +1656,13 @@ function clearStep2Error() {
   document.getElementById('step2Error').classList.add('hidden');
 }
 
+function renderStep2CourseInfo() {
+  const el = document.getElementById('step2CourseInfo');
+  if (!el) return;
+  el.innerHTML = `<strong>${escapeHtml(state.courseName || '')}</strong> · ${escapeHtml(state.teeColor || '')}<br>
+     ${state.holes} hål · Slope&nbsp;${state.slope} · CR&nbsp;${state.cr} · Par&nbsp;${state.par}`;
+}
+
 function goToStep2() {
   clearStep1Error();
   try {
@@ -1643,19 +1678,18 @@ function goToStep2() {
   if (isNaN(crVal)    || crVal < 50   || crVal > 85)        { showStep1Error('Ange Course Rating (50–85). Finns på scorekortet.'); return; }
   if (isNaN(parVal)   || parVal < 27  || parVal > 73)       { showStep1Error('Ange Par (27–73).'); return; }
 
-  state.courseName = courseName;
-  state.slope      = slopeVal;
-  state.cr         = crVal;
-  state.par        = parVal;
+  state.courseName   = courseName;
+  state.slope        = slopeVal;
+  state.cr           = crVal;
+  state.par          = parVal;
+  state._originalTee = teeColor;
 
   saveCurrentCourseData({ slope: slopeVal, cr: crVal, par: parVal });
 
   state.hpar = new Array(state.holes).fill('');
   state.si   = new Array(state.holes).fill('');
 
-  document.getElementById('step2CourseInfo').innerHTML =
-    `<strong>${courseName}</strong> · ${teeColor}<br>
-     ${state.holes} hål · Slope&nbsp;${slopeVal} · CR&nbsp;${crVal} · Par&nbsp;${parVal}`;
+  renderStep2CourseInfo();
 
   state.baseHoles = state.holes;
   document.getElementById('playModeToggle').classList.add('hidden');
@@ -1670,6 +1704,8 @@ function expandHoleData() {
 }
 
 function buildHoleDataTable() {
+  const teeInput = document.getElementById('editTeeName');
+  if (teeInput) teeInput.value = state.teeColor || '';
   const saved = loadCurrentCourseData();
   // Use state arrays if already populated (e.g. by setPlayMode), else fall back to DB
   const stateHasData = state.hpar && state.hpar.length === state.holes && state.hpar.some(v => v);
@@ -1784,6 +1820,19 @@ function validateHoleData(hpar, si) {
 }
 
 function goToStep3Players() {
+  const teeInput = document.getElementById('editTeeName');
+  if (teeInput) {
+    const newTee = teeInput.value.trim();
+    if (!newTee) { expandHoleData(); showStep2Error('Ange ett tee-namn.'); return; }
+    if (state._originalTee && newTee !== state._originalTee) {
+      const result = renameCourseTee(state.courseName, state._originalTee, newTee);
+      if (!result.ok) { expandHoleData(); showStep2Error(result.error); return; }
+      renderSavedCourses();
+    }
+    state.teeColor     = newTee;
+    state._originalTee = newTee;
+  }
+
   const hpar = [], si = [];
   for (let i = 0; i < state.holes; i++) {
     hpar.push(getSelectedPar(i));
@@ -3847,7 +3896,7 @@ function openHallOfFame() {
           <div class="hof-row ${rowCls[i] || ''}">
             <div class="hof-rank">${medals[i] || ''}</div>
             ${avatarHtml(s.player.photo || null, 'player-card-avatar')}
-            <div class="hof-info"><div class="hof-name">${s.display}</div></div>
+            <div class="hof-info"><div class="hof-name">${escapeHtml(s.display)}</div></div>
             <div class="hof-val">${valFn(s)}</div>
           </div>`).join('');
         return `<div class="hof-category"><p class="hof-category-title">${title}</p>${rows}</div>`;
@@ -3945,7 +3994,7 @@ function computeSeasonStandings() {
       <div class="hof-row ${rowCls[i] || ''}">
         <div class="hof-rank">${medals[i] || ''}</div>
         ${avatarHtml(s.player.photo || null, 'player-card-avatar')}
-        <div class="hof-info"><div class="hof-name">${s.display}</div>
+        <div class="hof-info"><div class="hof-name">${escapeHtml(s.display)}</div>
           <div style="font-size:0.75rem;color:var(--muted);">${s.rounds} ${s.rounds === 1 ? 'runda' : 'rundor'} · ${s.wins} ${s.wins === 1 ? 'vinst' : 'vinster'} · bäst ${s.best}p</div>
         </div>
         <div class="hof-val">${s.totalPts}p</div>
