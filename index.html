@@ -2578,12 +2578,19 @@ function onScoreInput(p, i, el) {
   inprogressSave();
   if (state.liveSeat === p) liveSyncPush();
   if (el.value !== '') {
-    const n = numColumns();
-    const nextP = p + 1;
     setTimeout(() => {
-      const next = nextP < n
-        ? document.getElementById(`score_${nextP}_${i}`)
-        : document.getElementById(`score_0_${i+1}`);
+      let next;
+      if (state.liveRoomCode && state.liveSeat != null) {
+        // Only one column is editable on this device in a live round — the other
+        // seats are read-only, so advancing sideways would land on a dead cell.
+        next = document.getElementById(`score_${state.liveSeat}_${i + 1}`);
+      } else {
+        const n = numColumns();
+        const nextP = p + 1;
+        next = nextP < n
+          ? document.getElementById(`score_${nextP}_${i}`)
+          : document.getElementById(`score_0_${i+1}`);
+      }
       if (next) next.focus();
     }, 50);
   }
