@@ -1,0 +1,7 @@
+name = "golfcalc-sync"
+main = "src/index.js"
+compatibility_date = "2025-01-01"
+
+kv_namespaces = [
+  { binding = "GOLF_ROOMS", id = "aeb7418f2b04470ab1e9021749e00edd" }
+]

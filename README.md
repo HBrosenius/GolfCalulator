@@ -1,210 +1,70 @@
-# Poängbogey-kalkylator ⛳
+# golfcalc-sync-worker
 
-Mobilanpassad webbapp för att beräkna poängbogey-resultat under en golfrunda. Fungerar som en fristående HTML-fil — ingen server behövs.
+Live-round sync relay for GolfCalculator. A tiny Cloudflare Worker + KV
+backend — no framework, no dependencies at runtime. Only `wrangler` is
+needed locally to develop and deploy it.
 
-## Funktioner
+## What it does
 
-- **1–4 spelare** i samma bollsällskap, varje spelare med eget handicapindex
-- **Scramble-, Bästboll- och Foursome-läge** för 4 spelare i 2 lag — laghandicap/spelhandicap beräknas automatiskt
-- **Spelhandicap** beräknas med slope-formeln: `HI × (Slope / 113) + (CR − Par)`
-- Stöd för **9 och 18 hål**, samt möjlighet att spela en 9-hålsbana som 18 hål (dubbelrunda)
-- Stöd för både **traditionella teefärger** (Gul, Röd) och **Hektometersystemet** (T60, T57, T53, T48, m.fl.) — spelare i samma runda kan spela från **olika tee** och ändå tävla rättvist mot varandra
-- Hålvis inmatning av par (3/4/5-knappar) och Hcp/Index från scorekortet
-- **Sparar bandata** automatiskt — slope, CR, par och håldata återladdas nästa runda
-- Rankingresultat med guld/silver/brons för alla spelare eller lag
+Stores one JSON blob per live round, keyed by a short room code, so
+multiple phones can push/pull score updates for the same in-progress
+round. Rooms auto-expire after 24h (KV TTL) — nothing to clean up.
 
-## Spelformer
+See `src/index.js` for the four endpoints (`POST /room`, `GET /room/:code`,
+`PATCH /room/:code`, `POST /room/:code/claim`).
 
-### Individuellt (1–4 spelare)
-Varje spelare räknar poängbogey med sitt eget spelhandicap. Resultatsidan visar en rankinglista och hålvis poängtabell per spelare.
+## Local test (no Cloudflare account needed)
 
-### Scramble (4 spelare, 2 lag)
-Spelarna delas in i Lag A och Lag B. Lagets spelhandicap beräknas enligt:
+Runs the real Worker code against a `Map`-backed fake KV:
 
-```
-Spelhandicap = round(lägst HI × 0,5 + högst HI × 0,4)
+```bash
+node test/local-test.js
 ```
 
-Laget spelar en gemensam score per hål. Resultatsidan visar vilket lag som vann.
+## Deploy
 
-### Bästboll (4 spelare, 2 lag)
-Spelarna delas in i Lag A och Lag B, men till skillnad från Scramble spelar varje spelare sin egen boll och matar in sin egen score per hål med sitt eget spelhandicap. Lagets poäng på varje hål är den bästa av de två lagmedlemmarnas poäng. Resultatsidan visar båda spelarnas individuella scorekort och markerar vilken spelares poäng som räknades för laget på varje hål.
+You'll need a free Cloudflare account and the `wrangler` CLI.
 
-### Foursome (4 spelare, 2 lag)
-Spelarna delas in i Lag A och Lag B och spelar en gemensam boll där lagmedlemmarna slår varannan gång, precis som i Scramble matar laget in **en** score per hål. Lagets spelhandicap beräknas som snittet av lagmedlemmarnas egna spelhandicap:
+```bash
+# 1. Install wrangler (or use npx wrangler for one-off commands)
+npm install
+
+# 2. Log in — opens a browser to authorize
+npx wrangler login
+
+# 3. Create the KV namespace
+npx wrangler kv namespace create GOLF_ROOMS
+```
+
+That last command prints an `id`. Copy it into `wrangler.toml`, replacing
+`REPLACE_WITH_YOUR_KV_NAMESPACE_ID`:
+
+```toml
+kv_namespaces = [
+  { binding = "GOLF_ROOMS", id = "PASTE_THE_ID_HERE" }
+]
+```
+
+```bash
+# 4. Deploy
+npx wrangler deploy
+```
+
+This prints your Worker's URL, something like:
 
 ```
-Spelhandicap = round((Spelhandicap spelare 1 + Spelhandicap spelare 2) / 2)
+https://golfcalc-sync.<your-subdomain>.workers.dev
 ```
 
-Under scoreinmatningen visar appen vem i respektive lag som slår ut på varje hål (🎯) — ordningen växlar automatiskt hål för hål mellan lagmedlemmarna.
+That's the base URL `index.html` will call for live rounds — I'll wire
+it in as a constant (`SYNC_BASE_URL`) in the next phase, once you've got
+this deployed and can hand me the URL.
 
-### Matchspel (2 spelare, 1v1)
-Hål-för-hål-match mellan två spelare. Varje hål vinns av den med flest poäng (netto) — lika poäng ger delat hål. Den som är fler hål upp än det finns hål kvar vinner matchen. Under scoreinmatningen visas matchställningen live (**⚔️ X upp / Delad**) och resultatsidan visar utfallet, t.ex. **3&2** eller *Delad match*.
+## Local dev server (optional, for iterating on the Worker itself)
 
-## Olika tee i samma runda
+```bash
+npx wrangler dev
+```
 
-I spelformer där varje spelare spelar sin egen boll (Individuellt, Bästboll och Matchspel) kan varje spelare välja **eget tee** i spelarkortet — t.ex. en från Gul och en från Röd i samma boll. Väljaren visas bara när banan har mer än ett tee registrerat.
-
-Rättvisan sköter sig själv via spelhandicapformeln: `HI × (Slope / 113) + (CR − Par)`. Termen `(CR − Par)` är precis den tee-justering som gör att nettoresultat från olika tee går att jämföra — den som spelar från ett svårare tee får fler slag. Hålens par och index är desamma oavsett tee, så poängbogey-poängen blir direkt jämförbara.
-
-Under scoreinmatningen visas varje spelares tee i tabellhuvudet, och i historiken märks sådana rundor som **⛳ Blandat tee**. Scramble och Foursome spelar en gemensam boll och använder därför rundans gemensamma tee.
-
-### Tee-namn och Hektometersystemet
-
-När en bana läggs till kan tee väljas bland snabbvalen **Gul, Röd, T60, T57, T53, T48** eller anges fritt (t.ex. `T65`). Hektometersystemet namnger tee efter ungefärlig längd i hektometer (100 m) istället för färg, så att spelare väljer tee efter slaglängd snarare än kön — men Course Rating och Slope gäller per tee precis som förut, så spelhandicap-formeln och poängberäkningen är exakt densamma oavsett vilket namnsystem banan använder. Färg- och hektometer-tee kan finnas sida vid sida på samma bana.
-
-## Spelarregister
-
-Spara dina vanliga medspelare för snabb återanvändning:
-
-- **Namn, efternamn, smeknamn och handicapindex** — smeknamnet visas i spelet om det är angivet
-- **Profilbild** — lägg till ett foto per spelare med inbyggd beskärningsfunktion (pan + zoom)
-- **Snabbval** — välj en sparad spelare från dropdown i spelarkorten vid rundan
-- **Inline-redigering** — ändra namn, efternamn, smeknamn och handicap direkt i registret
-- Profilbilderna visas på resultatsidan och i delad bild
-
-## Spelarstatistik och historik
-
-Klicka på en spelare i registret för att se spelhistorik och statistik:
-
-- **Översikt** — antal rundor, vinster och parsprocent
-- **Poäng** — bästa runda, snittpoäng och totalt spelade hål
-- **Hålresultat** — antal eagles, birdies, pars, bogeyn och dubbel+
-- **Poänggraf** — stapeldiagram över de senaste 5 rundorna
-- **Form mot hcp** — trendkurva över hur många poäng spelaren snittar över/under sitt handicap (baslinje = 2 poäng/hål)
-- **Inbördes möten** — vinst–förlust–oavgjort (V–F–O) mot varje motspelare, baserat på individuella-, bästboll- och matchspelsrundor
-- **HCP-utveckling** — linjediagram över spelarens handicapindex över tid, baserat på HI:t som angavs vid varje runda
-- **Hall of Fame** — jämförelsestatistik mellan alla sparade spelare (bästa runda, flest vinster, flest birdies m.m.)
-
-## Banrekord
-
-Under Spelarregister → **🏟️ Banrekord** visas en topp 3-lista per bana (grupperat på banans namn och antal hål) över de bästa enskilda rundorna som spelats där, med spelare, poäng, datum och tee. Precis som i Säsong räknas Scramble- och Foursome-rundor inte in eftersom laget delar en gemensam score som inte kan knytas till en enskild spelares prestation.
-
-## Säsong / Order of Merit
-
-Under Spelarregister → **📅 Säsong** kan du se en sammanlagd poängtabell för alla spelare inom ett valfritt datumintervall (standard: innevarande år). Rundor spelade i Scramble- eller Foursome-läge räknas inte in eftersom laget då inte är knutet till enskilda spelare — Individuellt och Bästboll räknas båda in per spelare.
-
-## Live-poäng och ledartavla
-
-- **Poäng per hål** visas direkt under scoreinmatningen (färgkodad: bogey/par/birdie/eagle)
-- **Ledare markeras** med grön kolumn i scoretabellen — uppdateras efter varje hål
-- **Poängtotal** visas i tabellens sidfot och uppdateras löpande
-- **Sticky rubrik och totalsumma** — spelarnas namn ligger kvar överst och poängtotalen kvar längst ner medan du bläddrar genom hålen
-- **Äran-banner** — efter varje avslutat hål visas vem som har äran och startar nästa hål, med spelarens profilbild
-
-## Återuppta pågående runda
-
-Rundan sparas automatiskt efter varje inmatad score. Om sidan laddas om eller webbläsaren stängs mitt i rundan visas en banner på startsidan med **Fortsätt rundan ▶** — alla inmatade scorer, poäng och ledarmarkering återställs. Snapshoten rensas när rundan beräknas klart eller när du väljer **Släng** (en bekräftelseruta visas innan rundan slängs, så du inte råkar radera av misstag).
-
-## Rundhistorik
-
-Alla spelade rundor sparas automatiskt och kan bläddras i efterhand:
-
-- **Filtrera** sparade rundor på bana, format, spelare och/eller datumintervall (🔎 Filter) — spelarfiltret matchar även lagmedlemmar i Scramble/Foursome
-- Visa rankingresultat och hålvis scoredetaljer per spelare
-- **Väder & anteckning** — lägg till väderförhållande (☀️/⛅/🌧️/💨) och en kort anteckning på rundan; visas i historiken och i den delade texten
-- **Redigera** en sparad runda med ✏️ — öppna scoreinmatningen igen, rätta felskrivna slag och räkna om (rundan uppdateras på plats)
-- **Dela** en sparad runda via delningsknapp per runda
-- **Ta bort** enskilda rundor
-
-## Dela resultat
-
-Resultatsidan och sparade rundor kan delas via **📤 Dela**-knappen:
-
-- På mobil delas en **bildkort** (PNG) med profilbilder, rankning, poäng och en **✨ Höjdpunkter**-sektion (bästa hål, flest birdies/eagles, tuffaste hålet, närmast pinnen, längsta drive m.m.) — höjdpunkterna ritas direkt in i bilden så att de alltid syns, oavsett vilken app du delar till
-- På desktop kopieras resultattexten till urklipp som reserv, med samma höjdpunkter som text
-- Bilden innehåller kursnamn, tee, antal hål och datum
-
-## Höjdpunkter
-
-Resultatsidan (och en återöppnad sparad runda) visar ett **✨ Höjdpunkter**-kort med rundans roligaste statistik: bästa hål, flest birdies, eagle eller bättre, flest nollor och tuffaste hålet. Birdies och eagles räknas på det faktiska slagresultatet mot par (inte poängbogey-poängen), så en spelare får bara credit för en riktig birdie eller eagle.
-
-I matchspel visas höjdpunkterna tillsammans med matchresultatet (t.ex. **3&2**), inte istället för det.
-
-I början av varje runda lottas ett par-3-hål för **🎯 närmast pinnen** och ett par-4/5-hål för **💥 längsta drive**. När du matar in scoren dyker en vinnarväljare upp direkt vid det utlottade hålet, och vinnarna visas sedan i höjdpunkterna.
-
-## Skriv ut / PDF-export
-
-Resultatsidan och sparade rundor kan skrivas ut eller sparas som PDF via **🖨 Skriv ut / PDF**-knappen. Utskriften visar rankingen och det fullständiga hålvisa scorekortet för varje spelare, utan menyer och knappar.
-
-## Förinstallerade banor
-
-Appen levereras med kurs- och hålinformation för följande banor:
-
-| Bana | Tee | Hål |
-|------|-----|-----|
-| Binga Golf | Gul / Röd | 9 |
-| Kalmar GK – Gamla banan | Gul / Röd | 18 |
-| Kalmar GK – Nya banan | Gul / Röd | 18 |
-| Möre GK | Gul / Röd | 18 |
-| Nybro GK | Gul / Röd | 18 |
-| Emmaboda Golf Club | Gul / Röd | 18 |
-| Links Golf Öland/Grönhögen | Gul / Röd | 18 |
-| Saxnäs GK | Gul / Röd | 18 |
-| Långe Erik, Ekerum | Gul / Röd | 18 |
-| Långe Jan, Ekerum | Gul / Röd | 18 |
-| Oskarshamns Golfklubb | Gul / Röd | 18 |
-
-Data är hämtad från [mScorecard.com](https://www.mscorecard.com).
-
-## Exportera och importera data
-
-All lokal data kan säkerhetskopieras och återställas via **📅 Sparade rundor → Exportera / importera**:
-
-- Välj vad som ska exporteras: **Rundor**, **Banor** och/eller **Spelare**
-- Exporten sparas som en JSON-fil med dagens datum
-- Import sammanfogar data utan att skriva över befintliga poster (deduplicering via ID)
-
-## Cloud-backup (Google Drive)
-
-Under **📅 Sparade rundor → ☁️ Cloud-backup** kan all data (banor, rundor, spelare) säkerhetskopieras till Google Drive, och återställas därifrån:
-
-- **Varje enhet/webbläsare får sin egen säkerhetskopia** — appen ger varje enhet ett unikt, sparat ID vid första användningen, så en säkerhetskopia från mobilen skriver inte över en från datorn
-- **Namn på denna enhet** kan anges (t.ex. "Henriks iPhone") och sparas tillsammans med filen i Drive, så den går att känna igen senare
-- **Säkerhetskopiera** loggar in med ditt Google-konto (första gången) och sparar all data i din egen Drive — appen har bara åtkomst till filer den själv skapat, inte resten av din Drive
-- **Återställ** listar alla säkerhetskopior som finns i kontots Drive; finns det fler än en (flera enheter) visas en väljare med enhetsnamn och tidpunkt så du kan välja rätt en. En äldre säkerhetskopia från innan enhetsstöd fanns känns också igen automatiskt.
-- Vald säkerhetskopia sammanfogas med lokal data via samma deduplicering som vanlig import — inget skrivs över
-- Senaste säkerhetskopieringstidpunkt visas ovanför knapparna
-- Varje användares data hamnar i just deras egen Drive — inget går via en delad server eller utvecklarens konto
-
-> **För utvecklare:** kräver en Google OAuth 2.0 Client ID (se `GOOGLE_DRIVE_CLIENT_ID` i koden) från [Google Cloud Console](https://console.cloud.google.com/), med Drive API aktiverat. Så länge OAuth-samtycket är i **Testing**-läge måste varje användares Google-konto läggas till manuellt som testanvändare (max 100, ingen Google-verifiering krävs) — perfekt för en mindre grupp. Testanvändare behöver klicka igenom en "ej verifierad app"-varning, och åtkomsten förnyas var 7:e dag.
-
-## Senaste banor
-
-De tre mest spelade banorna visas som snabbvalsknappar längst upp på startsidan, rangordnade efter antal spelade rundor.
-
-## Installera som app (PWA)
-
-Appen kan installeras på hemskärmen och fungerar då helt offline:
-
-- **iPhone/iPad**: Öppna sidan i Safari → Dela-knappen → **Lägg till på hemskärmen**
-- **Android**: Öppna sidan i Chrome → meny (⋮) → **Installera app** / **Lägg till på startskärmen**
-
-Appen öppnas då i eget fönster utan webbläsarens adressfält, med egen ikon, och all funktionalitet fungerar utan nätverkstäckning — perfekt ute på banan.
-
-> **För utvecklare:** bumpa `CACHE`-versionen i `sw.js` (t.ex. `golf-v2`) vid varje deploy så att installerade appar hämtar den nya versionen.
-
-## Kom igång
-
-1. Ladda ner `index.html`
-2. Öppna filen i **Safari eller Chrome** (dubbelklicka i Finder)
-3. Välj en förinstallerad bana eller lägg till en ny via **+ Lägg till ny bana**
-4. Fyll i slope, CR och par från scorekortet för vald tee
-5. Mata in par och Hcp/Index per hål (sparas automatiskt till nästa gång)
-
-Håldata valideras innan rundan startar: varje hål måste ha par och ett unikt index (fullständig 1–18 för 18-hålsbanor), och parsumman måste stämma med banans par — annars visas ett tydligt felmeddelande. Index anges alltid som scorekortets Hcp/Index (1–18).
-
-> **Obs:** Öppna alltid via samma webbläsare för att data ska vara tillgänglig — sparning kräver `localStorage` och fungerar inte i privat/inkognito-läge.
-
-## Teknisk info
-
-- Ren HTML/CSS/JavaScript — inga beroenden eller byggsteg
-- All data sparas lokalt i webbläsarens `localStorage`:
-  - `golf_courses_db` — bandata
-  - `golf_rounds_db` — rundhistorik
-  - `golf_players_db` — spelarregister (inkl. profilbilder som base64)
-  - `golf_last_cloud_backup` — tidpunkt för senaste Google Drive-säkerhetskopiering
-  - `golf_origin_id` / `golf_origin_label` — unikt ID och namn för denna enhet/webbläsare, används för att skilja säkerhetskopior åt i Google Drive
-- Fungerar offline efter första laddning — Google Identity Services laddas endast in på begäran när cloud-backup används, så vanligt spel påverkas inte
-- Profilbilder komprimeras till 160×160 px JPEG via canvas innan lagring
+Runs the Worker locally with a real (local-mode) KV binding, so you can
+`curl` it directly while making changes.

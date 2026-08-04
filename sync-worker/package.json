@@ -1,0 +1,15 @@
+{
+  "name": "golfcalc-sync-worker",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Live-round sync relay for GolfCalculator (Cloudflare Worker + KV)",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "test": "node test/local-test.js"
+  },
+  "devDependencies": {
+    "wrangler": "^3.90.0"
+  }
+}
