@@ -1,4 +1,4 @@
-const CACHE = 'golf-v14'; // bump on each deploy
+const CACHE = 'golf-v15'; // bump on each deploy
 const SHELL = [
   './',
   './index.html',
@@ -22,6 +22,10 @@ self.addEventListener('activate', e => {
 
 self.addEventListener('fetch', e => {
   if (e.request.method !== 'GET') return;
+  // Only cache same-origin app-shell requests. Cross-origin requests (e.g. the
+  // live-sync Worker's /room polling) must always hit the network — caching
+  // them cache-first would freeze every poll on its first-ever response.
+  if (new URL(e.request.url).origin !== self.location.origin) return;
   if (e.request.mode === 'navigate') {
     // Network-first for the page itself: fresh when online, cached shell offline
     e.respondWith(
