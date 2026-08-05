@@ -2352,7 +2352,8 @@ function buildScoreTable() {
     if (people.length >= 2 && markers.ld && markers.ld.hole === i) extra += markerRow('💥', 'Längsta drive', 'setLdPlayer', markers.ld.player, 'ldPlayerSelect');
     // Bet slot row: always present (even empty) so renderBetRows() can patch it in
     // place by id on every poll tick, without a full buildScoreTable() rebuild.
-    if (state.liveRoomCode) extra += `<tr class="bet-row" id="betrow_${i}"><td colspan="${totalCols}" id="betcell_${i}"></td></tr>`;
+    // Betting works offline too — not just in a live-synced room.
+    extra += `<tr class="bet-row" id="betrow_${i}"><td colspan="${totalCols}" id="betcell_${i}"></td></tr>`;
     tbody.innerHTML += `<tr${rowClass}>${cells}</tr>${extra}`;
   }
   updateMatchStatus();
@@ -2377,7 +2378,13 @@ function _betSubjectName(seat) {
 // Which seats this device may propose/respond/cancel as: always its own seat,
 // plus — if this device is the host (seat 0) — any seat nobody has claimed with
 // a device yet, mirroring the same precedent used for filling in their scores.
+// Offline (no live room), there's only one device for the whole group, so it
+// acts for every seat.
 function seatsIActFor() {
+  if (!state.liveRoomCode) {
+    const n = numColumns();
+    return Array.from({ length: n }, (_, i) => i);
+  }
   if (state.liveSeat == null) return [];
   if (state.liveSeat !== 0) return [state.liveSeat];
   const n = numColumns();
@@ -2407,7 +2414,6 @@ function toggleBetCompose(i) {
 }
 
 function _betRowHtml(i) {
-  if (!state.liveRoomCode) return '';
   const bet = _activeBetForHole(i);
   const mySeats = seatsIActFor();
 
@@ -2460,7 +2466,6 @@ function _betRowHtml(i) {
 // Refreshes bet slot rows in place (by id) without rebuilding the score table,
 // same discipline as renderLiveSeatCells — avoids stealing focus from active typing.
 function renderBetRows() {
-  if (!state.liveRoomCode) return;
   for (let i = 0; i < state.holes; i++) {
     const el = document.getElementById(`betcell_${i}`);
     if (!el) continue;
@@ -2478,8 +2483,60 @@ function submitBetCompose(i) {
   proposeBet(i, amount, seat);
 }
 
+// Offline bets are managed entirely on-device (no server round-trip), mirroring
+// the shape and rules of the live-sync worker (sync-worker/src/index.js) so the
+// shared settlement code (computeBetSettlement etc.) works unchanged either way.
+function _localBetId() {
+  return `local_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+}
+
+function proposeBetLocal(hole, amount, seat) {
+  state.bets = state.bets || [];
+  const clash = _activeBetForHole(hole);
+  if (clash && (clash.status === 'pending' || clash.status === 'locked')) return;
+  const responses = {};
+  for (let s = 0; s < numColumns(); s++) { if (s !== seat) responses[s] = 'pending'; }
+  state.bets.push({
+    id: _localBetId(), hole, amount, proposerSeat: seat,
+    createdAt: Date.now(), resolvedAt: null,
+    status: 'pending', cancelReason: null, responses
+  });
+  _betComposeHole = null;
+  renderBetRows();
+  inprogressSave();
+}
+
+function respondToBetLocal(betId, seat, response) {
+  const bet = (state.bets || []).find(b => b.id === betId);
+  if (!bet || bet.status !== 'pending') return;
+  if (response === 'decline') {
+    bet.status = 'cancelled';
+    bet.cancelReason = 'declined';
+    bet.resolvedAt = Date.now();
+  } else {
+    bet.responses[seat] = 'accepted';
+    if (Object.values(bet.responses).every(r => r === 'accepted')) {
+      bet.status = 'locked';
+      bet.resolvedAt = Date.now();
+    }
+  }
+  renderBetRows();
+  inprogressSave();
+}
+
+function cancelBetByIdLocal(betId, seat) {
+  const bet = (state.bets || []).find(b => b.id === betId);
+  if (!bet || bet.status !== 'pending') return;
+  if (seat !== bet.proposerSeat && seat !== 0) return;
+  bet.status = 'cancelled';
+  bet.cancelReason = 'withdrawn';
+  bet.resolvedAt = Date.now();
+  renderBetRows();
+  inprogressSave();
+}
+
 function proposeBet(hole, amount, seat) {
-  if (!state.liveRoomCode) return;
+  if (!state.liveRoomCode) return proposeBetLocal(hole, amount, seat);
   fetch(`${LIVE_SYNC_BASE}/room/${state.liveRoomCode}/bets`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -2496,7 +2553,7 @@ function proposeBet(hole, amount, seat) {
 }
 
 function respondToBet(betId, seat, response) {
-  if (!state.liveRoomCode) return;
+  if (!state.liveRoomCode) return respondToBetLocal(betId, seat, response);
   fetch(`${LIVE_SYNC_BASE}/room/${state.liveRoomCode}/bets/${betId}/respond`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -2508,7 +2565,7 @@ function respondToBet(betId, seat, response) {
 }
 
 function cancelBetById(betId, seat) {
-  if (!state.liveRoomCode) return;
+  if (!state.liveRoomCode) return cancelBetByIdLocal(betId, seat);
   fetch(`${LIVE_SYNC_BASE}/room/${state.liveRoomCode}/bets/${betId}/cancel`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -3322,7 +3379,7 @@ function newRound() {
     playerTees: [],
     note: '', weather: null,
     markers: { ctp: { hole: null, player: '' }, ld: { hole: null, player: '' } },
-    liveRoomCode: null, liveSeat: null
+    liveRoomCode: null, liveSeat: null, bets: []
   };
   resetCourseFields();
   try { document.getElementById('holeDataBody').innerHTML = ''; } catch(e) {}
