@@ -2998,7 +2998,7 @@ function renderResults(playerResults, rankContainerId = 'rankingContainer', prCo
   });
 
   const hl = buildRoundHighlights(results, markers);
-  const skinsCard = buildSkinsCard('live', results, 'net');
+  const skinsCard = ''; // Skins temporarily hidden — buildSkinsCard('live', results, 'net');
   if (hl || skinsCard) prContainer.innerHTML = hl + skinsCard + prContainer.innerHTML;
   window._lastResults = results;
   window._lastMarkers = markers;
@@ -4981,7 +4981,7 @@ function renderHistoryList() {
           ${r.note ? `<div style="font-style:italic;color:var(--muted);font-size:0.85rem;margin:4px 0 8px;">📝 "${escapeHtml(r.note)}"</div>` : ''}
           <div class="hi-ranking">${rankRows}</div>
           ${buildRoundHighlights(r.subjects.map(s => ({ subj: { name: s.name }, rows: s.rows })), r.markers)}
-          ${buildSkinsCard('hist-' + r.id, r.subjects.map(s => ({ subj: { name: s.name }, rows: s.rows })), 'net')}
+          <!-- Skins temporarily hidden — buildSkinsCard('hist-' + r.id, r.subjects.map(s => ({ subj: { name: s.name }, rows: s.rows })), 'net') -->
           ${detailTables}
         </div>
       </div>`;
