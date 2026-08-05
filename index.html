@@ -2315,8 +2315,11 @@ function buildScoreTable() {
       const val = state.scores[p] && state.scores[p][i] !== '' ? state.scores[p][i] : '';
       const teeTag = isFoursome ? `<div class="tee-order">🎯 ${foursomeStarterName(c, i)}</div>` : '';
       // In a live round, only the seat this device owns is editable — other seats are
-      // filled in by their own devices and refreshed here from liveSyncPollNow().
-      const isReadonly = state.liveRoomCode && state.liveSeat !== p;
+      // filled in by their own devices and refreshed here from liveSyncPollNow(). Exception:
+      // the host (seat 0) may also fill in any seat nobody has claimed yet (e.g. a player
+      // without their own device), until another device claims that seat.
+      const seatClaimedByOther = state.liveSeatsClaimed && state.liveSeatsClaimed[p];
+      const isReadonly = state.liveRoomCode && state.liveSeat !== p && !(state.liveSeat === 0 && !seatClaimedByOther);
       cells += `<td>${teeTag}<input type="number" class="score-input${val ? ' has-value' : ''}${isReadonly ? ' live-readonly' : ''}" id="score_${p}_${i}"
         min="1" max="15" inputmode="numeric" value="${val}"${isReadonly ? ' readonly tabindex="-1"' : ''}
         oninput="onScoreInput(${p},${i},this)" onkeydown="scoreKeyDown(event,${p},${i})">
@@ -2576,14 +2579,19 @@ function onScoreInput(p, i, el) {
   updateHonorBanner();
   updateMatchStatus();
   inprogressSave();
-  if (state.liveSeat === p) liveSyncPush();
+  if (state.liveRoomCode) {
+    const seatClaimedByOther = state.liveSeatsClaimed && state.liveSeatsClaimed[p];
+    if (state.liveSeat === p || (state.liveSeat === 0 && !seatClaimedByOther)) liveSyncPush(p);
+  }
   if (el.value !== '') {
     setTimeout(() => {
       let next;
       if (state.liveRoomCode && state.liveSeat != null) {
-        // Only one column is editable on this device in a live round — the other
-        // seats are read-only, so advancing sideways would land on a dead cell.
-        next = document.getElementById(`score_${state.liveSeat}_${i + 1}`);
+        // Usually only one column is editable on this device in a live round, so
+        // advancing sideways would land on a dead cell — advance down the same
+        // column instead. The host may also own extra unclaimed seat columns, in
+        // which case the column just edited (p) is still the right one to continue in.
+        next = document.getElementById(`score_${p}_${i + 1}`);
       } else {
         const n = numColumns();
         const nextP = p + 1;
@@ -3078,17 +3086,26 @@ function liveDeviceId() {
 let _livePushTimer = null;
 let _livePollTimer = null;
 
+let _liveDirtySeats = new Set();
+
 function liveSyncPushNow() {
   if (!state.liveRoomCode || state.liveSeat == null) return;
-  fetch(`${LIVE_SYNC_BASE}/room/${state.liveRoomCode}`, {
-    method: 'PATCH',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ seat: state.liveSeat, scores: state.scores[state.liveSeat] || [] }),
-  }).catch(() => {}); // network failure must never block local scoring
+  const seats = _liveDirtySeats.size ? [..._liveDirtySeats] : [state.liveSeat];
+  _liveDirtySeats.clear();
+  seats.forEach(seat => {
+    fetch(`${LIVE_SYNC_BASE}/room/${state.liveRoomCode}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ seat, scores: state.scores[seat] || [] }),
+    }).catch(() => {}); // network failure must never block local scoring
+  });
 }
 
-function liveSyncPush() {
+// `seat` defaults to this device's own seat; the host also passes the seat number
+// when filling in scores for a player whose seat nobody has claimed yet.
+function liveSyncPush(seat) {
   if (!state.liveRoomCode || state.liveSeat == null) return;
+  _liveDirtySeats.add(seat == null ? state.liveSeat : seat);
   clearTimeout(_livePushTimer);
   _livePushTimer = setTimeout(liveSyncPushNow, LIVE_SYNC_PUSH_DEBOUNCE_MS);
 }
@@ -3103,6 +3120,22 @@ function liveSyncApplyRoom(room) {
     if (!state.scores[seat]) state.scores[seat] = new Array(state.holes).fill('');
     seatData.scores.forEach((val, i) => { state.scores[seat][i] = val; });
   });
+
+  // Track which seats are claimed by some other device, so the host (seat 0) can
+  // keep editing any seat nobody has joined yet — see buildScoreTable().
+  if (state.liveSeat === 0) {
+    const prevClaimed = state.liveSeatsClaimed || {};
+    const nextClaimed = {};
+    Object.keys(room.seats).forEach(seatKey => {
+      const seat = Number(seatKey);
+      if (seat === state.liveSeat) return;
+      nextClaimed[seat] = !!room.seats[seatKey].claimedBy;
+    });
+    const claimsChanged = Object.keys(nextClaimed).some(seat => !!nextClaimed[seat] !== !!prevClaimed[seat]);
+    state.liveSeatsClaimed = nextClaimed;
+    if (claimsChanged) { buildScoreTable(); restoreScoresToTable(); }
+  }
+
   if (typeof renderLiveSeatCells === 'function') renderLiveSeatCells(room);
 
   // Only the host (seat 0) may set marker winners — everyone else mirrors the
