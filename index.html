@@ -783,15 +783,15 @@
   <!-- SPELARREGISTER -->
   <div id="playersView" class="hidden">
     <div class="card">
-      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
         <div class="card-title" style="margin:0;"><span class="icon">👤</span> Spelarregister</div>
-        <div style="display:flex;gap:8px;align-items:center;">
+        <button onclick="closePlayersView()" style="background:none;border:none;font-size:1.4rem;cursor:pointer;color:var(--muted);padding:0 4px;">✕</button>
+      </div>
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:14px;">
           <button onclick="openSeasonView()" style="background:none;border:1px solid var(--green);border-radius:6px;padding:4px 10px;font-size:0.8rem;color:var(--heading);cursor:pointer;">📅 Säsong</button>
           <button onclick="openHallOfFame()" style="background:none;border:1px solid var(--green);border-radius:6px;padding:4px 10px;font-size:0.8rem;color:var(--heading);cursor:pointer;">🏆 Hall of Fame</button>
           <button onclick="openCourseRecordsView()" style="background:none;border:1px solid var(--green);border-radius:6px;padding:4px 10px;font-size:0.8rem;color:var(--heading);cursor:pointer;">🏟️ Banrekord</button>
           <button onclick="openTourView()" style="background:none;border:1px solid var(--green);border-radius:6px;padding:4px 10px;font-size:0.8rem;color:var(--heading);cursor:pointer;">🚌 Tour</button>
-          <button onclick="closePlayersView()" style="background:none;border:none;font-size:1.4rem;cursor:pointer;color:var(--muted);padding:0 4px;">✕</button>
-        </div>
       </div>
       <div id="savedPlayersList"></div>
       <div id="addPlayerForm" style="margin-top:14px;border-top:1px solid var(--border);padding-top:14px;">
