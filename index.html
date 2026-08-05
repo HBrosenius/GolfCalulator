@@ -2255,6 +2255,15 @@ function numColumns() {
   return isSharedScoreMode(state.gameMode) ? state.teams.length : state.players.length;
 }
 
+// Whether this device may edit seat p's scores in a live round: its own seat,
+// or — if this device is the host (seat 0) — any seat nobody else has claimed.
+function isSeatEditableByMe(p) {
+  if (!state.liveRoomCode) return true;
+  if (state.liveSeat === p) return true;
+  const seatClaimedByOther = state.liveSeatsClaimed && state.liveSeatsClaimed[p];
+  return state.liveSeat === 0 && !seatClaimedByOther;
+}
+
 // Foursome: teammates strictly alternate who tees off, holding for the whole
 // hole — team's first-assigned member starts odd holes, the other even holes.
 function foursomeStarterName(team, holeIndex) {
@@ -2315,12 +2324,8 @@ function buildScoreTable() {
     cols.forEach((c, p) => {
       const val = state.scores[p] && state.scores[p][i] !== '' ? state.scores[p][i] : '';
       const teeTag = isFoursome ? `<div class="tee-order">🎯 ${foursomeStarterName(c, i)}</div>` : '';
-      // In a live round, only the seat this device owns is editable — other seats are
-      // filled in by their own devices and refreshed here from liveSyncPollNow(). Exception:
-      // the host (seat 0) may also fill in any seat nobody has claimed yet (e.g. a player
-      // without their own device), until another device claims that seat.
-      const seatClaimedByOther = state.liveSeatsClaimed && state.liveSeatsClaimed[p];
-      const isReadonly = state.liveRoomCode && state.liveSeat !== p && !(state.liveSeat === 0 && !seatClaimedByOther);
+      // In a live round, only seats this device may edit are writable — see isSeatEditableByMe().
+      const isReadonly = state.liveRoomCode && !isSeatEditableByMe(p);
       cells += `<td>${teeTag}<input type="number" class="score-input${val ? ' has-value' : ''}${isReadonly ? ' live-readonly' : ''}" id="score_${p}_${i}"
         min="1" max="15" inputmode="numeric" value="${val}"${isReadonly ? ' readonly tabindex="-1"' : ''}
         oninput="onScoreInput(${p},${i},this)" onkeydown="scoreKeyDown(event,${p},${i})">
@@ -2741,19 +2746,24 @@ function onScoreInput(p, i, el) {
   updateHonorBanner();
   updateMatchStatus();
   inprogressSave();
-  if (state.liveRoomCode) {
-    const seatClaimedByOther = state.liveSeatsClaimed && state.liveSeatsClaimed[p];
-    if (state.liveSeat === p || (state.liveSeat === 0 && !seatClaimedByOther)) liveSyncPush(p);
-  }
+  if (state.liveRoomCode && isSeatEditableByMe(p)) liveSyncPush(p);
   if (el.value !== '') {
     setTimeout(() => {
       let next;
       if (state.liveRoomCode && state.liveSeat != null) {
-        // Usually only one column is editable on this device in a live round, so
-        // advancing sideways would land on a dead cell — advance down the same
-        // column instead. The host may also own extra unclaimed seat columns, in
-        // which case the column just edited (p) is still the right one to continue in.
-        next = document.getElementById(`score_${p}_${i + 1}`);
+        // Advance sideways to the next seat this device may edit, skipping
+        // remote (other-device-owned) columns; wrap to the next hole's first
+        // editable seat once every editable seat in this hole has a value.
+        const n = numColumns();
+        next = null;
+        for (let q = p + 1; q < n; q++) {
+          if (isSeatEditableByMe(q)) { next = document.getElementById(`score_${q}_${i}`); break; }
+        }
+        if (!next) {
+          for (let q = 0; q < n; q++) {
+            if (isSeatEditableByMe(q)) { next = document.getElementById(`score_${q}_${i + 1}`); break; }
+          }
+        }
       } else {
         const n = numColumns();
         const nextP = p + 1;
