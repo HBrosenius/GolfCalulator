@@ -4295,7 +4295,12 @@ const TOURS_KEY = 'golf_tours_db';
 
 function toursLoad() {
   if (!_lsOk) return [];
-  try { return JSON.parse(localStorage.getItem(TOURS_KEY) || '[]'); }
+  try {
+    const tours = JSON.parse(localStorage.getItem(TOURS_KEY) || '[]');
+    // Migrate tours created before the course/date-window rework (they had
+    // a `legs` array instead of `courses`) so old data doesn't crash the view.
+    return tours.map(t => ({ courses: [], ...t }));
+  }
   catch(e) { return []; }
 }
 
