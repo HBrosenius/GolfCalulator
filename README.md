@@ -104,6 +104,7 @@ Låt varje spelare mata in sin egen score på sin egen telefon under rundan, ist
 - **🎯 Närmast pinnen** och **💥 Längsta drive** synkas också mellan enheterna, men bara den som startade rundan (först i listan) kan välja vinnare — övriga ser valet men kan inte ändra det
 - Fungerar som vanligt om nätverket ligger nere tillfälligt — din egen scoreinmatning och den vanliga återupptagningen (se nästa avsnitt) påverkas inte, och osparade poäng skickas iväg så snart uppkopplingen är tillbaka
 - En live-runda sparas ändå lokalt precis som en vanlig runda och hamnar i **Rundhistorik** när den räknas klart
+- **💰 Satsa på hål** — vem som helst av de anslutna spelarna kan föreslå en satsning i kronor på att vinna ett hål; alla övriga måste acceptera innan den låses in, en enda nekad satsning avbryter den helt. Vinnare avgörs av ensam bästa nettoscore på hålet (delad bästa score = ingen vinner). Efter rundan visas en avräkning under resultatet med vem som ska betala vem, och den sparas med i Rundhistorik
 
 > **För utvecklare:** kräver en egen driftsatt sync-relä (Cloudflare Worker) — se `sync-worker/README.md`.
 

@@ -10,8 +10,9 @@ Stores one JSON blob per live round, keyed by a short room code, so
 multiple phones can push/pull score updates for the same in-progress
 round. Rooms auto-expire after 24h (KV TTL) — nothing to clean up.
 
-See `src/index.js` for the four endpoints (`POST /room`, `GET /room/:code`,
-`PATCH /room/:code`, `POST /room/:code/claim`).
+See `src/index.js` for the endpoints (`POST /room`, `GET /room/:code`,
+`PATCH /room/:code`, `POST /room/:code/claim`, `POST /room/:code/bets`,
+`POST /room/:code/bets/:id/respond`, `POST /room/:code/bets/:id/cancel`).
 
 ## Local test (no Cloudflare account needed)
 

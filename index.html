@@ -669,6 +669,7 @@
     .container { max-width: 100%; padding: 0; }
     .card { box-shadow: none; border: 1px solid #ccc; }
     .player-result-section { page-break-inside: avoid; break-inside: avoid; }
+    .bet-row { display: none !important; }
     body.printing-history #step1, body.printing-history #step2, body.printing-history #step3,
     body.printing-history #step4, body.printing-history #step5,
     body.printing-history #historyView, body.printing-history #playersView,
@@ -1257,7 +1258,7 @@ let state = {
   playerTees: [],
   note: '', weather: null,
   markers: { ctp: { hole: null, player: '' }, ld: { hole: null, player: '' } },
-  liveRoomCode: null, liveSeat: null
+  liveRoomCode: null, liveSeat: null, liveSeatsClaimed: null, bets: []
 };
 
 // ============================================================
@@ -2328,12 +2329,173 @@ function buildScoreTable() {
     let extra = '';
     if (people.length >= 2 && markers.ctp && markers.ctp.hole === i) extra += markerRow('🎯', 'Närmast pinnen', 'setCtpPlayer', markers.ctp.player, 'ctpPlayerSelect');
     if (people.length >= 2 && markers.ld && markers.ld.hole === i) extra += markerRow('💥', 'Längsta drive', 'setLdPlayer', markers.ld.player, 'ldPlayerSelect');
+    // Bet slot row: always present (even empty) so renderBetRows() can patch it in
+    // place by id on every poll tick, without a full buildScoreTable() rebuild.
+    if (state.liveRoomCode) extra += `<tr class="bet-row" id="betrow_${i}"><td colspan="${totalCols}" id="betcell_${i}"></td></tr>`;
     tbody.innerHTML += `<tr${rowClass}>${cells}</tr>${extra}`;
   }
   updateMatchStatus();
   syncRoundMeta();
   updateHonorBanner();
+  renderBetRows();
   setTimeout(() => document.getElementById('score_0_0')?.focus(), 100);
+}
+
+// ============================================================
+// LIVE SYNC — HOLE BETS
+// ============================================================
+
+function _betCols() {
+  return isSharedScoreMode(state.gameMode) ? (state.teams || []) : (state.players || []);
+}
+function _betSubjectName(seat) {
+  const cols = _betCols();
+  return (cols[seat] && cols[seat].name) || `Spelare ${seat + 1}`;
+}
+
+// Which seats this device may propose/respond/cancel as: always its own seat,
+// plus — if this device is the host (seat 0) — any seat nobody has claimed with
+// a device yet, mirroring the same precedent used for filling in their scores.
+function seatsIActFor() {
+  if (state.liveSeat == null) return [];
+  if (state.liveSeat !== 0) return [state.liveSeat];
+  const n = numColumns();
+  const acted = [0];
+  for (let p = 1; p < n; p++) {
+    if (!(state.liveSeatsClaimed && state.liveSeatsClaimed[p])) acted.push(p);
+  }
+  return acted;
+}
+
+// The latest non-superseded bet for a hole: a cancelled bet never blocks a fresh
+// proposal on the same hole, so once a newer bet exists for that hole we ignore
+// older cancelled ones entirely (bets are only ever appended, never removed).
+function _activeBetForHole(i) {
+  const bets = state.bets || [];
+  for (let k = bets.length - 1; k >= 0; k--) {
+    if (bets[k].hole === i) return bets[k];
+  }
+  return null;
+}
+
+let _betComposeHole = null;
+
+function toggleBetCompose(i) {
+  _betComposeHole = (_betComposeHole === i) ? null : i;
+  renderBetRows();
+}
+
+function _betRowHtml(i) {
+  if (!state.liveRoomCode) return '';
+  const bet = _activeBetForHole(i);
+  const mySeats = seatsIActFor();
+
+  if (bet && bet.status === 'locked') {
+    return `<div style="background:#eef6ec;padding:8px 10px;font-size:0.82rem;">
+      🔒 <strong>${escapeHtml(_betSubjectName(bet.proposerSeat))}</strong> satsar
+      <strong>${bet.amount} kr</strong> mot alla på hålet
+    </div>`;
+  }
+
+  if (bet && bet.status === 'pending') {
+    const pendingSeats = Object.keys(bet.responses).filter(s => bet.responses[s] === 'pending').map(Number);
+    const pendingNames = pendingSeats.map(s => escapeHtml(_betSubjectName(s))).join(', ');
+    const canRespond = mySeats.filter(s => pendingSeats.includes(s));
+    const canCancel = mySeats.includes(bet.proposerSeat);
+    let html = `<div style="background:#fff8e1;padding:8px 10px;font-size:0.82rem;">
+      💰 <strong>${escapeHtml(_betSubjectName(bet.proposerSeat))}</strong> satsar
+      <strong>${bet.amount} kr</strong> på att vinna hålet`;
+    if (pendingNames) html += ` — väntar på: ${pendingNames}`;
+    canRespond.forEach(seat => {
+      html += ` <button class="btn secondary" style="width:auto;margin:4px 4px 0 0;padding:3px 8px;font-size:0.75rem;" onclick="respondToBet('${bet.id}', ${seat}, 'accept')">Acceptera (${escapeHtml(_betSubjectName(seat))})</button>
+      <button class="btn secondary" style="width:auto;margin:4px 4px 0 0;padding:3px 8px;font-size:0.75rem;" onclick="respondToBet('${bet.id}', ${seat}, 'decline')">Neka</button>`;
+    });
+    if (canCancel) html += ` <button class="btn secondary" style="width:auto;margin:4px 0 0;padding:3px 8px;font-size:0.75rem;" onclick="cancelBetById('${bet.id}', ${bet.proposerSeat})">Ångra</button>`;
+    html += `</div>`;
+    return html;
+  }
+
+  // No active bet on this hole — offer to propose one, if there's someone to bet against.
+  if (numColumns() < 2 || mySeats.length === 0) return '';
+
+  if (_betComposeHole === i) {
+    const seatOpts = mySeats.map(s => `<option value="${s}">${escapeHtml(_betSubjectName(s))}</option>`).join('');
+    const seatPicker = mySeats.length > 1
+      ? `<select id="betSeat_${i}" style="margin-right:6px;padding:4px 6px;">${seatOpts}</select>`
+      : `<input type="hidden" id="betSeat_${i}" value="${mySeats[0]}">`;
+    return `<div style="padding:8px 10px;font-size:0.82rem;">
+      ${seatPicker}
+      <input type="number" id="betAmount_${i}" placeholder="kr" min="1" style="width:70px;margin-right:6px;padding:4px 6px;">
+      <button class="btn secondary" style="width:auto;margin:0;padding:4px 10px;font-size:0.78rem;" onclick="submitBetCompose(${i})">Satsa</button>
+      <button class="btn secondary" style="width:auto;margin:0;padding:4px 10px;font-size:0.78rem;" onclick="toggleBetCompose(${i})">Avbryt</button>
+    </div>`;
+  }
+
+  return `<div style="padding:4px 10px;">
+    <button class="btn secondary" style="width:auto;margin:0;padding:3px 10px;font-size:0.75rem;" onclick="toggleBetCompose(${i})">💰 Satsa på hål ${i + 1}</button>
+  </div>`;
+}
+
+// Refreshes bet slot rows in place (by id) without rebuilding the score table,
+// same discipline as renderLiveSeatCells — avoids stealing focus from active typing.
+function renderBetRows() {
+  if (!state.liveRoomCode) return;
+  for (let i = 0; i < state.holes; i++) {
+    const el = document.getElementById(`betcell_${i}`);
+    if (!el) continue;
+    const html = _betRowHtml(i);
+    if (el.dataset.sig !== html) { el.innerHTML = html; el.dataset.sig = html; }
+  }
+}
+
+function submitBetCompose(i) {
+  const seatEl = document.getElementById(`betSeat_${i}`);
+  const amountEl = document.getElementById(`betAmount_${i}`);
+  const seat = seatEl ? Number(seatEl.value) : null;
+  const amount = amountEl ? parseInt(amountEl.value, 10) : NaN;
+  if (seat == null || !(amount > 0)) { alert('Ange ett giltigt belopp (kr).'); return; }
+  proposeBet(i, amount, seat);
+}
+
+function proposeBet(hole, amount, seat) {
+  if (!state.liveRoomCode) return;
+  fetch(`${LIVE_SYNC_BASE}/room/${state.liveRoomCode}/bets`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ proposerSeat: seat, hole, amount }),
+  })
+    .then(r => r.json().then(body => ({ ok: r.ok, body })))
+    .then(({ ok, body }) => {
+      if (!ok) { alert(body.error || 'Kunde inte skapa satsningen.'); return; }
+      _betComposeHole = null;
+      liveSyncApplyRoom(body);
+      inprogressSave();
+    })
+    .catch(() => alert('Kunde inte skapa satsningen (nätverksfel).'));
+}
+
+function respondToBet(betId, seat, response) {
+  if (!state.liveRoomCode) return;
+  fetch(`${LIVE_SYNC_BASE}/room/${state.liveRoomCode}/bets/${betId}/respond`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ seat, response }),
+  })
+    .then(r => r.json())
+    .then(room => { liveSyncApplyRoom(room); inprogressSave(); })
+    .catch(() => alert('Kunde inte skicka svar (nätverksfel).'));
+}
+
+function cancelBetById(betId, seat) {
+  if (!state.liveRoomCode) return;
+  fetch(`${LIVE_SYNC_BASE}/room/${state.liveRoomCode}/bets/${betId}/cancel`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ seat }),
+  })
+    .then(r => r.json())
+    .then(room => { liveSyncApplyRoom(room); inprogressSave(); })
+    .catch(() => alert('Kunde inte ångra satsningen (nätverksfel).'));
 }
 
 function setWeather(key) {
@@ -2835,6 +2997,100 @@ function computeSkins(results, basis) {
   return { skinsWon, perHole, unresolvedCarry: carry };
 }
 
+// ---- Hole bet settlement ----
+// A locked bet's participants are every seat in the round (locking requires
+// every other seat to have accepted). Winner = sole best net score on that
+// hole; a tie is a push. Stake is per-opponent: on a win the proposer collects
+// the amount from every other seat; on a loss they pay only the sole winner.
+function resolveBetOutcome(bet, results) {
+  const row = results.map(r => r.rows[bet.hole]);
+  if (row.some(r => !r || r.skipped)) return { outcome: 'unplayed' };
+  const vals = results.map((r, seat) => ({ seat, val: r.rows[bet.hole].netto }));
+  const min = Math.min(...vals.map(v => v.val));
+  const winners = vals.filter(v => v.val === min);
+  if (winners.length !== 1) return { outcome: 'push' };
+  const winnerSeat = winners[0].seat;
+  return winnerSeat === bet.proposerSeat
+    ? { outcome: 'proposer_wins', winnerSeat }
+    : { outcome: 'proposer_loses', winnerSeat };
+}
+
+// Nets pairwise transfers down to a minimal debtor→creditor list.
+function collapseSettlement(transfers) {
+  const net = {};
+  transfers.forEach(t => {
+    net[t.from] = (net[t.from] || 0) - t.amount;
+    net[t.to] = (net[t.to] || 0) + t.amount;
+  });
+  const debtors = Object.entries(net).filter(([, v]) => v < 0).map(([s, v]) => ({ seat: +s, amt: -v })).sort((a, b) => b.amt - a.amt);
+  const creditors = Object.entries(net).filter(([, v]) => v > 0).map(([s, v]) => ({ seat: +s, amt: v })).sort((a, b) => b.amt - a.amt);
+  const result = [];
+  let di = 0, ci = 0;
+  while (di < debtors.length && ci < creditors.length) {
+    const pay = Math.min(debtors[di].amt, creditors[ci].amt);
+    if (pay > 0) result.push({ from: debtors[di].seat, to: creditors[ci].seat, amount: pay });
+    debtors[di].amt -= pay; creditors[ci].amt -= pay;
+    if (debtors[di].amt === 0) di++;
+    if (creditors[ci].amt === 0) ci++;
+  }
+  return result;
+}
+
+function computeBetSettlement(results, bets) {
+  if (!results || !Array.isArray(bets) || !bets.length) return { net: [], unresolved: [] };
+  const locked = bets.filter(b => b.status === 'locked');
+  const unresolved = bets.filter(b => b.status === 'pending');
+  const transfers = [];
+
+  locked.forEach(bet => {
+    const res = resolveBetOutcome(bet, results);
+    if (res.outcome === 'proposer_wins') {
+      results.forEach((_, seat) => { if (seat !== bet.proposerSeat) transfers.push({ from: seat, to: bet.proposerSeat, amount: bet.amount }); });
+    } else if (res.outcome === 'proposer_loses') {
+      transfers.push({ from: bet.proposerSeat, to: res.winnerSeat, amount: bet.amount });
+    }
+  });
+
+  const net = collapseSettlement(transfers).map(t => ({
+    fromName: results[t.from] ? results[t.from].subj.name : `Spelare ${t.from + 1}`,
+    toName: results[t.to] ? results[t.to].subj.name : `Spelare ${t.to + 1}`,
+    amount: t.amount,
+  }));
+  const unresolvedNames = unresolved.map(b => ({
+    hole: b.hole + 1,
+    proposerName: results[b.proposerSeat] ? results[b.proposerSeat].subj.name : `Spelare ${b.proposerSeat + 1}`,
+    amount: b.amount,
+  }));
+  return { net, unresolved: unresolvedNames };
+}
+
+function buildBetSettlementCard(key, results, bets) {
+  if (!results || !Array.isArray(bets) || !bets.length) return '';
+  const settlement = computeBetSettlement(results, bets);
+  if (!settlement.net.length && !settlement.unresolved.length) return '';
+
+  const netRows = settlement.net.map(t => `
+    <div style="display:flex;align-items:center;gap:10px;font-size:0.9rem;">
+      <span style="flex:1;">${escapeHtml(t.fromName)} betalar ${escapeHtml(t.toName)}</span>
+      <span style="font-weight:700;color:var(--heading);">${t.amount} kr</span>
+    </div>`).join('');
+  const unresolvedNote = settlement.unresolved.length
+    ? `<div style="font-size:0.78rem;color:var(--muted);margin-top:8px;">
+        ${settlement.unresolved.length} ej avgjord${settlement.unresolved.length === 1 ? '' : 'a'} satsning${settlement.unresolved.length === 1 ? '' : 'ar'}
+        (${settlement.unresolved.map(u => `hål ${u.hole}: ${escapeHtml(u.proposerName)}, ${u.amount} kr`).join('; ')})
+      </div>`
+    : '';
+
+  return `
+    <div class="card" data-bets-key="${escapeHtml(key)}">
+      <div class="card-title" style="display:flex;align-items:center;justify-content:space-between;">
+        <span><span class="icon">💰</span> Satsningar</span>
+      </div>
+      ${netRows || '<div style="font-size:0.85rem;color:var(--muted);">Inga avgjorda satsningar.</div>'}
+      ${unresolvedNote}
+    </div>`;
+}
+
 window._skinsStore = window._skinsStore || {};
 
 function buildSkinsCard(key, results, basis) {
@@ -2999,7 +3255,8 @@ function renderResults(playerResults, rankContainerId = 'rankingContainer', prCo
 
   const hl = buildRoundHighlights(results, markers);
   const skinsCard = ''; // Skins temporarily hidden — buildSkinsCard('live', results, 'net');
-  if (hl || skinsCard) prContainer.innerHTML = hl + skinsCard + prContainer.innerHTML;
+  const betCard = buildBetSettlementCard('live', results, state.bets);
+  if (hl || skinsCard || betCard) prContainer.innerHTML = hl + skinsCard + betCard + prContainer.innerHTML;
   window._lastResults = results;
   window._lastMarkers = markers;
 }
@@ -3144,6 +3401,13 @@ function liveSyncApplyRoom(room) {
     state.markers.ctp.player = (room.markers.ctp && room.markers.ctp.player) || '';
     state.markers.ld.player  = (room.markers.ld  && room.markers.ld.player)  || '';
     renderLiveMarkerSelects();
+  }
+
+  // Bets are fully server-authoritative — every client just mirrors whatever
+  // the worker returns, no per-seat merge needed (unlike scores).
+  if (Array.isArray(room.bets)) {
+    state.bets = room.bets;
+    if (typeof renderBetRows === 'function') renderBetRows();
   }
 }
 
@@ -3389,7 +3653,8 @@ function buildStateFromRoom(room, code, seat) {
     scores: [],
     note: room.note || '', weather: room.weather || null,
     markers: room.markers || { ctp: { hole: null, player: '' }, ld: { hole: null, player: '' } },
-    liveRoomCode: code, liveSeat: seat
+    liveRoomCode: code, liveSeat: seat, liveSeatsClaimed: null,
+    bets: Array.isArray(room.bets) ? room.bets : []
   };
 
   if (shared) {
@@ -3940,6 +4205,7 @@ function saveCurrentRound(playerResults) {
     note: state.note || '',
     weather: state.weather || null,
     markers: state.markers || { ctp: { hole: null, player: '' }, ld: { hole: null, player: '' } },
+    bets: state.bets || [],
     subjects
   };
   if (isEditing) roundUpdate(roundData);
@@ -4982,6 +5248,7 @@ function renderHistoryList() {
           <div class="hi-ranking">${rankRows}</div>
           ${buildRoundHighlights(r.subjects.map(s => ({ subj: { name: s.name }, rows: s.rows })), r.markers)}
           <!-- Skins temporarily hidden — buildSkinsCard('hist-' + r.id, r.subjects.map(s => ({ subj: { name: s.name }, rows: s.rows })), 'net') -->
+          ${buildBetSettlementCard('hist-' + r.id, r.subjects.map(s => ({ subj: { name: s.name }, rows: s.rows })), r.bets)}
           ${detailTables}
         </div>
       </div>`;

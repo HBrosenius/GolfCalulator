@@ -8,6 +8,9 @@
 //   GET    /room/:code       fetch current room state
 //   PATCH  /room/:code       merge a seat's scores and/or shared fields
 //   POST   /room/:code/claim claim a seat for a device (best-effort lock)
+//   POST   /room/:code/bets              propose a hole bet
+//   POST   /room/:code/bets/:id/respond  accept or decline a pending bet
+//   POST   /room/:code/bets/:id/cancel   withdraw a still-pending bet
 
 const CODE_CHARS = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789'; // no 0/O, 1/I/L — avoids ambiguity when read aloud
 const ROOM_TTL_SECONDS = 24 * 60 * 60; // rooms auto-expire; no cleanup job needed
@@ -73,6 +76,7 @@ async function createRoom(request, env) {
     markers: markers || { ctp: { hole: null, player: '' }, ld: { hole: null, player: '' } },
     note: '',
     weather: null,
+    bets: [],
   };
 
   // 32^4 ≈ 1M possible codes — a handful of retries is plenty to dodge a collision.
@@ -145,6 +149,100 @@ async function claimSeat(code, request, env) {
   return jsonResponse(room);
 }
 
+// Hole bets: any seat can propose winning a specific hole for an SEK amount;
+// every other seat must accept before it locks in, any decline kills it.
+// Same read-modify-write-on-KV pattern as claimSeat — no CAS, so mutations are
+// kept idempotent (re-applying a response/cancel to an already-resolved bet is a no-op).
+
+async function proposeBet(code, request, env) {
+  const body = await readJson(request);
+  if (!body) return badRequest('Invalid JSON body');
+  const { proposerSeat, hole, amount } = body;
+
+  if (proposerSeat == null || hole == null || !(amount > 0)) {
+    return badRequest('proposerSeat, hole and a positive amount are required');
+  }
+
+  const raw = await env.GOLF_ROOMS.get(`room:${code}`);
+  if (!raw) return notFound();
+  const room = JSON.parse(raw);
+  if (!room.seats[proposerSeat]) return badRequest(`Unknown seat ${proposerSeat}`);
+  if (!(hole >= 0 && hole < room.holes)) return badRequest(`Unknown hole ${hole}`);
+  if (!Array.isArray(room.bets)) room.bets = [];
+
+  const clash = room.bets.some(b => b.hole === hole && (b.status === 'pending' || b.status === 'locked'));
+  if (clash) return jsonResponse({ error: 'A bet is already active on this hole', room }, 409);
+
+  const responses = {};
+  Object.keys(room.seats).forEach(seatKey => {
+    const seat = Number(seatKey);
+    if (seat !== proposerSeat) responses[seat] = 'pending';
+  });
+
+  const bet = {
+    id: `${Date.now()}_${randomCode(4)}`,
+    hole, amount, proposerSeat,
+    createdAt: Date.now(), resolvedAt: null,
+    status: 'pending', cancelReason: null,
+    responses,
+  };
+  room.bets.push(bet);
+
+  await env.GOLF_ROOMS.put(`room:${code}`, JSON.stringify(room), { expirationTtl: ROOM_TTL_SECONDS });
+  return jsonResponse(room);
+}
+
+async function respondBet(code, betId, request, env) {
+  const body = await readJson(request);
+  if (!body) return badRequest('Invalid JSON body');
+  const { seat, response } = body;
+  if (seat == null || (response !== 'accept' && response !== 'decline')) {
+    return badRequest('seat and response ("accept"|"decline") are required');
+  }
+
+  const raw = await env.GOLF_ROOMS.get(`room:${code}`);
+  if (!raw) return notFound();
+  const room = JSON.parse(raw);
+  const bet = (room.bets || []).find(b => b.id === betId);
+  if (!bet) return badRequest('Unknown bet');
+
+  // Already resolved — no-op, just return the current room (idempotent).
+  if (bet.status === 'pending') {
+    if (response === 'decline') {
+      bet.status = 'cancelled';
+      bet.cancelReason = 'declined';
+      bet.resolvedAt = Date.now();
+    } else {
+      bet.responses[seat] = 'accepted';
+      const allAccepted = Object.values(bet.responses).every(r => r === 'accepted');
+      if (allAccepted) { bet.status = 'locked'; bet.resolvedAt = Date.now(); }
+    }
+    await env.GOLF_ROOMS.put(`room:${code}`, JSON.stringify(room), { expirationTtl: ROOM_TTL_SECONDS });
+  }
+  return jsonResponse(room);
+}
+
+async function cancelBet(code, betId, request, env) {
+  const body = await readJson(request);
+  if (!body) return badRequest('Invalid JSON body');
+  const { seat } = body;
+  if (seat == null) return badRequest('seat is required');
+
+  const raw = await env.GOLF_ROOMS.get(`room:${code}`);
+  if (!raw) return notFound();
+  const room = JSON.parse(raw);
+  const bet = (room.bets || []).find(b => b.id === betId);
+  if (!bet) return badRequest('Unknown bet');
+
+  if (bet.status === 'pending' && (seat === bet.proposerSeat || seat === 0)) {
+    bet.status = 'cancelled';
+    bet.cancelReason = 'withdrawn';
+    bet.resolvedAt = Date.now();
+    await env.GOLF_ROOMS.put(`room:${code}`, JSON.stringify(room), { expirationTtl: ROOM_TTL_SECONDS });
+  }
+  return jsonResponse(room);
+}
+
 export default {
   async fetch(request, env) {
     if (request.method === 'OPTIONS') {
@@ -169,6 +267,18 @@ export default {
     if (parts.length === 3 && parts[2] === 'claim' && request.method === 'POST') {
       const code = parts[1].toUpperCase();
       return claimSeat(code, request, env);
+    }
+
+    if (parts.length === 3 && parts[2] === 'bets' && request.method === 'POST') {
+      const code = parts[1].toUpperCase();
+      return proposeBet(code, request, env);
+    }
+
+    if (parts.length === 5 && parts[2] === 'bets' && request.method === 'POST') {
+      const code = parts[1].toUpperCase();
+      const betId = parts[3];
+      if (parts[4] === 'respond') return respondBet(code, betId, request, env);
+      if (parts[4] === 'cancel')  return cancelBet(code, betId, request, env);
     }
 
     return notFound();
