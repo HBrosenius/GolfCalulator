@@ -675,6 +675,7 @@
     body.printing-history #historyView, body.printing-history #playersView,
     body.printing-history #hallOfFameView, body.printing-history #seasonView,
     body.printing-history #courseRecordsView,
+    body.printing-history #tourView,
     body.printing-history #playerHistoryView,
     body.printing-history #liveCodeModal,
     body.printing-history #joinLiveModal { display: none !important; }
@@ -787,6 +788,7 @@
           <button onclick="openSeasonView()" style="background:none;border:1px solid var(--green);border-radius:6px;padding:4px 10px;font-size:0.8rem;color:var(--heading);cursor:pointer;">📅 Säsong</button>
           <button onclick="openHallOfFame()" style="background:none;border:1px solid var(--green);border-radius:6px;padding:4px 10px;font-size:0.8rem;color:var(--heading);cursor:pointer;">🏆 Hall of Fame</button>
           <button onclick="openCourseRecordsView()" style="background:none;border:1px solid var(--green);border-radius:6px;padding:4px 10px;font-size:0.8rem;color:var(--heading);cursor:pointer;">🏟️ Banrekord</button>
+          <button onclick="openTourView()" style="background:none;border:1px solid var(--green);border-radius:6px;padding:4px 10px;font-size:0.8rem;color:var(--heading);cursor:pointer;">🚌 Tour</button>
           <button onclick="closePlayersView()" style="background:none;border:none;font-size:1.4rem;cursor:pointer;color:var(--muted);padding:0 4px;">✕</button>
         </div>
       </div>
@@ -866,6 +868,17 @@
         <div class="card-title" style="margin:0;"><span class="icon">🏟️</span> Banrekord</div>
       </div>
       <div id="courseRecordsContent"></div>
+    </div>
+  </div>
+
+  <!-- TOUR -->
+  <div id="tourView" class="hidden">
+    <div class="card">
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:16px;">
+        <button onclick="closeTourView()" style="background:none;border:none;font-size:1.2rem;cursor:pointer;color:var(--muted);padding:0 4px;">←</button>
+        <div class="card-title" style="margin:0;"><span class="icon">🚌</span> Tour</div>
+      </div>
+      <div id="tourContent"></div>
     </div>
   </div>
 
@@ -1258,7 +1271,8 @@ let state = {
   playerTees: [],
   note: '', weather: null,
   markers: { ctp: { hole: null, player: '' }, ld: { hole: null, player: '' } },
-  liveRoomCode: null, liveSeat: null, liveSeatsClaimed: null, bets: []
+  liveRoomCode: null, liveSeat: null, liveSeatsClaimed: null, bets: [],
+  tourId: null
 };
 
 // ============================================================
@@ -1973,8 +1987,10 @@ function setNumPlayers(n) {
   [1,2,3,4].forEach(i =>
     document.getElementById(`btnP${i}`).classList.toggle('active', i === n));
   // Show/hide game mode selector — team modes at 4 players, match play at 2
-  const showModes = (n === 2 || n === 4);
+  // Tour-legs are always individual scoring (placements must map to one player each)
+  const showModes = (n === 2 || n === 4) && !state.tourId;
   document.getElementById('gameModeRow').classList.toggle('hidden', !showModes);
+  if (state.tourId && state.gameMode !== 'individual') setGameMode('individual');
   document.getElementById('teamModeBtns').style.display = n === 4 ? 'contents' : 'none';
   document.getElementById('matchModeBtn').style.display = n === 2 ? '' : 'none';
   if (n !== 4 && isTeamMode(state.gameMode)) setGameMode('individual');
@@ -2026,13 +2042,17 @@ function buildPlayerCards() {
         <button class="team-btn${team==='B'?' team-b':''}" onclick="assignTeam(${p},'B')">B</button>
       </div>` : '';
 
-    const savedPlayers = playersLoad();
+    let savedPlayers = playersLoad();
+    if (state.tourId) {
+      const tour = tourFind(state.tourId);
+      if (tour) savedPlayers = savedPlayers.filter(sp => tour.roster.includes(sp.id));
+    }
     const pickerOptions = savedPlayers.length
       ? `<option value="">— Välj sparad spelare —</option>` +
         savedPlayers.map(sp => `<option value="${sp.id}">${escapeHtml(sp.name)} (${sp.hi})</option>`).join('')
       : null;
     const pickerHtml = pickerOptions
-      ? `<select class="player-picker-select" onchange="pickSavedPlayer(${p}, this)">${pickerOptions}</select>`
+      ? `<select id="ppicker_${p}" class="player-picker-select" onchange="pickSavedPlayer(${p}, this)">${pickerOptions}</select>`
       : '';
 
     const existingPlayer = savedPlayers.find(sp =>
@@ -3306,7 +3326,8 @@ function newRound() {
     playerTees: [],
     note: '', weather: null,
     markers: { ctp: { hole: null, player: '' }, ld: { hole: null, player: '' } },
-    liveRoomCode: null, liveSeat: null
+    liveRoomCode: null, liveSeat: null,
+    tourId: null
   };
   resetCourseFields();
   try { document.getElementById('holeDataBody').innerHTML = ''; } catch(e) {}
@@ -4240,10 +4261,12 @@ function saveCurrentRound(playerResults) {
     weather: state.weather || null,
     markers: state.markers || { ctp: { hole: null, player: '' }, ld: { hole: null, player: '' } },
     bets: state.bets || [],
+    tourId: state.tourId || null,
     subjects
   };
   if (isEditing) roundUpdate(roundData);
   else { roundSaveNew(roundData); inprogressClear(); }
+  if (roundData.tourId) tourAddLeg(roundData.tourId, roundData.id);
 }
 
 // ============================================================
@@ -4264,6 +4287,134 @@ function playersSave(list) {
   } catch(e) {
     alert('Lagringsutrymmet är fullt — ta bort några rundor eller spelarbilder för att göra plats.');
   }
+}
+
+// ============================================================
+// TOUR
+// ============================================================
+// A tour has a fixed player roster (player ids into PLAYERS_KEY) and a list
+// of legs (round ids into ROUNDS_KEY, tagged with tourId when saved). Each
+// leg awards descending points by finishing position (ties split evenly);
+// a player's tour total is the sum of their best `bestOfN` leg scores (or
+// all legs if bestOfN is unset). Scramble/Foursome are excluded as tour
+// game modes (shared team score isn't attributable to one player).
+const TOURS_KEY = 'golf_tours_db';
+
+function toursLoad() {
+  if (!_lsOk) return [];
+  try { return JSON.parse(localStorage.getItem(TOURS_KEY) || '[]'); }
+  catch(e) { return []; }
+}
+
+function toursSave(list) {
+  if (!_lsOk) return;
+  try {
+    localStorage.setItem(TOURS_KEY, JSON.stringify(list));
+  } catch(e) {
+    alert('Lagringsutrymmet är fullt — ta bort några rundor eller spelarbilder för att göra plats.');
+  }
+}
+
+function tourFind(id) {
+  return toursLoad().find(t => t.id === id);
+}
+
+function tourSaveNew(tour) {
+  const tours = toursLoad();
+  tours.unshift(tour);
+  toursSave(tours);
+}
+
+function tourUpdate(tour) {
+  const tours = toursLoad();
+  const idx = tours.findIndex(t => t.id === tour.id);
+  if (idx === -1) return;
+  tours[idx] = tour;
+  toursSave(tours);
+}
+
+function tourDelete(id) {
+  toursSave(toursLoad().filter(t => t.id !== id));
+}
+
+function tourAddLeg(tourId, roundId) {
+  const tour = tourFind(tourId);
+  if (!tour) return;
+  if (!tour.legs.includes(roundId)) tour.legs.push(roundId);
+  tourUpdate(tour);
+}
+
+// Points table for a leg with `fieldSize` participants: 1st = fieldSize, ...
+// last = 1. Ties (same totalPoints) split the points of the positions they
+// occupy evenly.
+function tourLegPlacements(round) {
+  const subjects = (round.subjects || []).filter(s => !s.members); // exclude shared-score team subjects
+  const sorted = subjects.slice().sort((a, b) => b.totalPoints - a.totalPoints);
+  const fieldSize = sorted.length;
+  const placements = []; // { name, position, points }
+  let i = 0;
+  while (i < sorted.length) {
+    let j = i;
+    while (j + 1 < sorted.length && sorted[j + 1].totalPoints === sorted[i].totalPoints) j++;
+    // positions i..j (0-indexed) share points (fieldSize-i)..(fieldSize-j)
+    let sum = 0;
+    for (let k = i; k <= j; k++) sum += (fieldSize - k);
+    const avgPoints = sum / (j - i + 1);
+    for (let k = i; k <= j; k++) {
+      placements.push({ name: sorted[k].name, position: i + 1, points: avgPoints });
+    }
+    i = j + 1;
+  }
+  return placements;
+}
+
+function computeTourStandings(tour) {
+  const players = playersLoad();
+  const rounds = roundsLoad();
+  const roster = tour.roster.map(id => players.find(p => p.id === id)).filter(Boolean);
+  // Per player: array of { points, position } across legs they played
+  const perPlayer = new Map(roster.map(p => [p.id, []]));
+
+  tour.legs.forEach(roundId => {
+    const round = rounds.find(r => r.id === roundId);
+    if (!round) return;
+    const placements = tourLegPlacements(round);
+    placements.forEach(pl => {
+      const player = roster.find(p => (p.nick || p.name) === pl.name);
+      if (player) perPlayer.get(player.id).push({ points: pl.points, position: pl.position });
+    });
+  });
+
+  const rows = roster.map(p => {
+    const legResults = perPlayer.get(p.id);
+    const kept = legResults.slice().sort((a, b) => b.points - a.points);
+    const bestOfN = tour.bestOfN ? Math.min(tour.bestOfN, kept.length) : kept.length;
+    const counted = kept.slice(0, bestOfN);
+    const total = counted.reduce((sum, r) => sum + r.points, 0);
+    const wins = legResults.filter(r => r.position === 1).length;
+    const seconds = legResults.filter(r => r.position === 2).length;
+    const thirds = legResults.filter(r => r.position === 3).length;
+    return {
+      player: p, total,
+      legsPlayed: legResults.length,
+      wins, seconds, thirds,
+      positionCounts: legResults.reduce((m, r) => { m[r.position] = (m[r.position] || 0) + 1; return m; }, {})
+    };
+  }).filter(row => row.legsPlayed > 0);
+
+  rows.sort((a, b) => {
+    if (b.total !== a.total) return b.total - a.total;
+    // Countback: most 1st-places, then 2nd, then 3rd, etc.
+    const maxPos = Math.max(
+      ...[a, b].flatMap(r => Object.keys(r.positionCounts).map(Number)), 0);
+    for (let pos = 1; pos <= maxPos; pos++) {
+      const av = a.positionCounts[pos] || 0, bv = b.positionCounts[pos] || 0;
+      if (bv !== av) return bv - av;
+    }
+    return 0;
+  });
+
+  return rows;
 }
 
 // A subject "wins" a round if its points beat every subject NOT on its own
@@ -4753,6 +4904,226 @@ function openCourseRecordsView() {
 function closeCourseRecordsView() {
   document.getElementById('courseRecordsView').classList.add('hidden');
   document.getElementById('playersView').classList.remove('hidden');
+}
+
+// ============================================================
+// TOUR VIEW
+// ============================================================
+let _tourViewMode = 'list'; // 'list' | 'create' | 'detail'
+let _tourViewActiveId = null;
+
+function openTourView() {
+  _tourViewMode = 'list';
+  renderTourView();
+  document.getElementById('playersView').classList.add('hidden');
+  document.getElementById('tourView').classList.remove('hidden');
+}
+
+function closeTourView() {
+  document.getElementById('tourView').classList.add('hidden');
+  document.getElementById('playersView').classList.remove('hidden');
+}
+
+function renderTourView() {
+  if (_tourViewMode === 'create') renderTourCreateForm();
+  else if (_tourViewMode === 'detail') renderTourDetail(_tourViewActiveId);
+  else renderTourList();
+}
+
+function tourAutoCloseIfExpired(tour) {
+  const today = new Date().toLocaleDateString('sv-SE');
+  if (tour.status === 'open' && tour.endDate && tour.endDate < today) {
+    tour.status = 'completed';
+    tourUpdate(tour);
+  }
+  return tour;
+}
+
+function renderTourList() {
+  const tours = toursLoad().map(tourAutoCloseIfExpired);
+  const el = document.getElementById('tourContent');
+  const rows = tours.map(t => `
+    <div class="hi-row" style="cursor:pointer;" onclick="openTourDetail(${t.id})">
+      <div style="display:flex;justify-content:space-between;align-items:center;">
+        <div>
+          <strong>${escapeHtml(t.name)}</strong><br>
+          <span style="font-size:0.8rem;color:var(--muted);">${t.startDate} – ${t.endDate} · ${t.roster.length} spelare · ${t.legs.length} rundor</span>
+        </div>
+        <span style="font-size:0.78rem;padding:3px 8px;border-radius:12px;${t.status === 'open' ? 'background:#e8f5e9;color:var(--heading);' : 'background:#eee;color:var(--muted);'}">${t.status === 'open' ? 'Pågår' : 'Avslutad'}</span>
+      </div>
+    </div>`).join('');
+  el.innerHTML = `
+    <button class="btn" onclick="showTourCreateForm()">+ Ny tour</button>
+    ${tours.length ? rows : '<p style="color:var(--muted);font-size:0.85rem;margin-top:12px;">Inga tourer ännu.</p>'}
+  `;
+}
+
+function showTourCreateForm() {
+  _tourViewMode = 'create';
+  renderTourView();
+}
+
+function renderTourCreateForm() {
+  const players = playersLoad();
+  const today = new Date().toLocaleDateString('sv-SE');
+  const el = document.getElementById('tourContent');
+  const checks = players.length
+    ? players.map(p => `
+        <label style="display:flex;align-items:center;gap:8px;padding:6px 0;">
+          <input type="checkbox" id="tourRosterChk_${p.id}" value="${p.id}">
+          <span>${escapeHtml(p.nick || p.name)}</span>
+        </label>`).join('')
+    : '<p style="color:var(--muted);font-size:0.85rem;">Inga sparade spelare — lägg till spelare under 👤 Spelare först.</p>';
+  el.innerHTML = `
+    <label>Namn</label>
+    <input type="text" id="tourNameInput" placeholder="T.ex. Sommartouren 2026" maxlength="60">
+    <div style="display:flex;gap:10px;margin-top:10px;">
+      <div style="flex:1;">
+        <label>Startdatum</label>
+        <input type="date" id="tourStartInput" value="${today}">
+      </div>
+      <div style="flex:1;">
+        <label>Slutdatum</label>
+        <input type="date" id="tourEndInput" value="${today}">
+      </div>
+    </div>
+    <label style="margin-top:10px;">Räkna bästa X rundor (valfritt, lämna tomt = alla räknas)</label>
+    <input type="number" id="tourBestOfNInput" min="1" placeholder="Alla rundor räknas">
+    <label style="margin-top:10px;">Deltagare</label>
+    <div style="max-height:240px;overflow-y:auto;border:1px solid var(--border);border-radius:8px;padding:6px 10px;">
+      ${checks}
+    </div>
+    <div id="tourCreateError" class="hidden" style="background:#fdecea;border-left:3px solid var(--danger);border-radius:0 8px 8px 0;padding:10px 14px;font-size:0.9rem;color:var(--danger);margin-top:10px;"></div>
+    <div style="display:flex;gap:10px;margin-top:14px;">
+      <button class="btn secondary" style="flex:1;" onclick="_tourViewMode='list'; renderTourView();">Avbryt</button>
+      <button class="btn" style="flex:1;" onclick="saveNewTour()">Skapa tour</button>
+    </div>
+  `;
+}
+
+function saveNewTour() {
+  const name = document.getElementById('tourNameInput').value.trim();
+  const startDate = document.getElementById('tourStartInput').value;
+  const endDate = document.getElementById('tourEndInput').value;
+  const bestOfNRaw = document.getElementById('tourBestOfNInput').value;
+  const bestOfN = bestOfNRaw ? parseInt(bestOfNRaw) : null;
+  const roster = playersLoad()
+    .map(p => p.id)
+    .filter(id => {
+      const el = document.getElementById(`tourRosterChk_${id}`);
+      return el && el.checked;
+    });
+  const errEl = document.getElementById('tourCreateError');
+  const showErr = msg => { errEl.textContent = msg; errEl.classList.remove('hidden'); };
+  if (!name) return showErr('Ange ett namn för touren.');
+  if (!startDate || !endDate) return showErr('Ange start- och slutdatum.');
+  if (endDate < startDate) return showErr('Slutdatum måste vara efter startdatum.');
+  if (roster.length < 2) return showErr('Välj minst 2 deltagare.');
+  const tour = {
+    id: Date.now(),
+    name, startDate, endDate,
+    status: 'open',
+    bestOfN: (bestOfN && bestOfN > 0) ? bestOfN : null,
+    roster,
+    legs: []
+  };
+  tourSaveNew(tour);
+  _tourViewMode = 'list';
+  renderTourView();
+}
+
+function openTourDetail(id) {
+  _tourViewMode = 'detail';
+  _tourViewActiveId = id;
+  renderTourView();
+}
+
+function renderTourDetail(id) {
+  const tour = tourAutoCloseIfExpired(tourFind(id));
+  const el = document.getElementById('tourContent');
+  if (!tour) { el.innerHTML = '<p>Touren hittades inte.</p>'; return; }
+  const players = playersLoad();
+  const standings = computeTourStandings(tour);
+  const isOpen = tour.status === 'open';
+
+  const standingsRows = standings.map((row, i) => `
+    <tr${i === 0 && !isOpen ? ' style="font-weight:700;"' : ''}>
+      <td>${i + 1}</td>
+      <td>${escapeHtml(row.player.nick || row.player.name)}</td>
+      <td style="text-align:right;">${row.total}</td>
+      <td style="text-align:right;color:var(--muted);">${row.legsPlayed}</td>
+      <td style="text-align:right;color:var(--muted);">${row.wins}/${row.seconds}/${row.thirds}</td>
+    </tr>`).join('');
+
+  const rounds = roundsLoad();
+  const legRows = tour.legs.map(legId => {
+    const r = rounds.find(rr => rr.id === legId);
+    if (!r) return '';
+    const placements = tourLegPlacements(r).sort((a, b) => a.position - b.position);
+    const winner = placements[0] ? escapeHtml(winnerNameToDisplay(placements[0].name, players)) : '–';
+    return `<div class="hi-row"><strong>${escapeHtml(r.courseName || '')}</strong> — ${r.date} <span style="color:var(--muted);">· vinnare: ${winner}</span></div>`;
+  }).join('');
+
+  el.innerHTML = `
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:6px;">
+      <div>
+        <strong style="font-size:1.05rem;">${escapeHtml(tour.name)}</strong><br>
+        <span style="font-size:0.8rem;color:var(--muted);">${tour.startDate} – ${tour.endDate}${tour.bestOfN ? ` · räknar bästa ${tour.bestOfN}` : ''}</span>
+      </div>
+      <span style="font-size:0.78rem;padding:3px 8px;border-radius:12px;${isOpen ? 'background:#e8f5e9;color:var(--heading);' : 'background:#eee;color:var(--muted);'}">${isOpen ? 'Pågår' : 'Avslutad'}</span>
+    </div>
+    ${!isOpen && standings.length ? `<div class="info-box" style="margin:10px 0;">🏆 <strong>${escapeHtml(standings[0].player.nick || standings[0].player.name)}</strong> vann touren!</div>` : ''}
+    <table style="width:100%;font-size:0.88rem;margin-top:10px;">
+      <thead><tr><th></th><th style="text-align:left;">Spelare</th><th style="text-align:right;">Poäng</th><th style="text-align:right;">Rundor</th><th style="text-align:right;">1:a/2:a/3:e</th></tr></thead>
+      <tbody>${standingsRows || '<tr><td colspan="5" style="color:var(--muted);">Inga rundor spelade ännu.</td></tr>'}</tbody>
+    </table>
+    <div class="card-title" style="margin:16px 0 8px;font-size:0.95rem;">Rundor</div>
+    ${legRows || '<p style="color:var(--muted);font-size:0.85rem;">Inga rundor ännu.</p>'}
+    <div style="display:flex;gap:10px;margin-top:16px;">
+      ${isOpen ? `<button class="btn" style="flex:1;" onclick="startTourLeg(${tour.id})">+ Ny runda</button>` : ''}
+      ${isOpen ? `<button class="btn secondary" style="flex:1;" onclick="completeTour(${tour.id})">Avsluta tour</button>` : ''}
+    </div>
+    <button class="btn secondary" style="margin-top:10px;color:var(--danger);" onclick="deleteTourConfirm(${tour.id})">Ta bort tour</button>
+  `;
+}
+
+function winnerNameToDisplay(name, players) {
+  const p = players.find(pp => (pp.nick || pp.name) === name);
+  return p ? (p.nick || p.name) : name;
+}
+
+function completeTour(id) {
+  const tour = tourFind(id);
+  if (!tour) return;
+  if (!confirm('Avsluta touren och utse vinnare? Fler rundor kan inte läggas till efteråt.')) return;
+  tour.status = 'completed';
+  tourUpdate(tour);
+  renderTourView();
+}
+
+function deleteTourConfirm(id) {
+  if (!confirm('Ta bort touren? Sparade rundor påverkas inte, men kopplingen till touren försvinner.')) return;
+  tourDelete(id);
+  _tourViewMode = 'list';
+  renderTourView();
+}
+
+function startTourLeg(tourId) {
+  const tour = tourFind(tourId);
+  if (!tour || tour.status !== 'open') return;
+  document.getElementById('tourView').classList.add('hidden');
+  newRound();
+  state.tourId = tourId;
+  const rosterPlayers = playersLoad().filter(p => tour.roster.includes(p.id));
+  const n = Math.min(Math.max(rosterPlayers.length, 1), 4);
+  // Seed state.players so buildPlayerCards() (called by setNumPlayers, and again
+  // whenever step2/step3 are re-entered) renders the tour roster instead of blanks.
+  state.players = rosterPlayers.slice(0, n).map(p => ({ name: p.nick || p.name, hi: p.hi }));
+  setNumPlayers(n);
+  [1,2,3,4].forEach(i => {
+    const btn = document.getElementById(`btnP${i}`);
+    if (btn) btn.classList.toggle('active', i === n);
+  });
 }
 
 function computeCourseRecords() {
@@ -5317,7 +5688,8 @@ function editRound(id) {
       (row.skipped || row.score === '–' || row.score == null) ? '' : row.score)),
     note: r.note || '', weather: r.weather || null,
     markers: r.markers || { ctp: { hole: null, player: '' }, ld: { hole: null, player: '' } },
-    editingId: r.id, editingDate: r.date
+    editingId: r.id, editingDate: r.date,
+    tourId: r.tourId || null
   };
   if (shared) {
     state.teams = r.subjects.map(s => ({
