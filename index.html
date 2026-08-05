@@ -4369,9 +4369,27 @@ function computeTourStandings(tour) {
     });
   });
 
+  // If a player plays the same course more than once in the window, only one
+  // of those rounds should count — otherwise repeat plays inflate their total.
+  const dedupRule = tour.duplicateCourseRule || 'best';
+  const dedupeByCourse = results => {
+    const byCourse = new Map();
+    results.forEach(r => {
+      const existing = byCourse.get(r.courseName);
+      if (!existing) { byCourse.set(r.courseName, r); return; }
+      if (dedupRule === 'first') {
+        if (r.date < existing.date) byCourse.set(r.courseName, r);
+      } else {
+        if (r.points > existing.points) byCourse.set(r.courseName, r);
+      }
+    });
+    return Array.from(byCourse.values());
+  };
+
   const rows = roster.map(p => {
     const results = perPlayer.get(p.id);
-    const kept = results.slice().sort((a, b) => b.points - a.points);
+    const deduped = dedupeByCourse(results);
+    const kept = deduped.slice().sort((a, b) => b.points - a.points);
     const bestOfN = tour.bestOfN ? Math.min(tour.bestOfN, kept.length) : kept.length;
     const counted = kept.slice(0, bestOfN);
     const total = counted.reduce((sum, r) => sum + r.points, 0);
@@ -4967,6 +4985,11 @@ function renderTourCreateForm() {
     </div>
     <label style="margin-top:10px;">Räkna bästa X rundor (valfritt, lämna tomt = alla räknas)</label>
     <input type="number" id="tourBestOfNInput" min="1" placeholder="Alla rundor räknas">
+    <label style="margin-top:10px;">Om en spelare spelar samma bana flera gånger</label>
+    <select id="tourDuplicateCourseRuleInput">
+      <option value="best">Räkna bästa rundan på banan</option>
+      <option value="first">Räkna första rundan på banan</option>
+    </select>
     <label style="margin-top:10px;">Deltagare</label>
     <div style="max-height:200px;overflow-y:auto;border:1px solid var(--border);border-radius:8px;padding:6px 10px;">
       ${checks}
@@ -4990,6 +5013,7 @@ function saveNewTour() {
   const endDate = document.getElementById('tourEndInput').value;
   const bestOfNRaw = document.getElementById('tourBestOfNInput').value;
   const bestOfN = bestOfNRaw ? parseInt(bestOfNRaw) : null;
+  const duplicateCourseRule = document.getElementById('tourDuplicateCourseRuleInput').value;
   const roster = playersLoad()
     .map(p => p.id)
     .filter(id => {
@@ -5011,6 +5035,7 @@ function saveNewTour() {
     name, startDate, endDate,
     status: 'open',
     bestOfN: (bestOfN && bestOfN > 0) ? bestOfN : null,
+    duplicateCourseRule,
     roster,
     courses
   };
@@ -5052,7 +5077,7 @@ function renderTourDetail(id) {
     <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:6px;">
       <div>
         <strong style="font-size:1.05rem;">${escapeHtml(tour.name)}</strong><br>
-        <span style="font-size:0.8rem;color:var(--muted);">${tour.startDate} – ${tour.endDate}${tour.bestOfN ? ` · räknar bästa ${tour.bestOfN}` : ''}</span><br>
+        <span style="font-size:0.8rem;color:var(--muted);">${tour.startDate} – ${tour.endDate}${tour.bestOfN ? ` · räknar bästa ${tour.bestOfN}` : ''} · ${tour.duplicateCourseRule === 'first' ? 'första rundan per bana räknas' : 'bästa rundan per bana räknas'}</span><br>
         <span style="font-size:0.78rem;color:var(--muted);">${tour.courses.map(escapeHtml).join(', ')}</span>
       </div>
       <span style="font-size:0.78rem;padding:3px 8px;border-radius:12px;${isOpen ? 'background:#e8f5e9;color:var(--heading);' : 'background:#eee;color:var(--muted);'}">${isOpen ? 'Pågår' : 'Avslutad'}</span>
