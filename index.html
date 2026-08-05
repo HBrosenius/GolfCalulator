@@ -231,6 +231,8 @@
   .live-pts.pts-2 { color: var(--green); }
   .live-pts.pts-3 { color: #2196f3; }
   .live-pts.pts-4 { color: #9c27b0; }
+  .net-to-par { font-size: 0.65rem; color: var(--muted); min-height: 11px; }
+  .stroke-hint { font-size: 0.65rem; font-weight: 600; color: var(--green); margin-top: 2px; }
   .tee-order { font-size: 0.65rem; font-weight: 600; color: var(--muted); margin-bottom: 2px; white-space: nowrap; }
 
   .score-input {
@@ -2339,10 +2341,12 @@ function buildScoreTable() {
       const teeTag = isFoursome ? `<div class="tee-order">🎯 ${foursomeStarterName(c, i)}</div>` : '';
       // In a live round, only seats this device may edit are writable — see isSeatEditableByMe().
       const isReadonly = state.liveRoomCode && !isSeatEditableByMe(p);
+      const strokes = strokesOnHole(c.playingHandicap, si, state.holes);
+      const strokeHint = strokes > 0 ? `<div class="stroke-hint">+${strokes} slag</div>` : '';
       cells += `<td>${teeTag}<input type="number" class="score-input${val ? ' has-value' : ''}${isReadonly ? ' live-readonly' : ''}" id="score_${p}_${i}"
         min="1" max="15" inputmode="numeric" value="${val}"${isReadonly ? ' readonly tabindex="-1"' : ''}
         oninput="onScoreInput(${p},${i},this)" onkeydown="scoreKeyDown(event,${p},${i})">
-        <div class="live-pts" id="pts_${p}_${i}"></div></td>`;
+        ${strokeHint}<div class="live-pts" id="pts_${p}_${i}"></div><div class="net-to-par" id="net_${p}_${i}"></div></td>`;
     });
     let extra = '';
     if (people.length >= 2 && markers.ctp && markers.ctp.hole === i) extra += markerRow('🎯', 'Närmast pinnen', 'setCtpPlayer', markers.ctp.player, 'ctpPlayerSelect');
@@ -2599,6 +2603,22 @@ function calcLivePts(p, i, score) {
   return Math.max(0, par + 2 - netto);
 }
 
+// Net score relative to par (the number that determines the "two points" formula above),
+// shown beneath the points so players can see how many extra strokes they took.
+function calcNetToPar(p, i, score) {
+  const par = state.hpar[i] || 4;
+  const si  = state.si[i] || (i + 1);
+  const ph  = (isSharedScoreMode(state.gameMode) ? state.teams : state.players)[p].playingHandicap;
+  const strokes = strokesOnHole(ph, si, state.holes);
+  const netto = score - strokes;
+  return netto - par;
+}
+
+function formatNetToPar(n) {
+  if (n === 0) return 'E';
+  return n > 0 ? `+${n}` : `${n}`;
+}
+
 function updateLiveLeader() {
   const n = numColumns();
   const totals = [];
@@ -2755,6 +2775,8 @@ function onScoreInput(p, i, el) {
       ptsEl.className = 'live-pts';
     }
   }
+  const netEl = document.getElementById(`net_${p}_${i}`);
+  if (netEl) netEl.textContent = el.value !== '' ? formatNetToPar(calcNetToPar(p, i, parseInt(el.value))) : '';
   updateLiveLeader();
   updateHonorBanner();
   updateMatchStatus();
@@ -3491,14 +3513,17 @@ function renderLiveSeatCells(room) {
       el.value = val;
       el.classList.toggle('has-value', val !== '');
       const ptsEl = document.getElementById(`pts_${p}_${i}`);
-      if (!ptsEl) continue;
+      const netEl = document.getElementById(`net_${p}_${i}`);
       if (val !== '') {
         const pts = calcLivePts(p, i, val);
-        ptsEl.textContent = pts + 'p';
-        ptsEl.className = `live-pts pts-${Math.min(pts, 4)}`;
+        if (ptsEl) {
+          ptsEl.textContent = pts + 'p';
+          ptsEl.className = `live-pts pts-${Math.min(pts, 4)}`;
+        }
+        if (netEl) netEl.textContent = formatNetToPar(calcNetToPar(p, i, val));
       } else {
-        ptsEl.textContent = '';
-        ptsEl.className = 'live-pts';
+        if (ptsEl) { ptsEl.textContent = ''; ptsEl.className = 'live-pts'; }
+        if (netEl) netEl.textContent = '';
       }
     }
   }
@@ -3805,6 +3830,8 @@ function restoreScoresToTable() {
         ptsEl.textContent = pts + 'p';
         ptsEl.className = `live-pts pts-${Math.min(pts, 4)}`;
       }
+      const netEl = document.getElementById(`net_${p}_${i}`);
+      if (netEl) netEl.textContent = formatNetToPar(calcNetToPar(p, i, val));
     }
   }
 }
