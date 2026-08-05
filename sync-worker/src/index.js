@@ -1,4 +1,5 @@
 // GolfCalculator live-sync relay
+// Deployed via GitHub Actions CI on every push to main that touches sync-worker/.
 // Minimal Cloudflare Worker + KV backend for live multi-device scoring.
 // No framework or dependencies — plain Request/Response handling only,
 // matching the no-build-step philosophy of the app itself.
