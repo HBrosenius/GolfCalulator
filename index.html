@@ -3036,39 +3036,62 @@ function collapseSettlement(transfers) {
   return result;
 }
 
+function _betSeatName(results, seat) {
+  return results[seat] ? results[seat].subj.name : `Spelare ${seat + 1}`;
+}
+
 function computeBetSettlement(results, bets) {
-  if (!results || !Array.isArray(bets) || !bets.length) return { net: [], unresolved: [] };
-  const locked = bets.filter(b => b.status === 'locked');
+  if (!results || !Array.isArray(bets) || !bets.length) return { net: [], perHole: [], unresolved: [] };
+  const locked = bets.filter(b => b.status === 'locked').sort((a, b) => a.hole - b.hole);
   const unresolved = bets.filter(b => b.status === 'pending');
   const transfers = [];
 
-  locked.forEach(bet => {
+  // Per-hole breakdown — so each player can see *why* they owe/are owed money,
+  // not just the netted final total.
+  const perHole = locked.map(bet => {
     const res = resolveBetOutcome(bet, results);
+    const proposerName = _betSeatName(results, bet.proposerSeat);
+    const opponents = results.map((_, seat) => seat).filter(seat => seat !== bet.proposerSeat).map(seat => _betSeatName(results, seat));
     if (res.outcome === 'proposer_wins') {
       results.forEach((_, seat) => { if (seat !== bet.proposerSeat) transfers.push({ from: seat, to: bet.proposerSeat, amount: bet.amount }); });
+      return { hole: bet.hole + 1, outcome: res.outcome, proposerName, amount: bet.amount, opponents };
     } else if (res.outcome === 'proposer_loses') {
       transfers.push({ from: bet.proposerSeat, to: res.winnerSeat, amount: bet.amount });
+      return { hole: bet.hole + 1, outcome: res.outcome, proposerName, amount: bet.amount, winnerName: _betSeatName(results, res.winnerSeat) };
     }
+    return { hole: bet.hole + 1, outcome: res.outcome, proposerName, amount: bet.amount };
   });
 
   const net = collapseSettlement(transfers).map(t => ({
-    fromName: results[t.from] ? results[t.from].subj.name : `Spelare ${t.from + 1}`,
-    toName: results[t.to] ? results[t.to].subj.name : `Spelare ${t.to + 1}`,
+    fromName: _betSeatName(results, t.from),
+    toName: _betSeatName(results, t.to),
     amount: t.amount,
   }));
   const unresolvedNames = unresolved.map(b => ({
     hole: b.hole + 1,
-    proposerName: results[b.proposerSeat] ? results[b.proposerSeat].subj.name : `Spelare ${b.proposerSeat + 1}`,
+    proposerName: _betSeatName(results, b.proposerSeat),
     amount: b.amount,
   }));
-  return { net, unresolved: unresolvedNames };
+  return { net, perHole, unresolved: unresolvedNames };
+}
+
+function _betHoleLine(h) {
+  if (h.outcome === 'proposer_wins') {
+    return `Hål ${h.hole}: <strong>${escapeHtml(h.proposerName)}</strong> satsade ${h.amount} kr på att vinna och gjorde det — ${h.opponents.map(escapeHtml).join(' & ')} betalar ${h.amount} kr var`;
+  }
+  if (h.outcome === 'proposer_loses') {
+    return `Hål ${h.hole}: <strong>${escapeHtml(h.proposerName)}</strong> satsade ${h.amount} kr på att vinna men förlorade mot ${escapeHtml(h.winnerName)} — betalar ${h.amount} kr`;
+  }
+  return `Hål ${h.hole}: <strong>${escapeHtml(h.proposerName)}</strong> satsade ${h.amount} kr — delad bästa score, ingen betalar`;
 }
 
 function buildBetSettlementCard(key, results, bets) {
   if (!results || !Array.isArray(bets) || !bets.length) return '';
   const settlement = computeBetSettlement(results, bets);
-  if (!settlement.net.length && !settlement.unresolved.length) return '';
+  if (!settlement.net.length && !settlement.perHole.length && !settlement.unresolved.length) return '';
 
+  const perHoleRows = settlement.perHole.map(h => `
+    <div style="font-size:0.82rem;color:var(--muted);padding:3px 0;">${_betHoleLine(h)}</div>`).join('');
   const netRows = settlement.net.map(t => `
     <div style="display:flex;align-items:center;gap:10px;font-size:0.9rem;">
       <span style="flex:1;">${escapeHtml(t.fromName)} betalar ${escapeHtml(t.toName)}</span>
@@ -3086,7 +3109,8 @@ function buildBetSettlementCard(key, results, bets) {
       <div class="card-title" style="display:flex;align-items:center;justify-content:space-between;">
         <span><span class="icon">💰</span> Satsningar</span>
       </div>
-      ${netRows || '<div style="font-size:0.85rem;color:var(--muted);">Inga avgjorda satsningar.</div>'}
+      ${perHoleRows}
+      ${netRows ? `<div style="font-weight:600;font-size:0.85rem;color:var(--heading);margin:10px 0 4px;">Totalt att betala:</div>${netRows}` : '<div style="font-size:0.85rem;color:var(--muted);margin-top:6px;">Inga avgjorda satsningar.</div>'}
       ${unresolvedNote}
     </div>`;
 }
