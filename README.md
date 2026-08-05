@@ -88,13 +88,13 @@ Under Spelarregister → **📅 Säsong** kan du se en sammanlagd poängtabell f
 
 ## Tour
 
-Under Spelarregister → **🚌 Tour** kan du sätta upp en tour med ett fast startfält (valfritt antal sparade spelare, gärna fler än 4) som spelar flera rundor ("legs") mot varandra över en tidsperiod, och få en löpande — och till slut slutgiltig — ställning.
+Under Spelarregister → **🚌 Tour** kan du sätta upp en tour för ett fast startfält (valfritt antal sparade spelare, gärna fler än 4) som spelar på en eller flera utvalda banor under en tidsperiod, och få en löpande — och till slut slutgiltig — ställning.
 
-- **Skapa en tour** med namn, start- och slutdatum, valfritt antal deltagare från Spelarregistret, samt en valfri inställning för att bara räkna spelarens bästa X rundor (annars räknas alla rundor spelaren deltagit i)
-- **Lägg till en runda** i touren via **+ Ny runda** i tourvyn — startar en vanlig runda, men spelarväljaren visar bara tourens deltagare och rundan låses till Individuellt-läge (Scramble/Bästboll/Foursome/Matchspel går inte att välja, eftersom en tourplacering måste gå till en enskild spelare). Inte alla deltagare behöver vara med i varje runda — appen stödjer max 4 spelare per runda precis som vanligt, så en tour med fler deltagare spelas i omgångar med olika delmängder av fältet
-- **Poäng per runda** delas ut efter placering: den som vinner rundan får poäng lika med antal deltagare i just den rundan, sist får 1 poäng. Delad placering delar poängen för de platserna jämnt
-- **Ställningen** visar varje spelares totalpoäng (summan av deras bästa X rundor, eller alla om inget X är satt), antal spelade rundor, samt antal 1:a-, 2:a- och 3:e-placeringar
-- **Avsluta touren** manuellt, eller låt den stänga automatiskt när slutdatumet passerats — vinnaren är den med mest totalpoäng; vid lika poäng avgör flest 1:a-placeringar, sedan flest 2:a-placeringar, och så vidare
+- **Skapa en tour** med namn, start- och slutdatum, valfritt antal deltagare samt en eller flera banor (från Sparade banor) som ska räknas — plus en valfri inställning för att bara räkna spelarens bästa X rundor (annars räknas alla)
+- **Inga särskilda steg för att rapportera resultat** — deltagarna spelar helt vanliga rundor (valfritt antal spelare, valfri spelform, när som helst under turneringsperioden). Så fort en runda sparas på en av tourens banor, inom datumintervallet, och minst en av tourens deltagare är med i den, plockas den automatiskt upp av touren — övriga spelare i samma runda som inte är med i touren påverkar inte ställningen. **+ Ny runda** i tourvyn är bara en snabbgenväg som förifyller bansöket, ingen skillnad mot att starta rundan som vanligt
+- **Poäng per runda** är spelarens vanliga poängbogey-poäng (totalPoints) från den rundan — ingen separat placeringspoäng. Scramble- och Foursome-rundor räknas inte in eftersom laget delar en gemensam score som inte går att knyta till en enskild spelare, samma princip som i Säsong/Banrekord
+- **Ställningen** visar varje spelares totalpoäng (summan av deras bästa X rundor, eller alla om inget X är satt) samt hur många av deras spelade rundor som räknades
+- **Avsluta touren** manuellt, eller låt den stänga automatiskt när slutdatumet passerats — vinnaren är den med mest totalpoäng; vid lika poäng vinner den med lägst handicapindex (svårare att nå samma poängsumma med lägre hcp)
 - En borttagen tour påverkar inte de sparade rundorna — de finns kvar i Rundhistorik som vanligt
 
 ## Live-poäng och ledartavla
