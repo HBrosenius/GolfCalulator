@@ -1,6 +1,6 @@
 # Poängbogey-kalkylator ⛳
 
-Mobilanpassad webbapp för att beräkna poängbogey-resultat under en golfrunda. Fungerar som en fristående HTML-fil — ingen server behövs.
+Mobilanpassad webbapp för att beräkna poängbogey-resultat under en golfrunda. Fungerar som statiska filer utan backend eller byggsteg.
 
 ## Funktioner
 
@@ -213,7 +213,13 @@ Appen kan installeras på hemskärmen och fungerar då helt offline:
 
 Appen öppnas då i eget fönster utan webbläsarens adressfält, med egen ikon, och all funktionalitet fungerar utan nätverkstäckning — perfekt ute på banan.
 
-> **För utvecklare:** bumpa `CACHE`-versionen i `sw.js` (t.ex. `golf-v2`) vid varje deploy så att installerade appar hämtar den nya versionen.
+När en uppdatering är redo visas **En ny version finns** med knappen **Uppdatera nu**. Under en pågående runda väntar appen med meddelandet tills rundan är avslutad eller borttagen, så att scoreinmatningen inte avbryts. Cachegenerationer skapas automatiskt; utvecklare behöver inte längre ändra ett versionsnummer i `sw.js`.
+
+## Utveckling och tester
+
+Kärnlogiken ligger i fristående moduler under `src/`: poängberäkning, lokal lagring och migrering, live-API samt klientvalidering. Modulerna fungerar både direkt i webbläsaren och från Node-tester utan byggsteg. Rendering och vyhantering ligger fortfarande i `index.html`.
+
+Kör hela testsviten med `npm test`. Den omfattar regel- och lagringstester, Worker-tester samt ett webbläsartest av en komplett sparad runda.
 
 ## Kom igång
 

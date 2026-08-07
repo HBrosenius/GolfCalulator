@@ -12,6 +12,9 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Poängbogey">
 <script src="src/scoring.js"></script>
+<script src="src/storage.js"></script>
+<script src="src/live-sync.js"></script>
+<script src="src/validation.js"></script>
 <script>
 // Apply saved/system theme before first paint to avoid a flash of the wrong theme.
 (function() {
@@ -1142,7 +1145,7 @@
 
 </div><!-- /container -->
 
-<footer class="app-footer no-print">Poängbogey-kalkylator v2.0</footer>
+<footer class="app-footer no-print">Poängbogey-kalkylator v2.1</footer>
 
 <!-- LIVE-RUNDA KOD MODAL -->
 <div id="liveCodeModal" class="crop-modal hidden">
@@ -1204,6 +1207,11 @@
 </div>
 
 <div id="saveToast">✅ Baninformation sparad</div>
+<div id="pwaUpdateNotice" class="hidden no-print" role="status"
+  style="position:fixed;left:12px;right:12px;bottom:12px;z-index:1200;max-width:520px;margin:auto;background:var(--card);border:1px solid var(--green-light);border-radius:12px;box-shadow:var(--shadow);padding:12px 14px;display:flex;align-items:center;gap:10px;">
+  <span style="flex:1;font-size:0.88rem;"><strong>En ny version finns</strong></span>
+  <button class="btn" style="width:auto;padding:8px 12px;" onclick="applyPwaUpdate()">Uppdatera nu</button>
+</div>
 
 <script>
 // ============================================================
@@ -1261,7 +1269,7 @@ function escapeHtml(s) {
 // Reject anything else (e.g. a crafted string from an imported backup file)
 // before it's ever interpolated into an <img src="..."> attribute.
 function isValidPhotoUrl(photo) {
-  return typeof photo === 'string' && /^data:image\/(png|jpe?g|webp);base64,[A-Za-z0-9+/=]+$/.test(photo);
+  return GolfValidation.isPhotoDataUrl(photo);
 }
 
 let state = {
@@ -1282,29 +1290,16 @@ let state = {
 // ============================================================
 // ── Enkel lagringsmodul – ett enda localStorage-objekt ───────
 const DB_KEY = 'golf_courses_db';
-
-// Test om localStorage fungerar
-let _lsOk = false;
-try {
-  localStorage.setItem('_test', '1');
-  _lsOk = localStorage.getItem('_test') === '1';
-  localStorage.removeItem('_test');
-} catch(e) { _lsOk = false; }
+const storageDb = GolfStorage.createJsonStore(localStorage);
+const _lsOk = storageDb.available;
 
 function dbLoad() {
-  if (!_lsOk) return [];
-  try { return JSON.parse(localStorage.getItem(DB_KEY) || '[]'); }
-  catch(e) { return []; }
+  const entries = storageDb.load(DB_KEY, []);
+  return Array.isArray(entries) ? entries : [];
 }
 
 function dbSave(entries) {
-  if (!_lsOk) return false;
-  try {
-    const json = JSON.stringify(entries);
-    localStorage.setItem(DB_KEY, json);
-    // Verify it actually saved
-    return localStorage.getItem(DB_KEY) === json;
-  } catch(e) { return false; }
+  return storageDb.save(DB_KEY, entries, true);
 }
 
 function dbFind(name, tee, holes) {
@@ -2488,7 +2483,7 @@ function submitBetCompose(i) {
   const amountEl = document.getElementById(`betAmount_${i}`);
   const seat = seatEl ? Number(seatEl.value) : null;
   const amount = amountEl ? parseInt(amountEl.value, 10) : NaN;
-  if (seat == null || !(amount > 0)) { alert('Ange ett giltigt belopp (kr).'); return; }
+  if (seat == null || !GolfValidation.isPositiveInteger(amount)) { alert('Ange ett giltigt belopp (kr).'); return; }
   proposeBet(i, amount, seat);
 }
 
@@ -2546,7 +2541,7 @@ function cancelBetByIdLocal(betId, seat) {
 
 function proposeBet(hole, amount, seat) {
   if (!state.liveRoomCode) return proposeBetLocal(hole, amount, seat);
-  fetch(`${LIVE_SYNC_BASE}/room/${state.liveRoomCode}/bets`, {
+  liveSyncClient.request(`/room/${state.liveRoomCode}/bets`, {
     method: 'POST',
     headers: liveMutationHeaders(state.liveSeatToken),
     body: JSON.stringify({ protocolVersion: LIVE_PROTOCOL_VERSION, proposerSeat: seat, hole, amount }),
@@ -2563,7 +2558,7 @@ function proposeBet(hole, amount, seat) {
 
 function respondToBet(betId, seat, response) {
   if (!state.liveRoomCode) return respondToBetLocal(betId, seat, response);
-  fetch(`${LIVE_SYNC_BASE}/room/${state.liveRoomCode}/bets/${betId}/respond`, {
+  liveSyncClient.request(`/room/${state.liveRoomCode}/bets/${betId}/respond`, {
     method: 'POST',
     headers: liveMutationHeaders(state.liveSeatToken),
     body: JSON.stringify({ protocolVersion: LIVE_PROTOCOL_VERSION, seat, response }),
@@ -2576,7 +2571,7 @@ function respondToBet(betId, seat, response) {
 function cancelBetById(betId, seat) {
   if (!state.liveRoomCode) return cancelBetByIdLocal(betId, seat);
   const isHost = state.liveSeat === 0 && !!state.liveHostToken;
-  fetch(`${LIVE_SYNC_BASE}/room/${state.liveRoomCode}/bets/${betId}/cancel`, {
+  liveSyncClient.request(`/room/${state.liveRoomCode}/bets/${betId}/cancel`, {
     method: 'POST',
     headers: liveMutationHeaders(isHost ? state.liveHostToken : state.liveSeatToken),
     body: JSON.stringify(isHost
@@ -3431,18 +3426,13 @@ function goToStep(n) {
 // Fetch wrappers + debounced push + poll loop only. Room create/join/claim
 // UI comes in later phases — until state.liveRoomCode is set (by that UI),
 // every function here is a guarded no-op, so solo scoring is unaffected.
-const LIVE_SYNC_BASE = 'https://golfcalc-sync.golfcalc-sync.workers.dev';
-const LIVE_PROTOCOL_VERSION = 2;
+const liveSyncClient = GolfLiveSync.createClient();
+const LIVE_PROTOCOL_VERSION = GolfLiveSync.PROTOCOL_VERSION;
 const LIVE_SYNC_POLL_MS = 4000;
 const LIVE_SYNC_PUSH_DEBOUNCE_MS = 600;
 
 function liveMutationHeaders(token) {
-  const headers = {
-    'Content-Type': 'application/json',
-    'X-Golf-Protocol': String(LIVE_PROTOCOL_VERSION),
-  };
-  if (token) headers.Authorization = `Bearer ${token}`;
-  return headers;
+  return liveSyncClient.headers(token);
 }
 
 function liveTokenForSeat(seat) {
@@ -3459,7 +3449,7 @@ function liveSyncPushNow() {
   const seats = _liveDirtySeats.size ? [..._liveDirtySeats] : [state.liveSeat];
   _liveDirtySeats.clear();
   seats.forEach(seat => {
-    fetch(`${LIVE_SYNC_BASE}/room/${state.liveRoomCode}`, {
+    liveSyncClient.request(`/room/${state.liveRoomCode}`, {
       method: 'PATCH',
       headers: liveMutationHeaders(liveTokenForSeat(seat)),
       body: JSON.stringify({ protocolVersion: LIVE_PROTOCOL_VERSION, seat, scores: state.scores[seat] || [] }),
@@ -3527,7 +3517,7 @@ function liveSyncApplyRoom(room) {
 
 function liveSyncPushMarkers() {
   if (!state.liveRoomCode || !state.liveHostToken) return;
-  fetch(`${LIVE_SYNC_BASE}/room/${state.liveRoomCode}`, {
+  liveSyncClient.request(`/room/${state.liveRoomCode}`, {
     method: 'PATCH',
     headers: liveMutationHeaders(state.liveHostToken),
     body: JSON.stringify({ protocolVersion: LIVE_PROTOCOL_VERSION, markers: state.markers }),
@@ -3536,7 +3526,7 @@ function liveSyncPushMarkers() {
 
 function liveSyncPushMeta() {
   if (!state.liveRoomCode || state.liveSeat !== 0 || !state.liveHostToken) return;
-  fetch(`${LIVE_SYNC_BASE}/room/${state.liveRoomCode}`, {
+  liveSyncClient.request(`/room/${state.liveRoomCode}`, {
     method: 'PATCH',
     headers: liveMutationHeaders(state.liveHostToken),
     body: JSON.stringify({ protocolVersion: LIVE_PROTOCOL_VERSION, note: state.note || '', weather: state.weather || null }),
@@ -3587,7 +3577,7 @@ function renderLiveSeatCells(room) {
 
 function liveSyncPollNow() {
   if (!state.liveRoomCode) return;
-  fetch(`${LIVE_SYNC_BASE}/room/${state.liveRoomCode}`)
+  liveSyncClient.request(`/room/${state.liveRoomCode}`)
     .then(r => r.ok ? r.json() : null)
     .then(room => { if (room) liveSyncApplyRoom(room); })
     .catch(() => {}); // offline: keep last-known scores, retry next tick
@@ -3631,7 +3621,7 @@ function startLiveRound() {
     markers: state.markers,
   };
 
-  fetch(`${LIVE_SYNC_BASE}/room`, {
+  liveSyncClient.request('/room', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
@@ -3703,13 +3693,13 @@ function showJoinLiveError(msg) {
 
 function fetchLiveRoom() {
   const code = document.getElementById('joinLiveCodeInput').value.trim().toUpperCase();
-  if (!code) { showJoinLiveError('Ange en kod.'); return; }
+  if (!GolfValidation.isJoinCode(code)) { showJoinLiveError('Ange en kod.'); return; }
 
   const btn = document.getElementById('joinLiveFetchBtn');
   document.getElementById('joinLiveError').classList.add('hidden');
   btn.disabled = true; btn.textContent = 'Hämtar…';
 
-  fetch(`${LIVE_SYNC_BASE}/room/${code}`)
+  liveSyncClient.request(`/room/${code}`)
     .then(r => r.ok ? r.json() : Promise.reject(new Error('http ' + r.status)))
     .then(room => {
       _joinLiveRoom = room;
@@ -3741,7 +3731,7 @@ function renderJoinLiveSeatList(room, code) {
 }
 
 function claimLiveSeat(code, seat) {
-  fetch(`${LIVE_SYNC_BASE}/room/${code}/claim`, {
+  liveSyncClient.request(`/room/${code}/claim`, {
     method: 'POST',
     headers: liveMutationHeaders(),
     body: JSON.stringify({ protocolVersion: LIVE_PROTOCOL_VERSION, seat }),
@@ -3814,22 +3804,17 @@ const INPROGRESS_KEY = 'golf_inprogress_round';
 function inprogressSave() {
   if (!_lsOk) return;
   if (state.editingId) return; // editing a saved round must not clobber a live in-progress round
-  try {
-    localStorage.setItem(INPROGRESS_KEY, JSON.stringify({ savedAt: Date.now(), state }));
-  } catch(e) {}
+  storageDb.save(INPROGRESS_KEY, { savedAt: Date.now(), state });
 }
 
 function inprogressLoad() {
-  if (!_lsOk) return null;
-  try {
-    const snap = JSON.parse(localStorage.getItem(INPROGRESS_KEY) || 'null');
-    return (snap && snap.state && snap.state.courseName) ? snap : null;
-  } catch(e) { return null; }
+  const snap = storageDb.load(INPROGRESS_KEY, null);
+  return (snap && snap.state && snap.state.courseName) ? snap : null;
 }
 
 function inprogressClear() {
-  if (!_lsOk) return;
-  try { localStorage.removeItem(INPROGRESS_KEY); } catch(e) {}
+  storageDb.remove(INPROGRESS_KEY);
+  showPendingUpdateIfSafe();
 }
 
 function showResumeBannerIfAny() {
@@ -3897,15 +3882,13 @@ function discardInprogress() {
 const ROUNDS_KEY = 'golf_rounds_db';
 
 function roundsLoad() {
-  if (!_lsOk) return [];
-  try { return JSON.parse(localStorage.getItem(ROUNDS_KEY) || '[]'); }
-  catch(e) { return []; }
+  const rounds = storageDb.load(ROUNDS_KEY, []);
+  return Array.isArray(rounds) ? rounds : [];
 }
 
 function roundsSave(rounds) {
   if (!_lsOk) return;
-  try { localStorage.setItem(ROUNDS_KEY, JSON.stringify(rounds)); }
-  catch(e) { alert('Lagringsutrymmet är fullt — ta bort några rundor eller spelarbilder för att göra plats.'); }
+  if (!storageDb.save(ROUNDS_KEY, rounds)) alert('Lagringsutrymmet är fullt — ta bort några rundor eller spelarbilder för att göra plats.');
 }
 
 function roundSaveNew(roundData) {
@@ -3927,13 +3910,11 @@ function roundDelete(id) {
 }
 
 function _buildDataPayload(inclCourses, inclRounds, inclPlayers) {
-  return {
-    version: 1,
-    exportedAt: new Date().toISOString(),
+  return GolfStorage.createBackupPayload({
     courses:  inclCourses  ? dbLoad()        : [],
     rounds:   inclRounds   ? roundsLoad()    : [],
     players:  inclPlayers  ? playersLoad()   : []
-  };
+  });
 }
 
 function exportData() {
@@ -3962,7 +3943,7 @@ function exportData() {
 // Applies an import payload (from file or cloud) using the same merge/dedup logic.
 // Returns { addedCourses, addedRounds, addedPlayers }. Throws on invalid payload.
 function _applyImportPayload(payload) {
-  if (!payload.version || (!payload.courses && !payload.rounds)) throw new Error('Ogiltigt format');
+  if (!GolfValidation.isBackupPayload(payload)) throw new Error('Ogiltigt format');
 
   let addedCourses = 0, addedRounds = 0, addedPlayers = 0;
 
@@ -4339,16 +4320,13 @@ function saveCurrentRound(playerResults) {
 const PLAYERS_KEY = 'golf_players_db';
 
 function playersLoad() {
-  if (!_lsOk) return [];
-  try { return JSON.parse(localStorage.getItem(PLAYERS_KEY) || '[]'); }
-  catch(e) { return []; }
+  const players = storageDb.load(PLAYERS_KEY, []);
+  return Array.isArray(players) ? players : [];
 }
 
 function playersSave(list) {
   if (!_lsOk) return;
-  try {
-    localStorage.setItem(PLAYERS_KEY, JSON.stringify(list));
-  } catch(e) {
+  if (!storageDb.save(PLAYERS_KEY, list)) {
     alert('Lagringsutrymmet är fullt — ta bort några rundor eller spelarbilder för att göra plats.');
   }
 }
@@ -4379,29 +4357,12 @@ function playersSave(list) {
 const TOURS_KEY = 'golf_tours_db';
 
 function toursLoad() {
-  if (!_lsOk) return [];
-  try {
-    const tours = JSON.parse(localStorage.getItem(TOURS_KEY) || '[]');
-    // Migrate tours created before the course/date-window rework (they had
-    // a `legs` array instead of `courses`), and tours created before courses
-    // carried a per-course round cap (they had a plain course name string
-    // instead of a { name, maxRounds } object) so old data doesn't crash the
-    // view. Old tours always deduped to a single round per course, so
-    // maxRounds defaults to 1 to preserve their original behavior.
-    return tours.map(t => {
-      const courses = (t.courses || []).map(c =>
-        typeof c === 'string' ? { name: c, maxRounds: 1 } : c);
-      return { courses: [], ...t, courses };
-    });
-  }
-  catch(e) { return []; }
+  return GolfStorage.migrateTours(storageDb.load(TOURS_KEY, []));
 }
 
 function toursSave(list) {
   if (!_lsOk) return;
-  try {
-    localStorage.setItem(TOURS_KEY, JSON.stringify(list));
-  } catch(e) {
+  if (!storageDb.save(TOURS_KEY, list)) {
     alert('Lagringsutrymmet är fullt — ta bort några rundor eller spelarbilder för att göra plats.');
   }
 }
@@ -6108,6 +6069,44 @@ function showShareToast(msg) {
   t._timer = setTimeout(() => t.style.opacity = '0', 3000);
 }
 
+// ============================================================
+// PWA UPDATES
+// ============================================================
+let _pendingServiceWorker = null;
+let _applyingPwaUpdate = false;
+
+function showPendingUpdateIfSafe() {
+  const notice = document.getElementById('pwaUpdateNotice');
+  if (!notice || !_pendingServiceWorker) return;
+  // A saved in-progress snapshot means the player is between setup and a
+  // completed round. Keep the update entirely out of the way until it clears.
+  if (inprogressLoad()) { notice.classList.add('hidden'); return; }
+  notice.classList.remove('hidden');
+}
+
+function applyPwaUpdate() {
+  if (!_pendingServiceWorker || inprogressLoad()) return;
+  _applyingPwaUpdate = true;
+  _pendingServiceWorker.postMessage({ type: 'SKIP_WAITING' });
+}
+
+function watchServiceWorkerRegistration(registration) {
+  if (registration.waiting) {
+    _pendingServiceWorker = registration.waiting;
+    showPendingUpdateIfSafe();
+  }
+  registration.addEventListener('updatefound', () => {
+    const installing = registration.installing;
+    if (!installing) return;
+    installing.addEventListener('statechange', () => {
+      if (installing.state === 'installed' && navigator.serviceWorker.controller) {
+        _pendingServiceWorker = installing;
+        showPendingUpdateIfSafe();
+      }
+    });
+  });
+}
+
 // Init
 if (!_lsOk) document.getElementById('lsBanner').classList.remove('hidden');
 try { seedDefaultCourses(); } catch(e) {}
@@ -6116,7 +6115,12 @@ try { showResumeBannerIfAny(); } catch(e) {}
 try { _updateLastBackupLabel(); } catch(e) {}
 try { _populateOriginLabelInput(); } catch(e) {}
 if ('serviceWorker' in navigator) {
-  navigator.serviceWorker.register('sw.js').catch(() => {});
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    if (_applyingPwaUpdate) window.location.reload();
+  });
+  navigator.serviceWorker.register('sw.js')
+    .then(watchServiceWorkerRegistration)
+    .catch(() => {});
 }
 goToStep(1);
 </script>
