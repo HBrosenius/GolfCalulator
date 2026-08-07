@@ -1559,6 +1559,13 @@ function loadSavedCourseAndAdvance(entry) {
   state.si   = new Array(state.holes).fill('');
   buildHoleDataTable();
   goToStep(2);
+
+  // If a tour leg was started for a specific hole count on this (9-hole)
+  // course, switch straight to that mode instead of leaving it on the
+  // default. Only relevant once, then cleared so it never leaks into an
+  // unrelated later course selection.
+  if (_pendingTourPlayHoles === 18 && entry.holes === 9) setPlayMode(18);
+  _pendingTourPlayHoles = null;
 }
 
 function setPlayMode(n) {
@@ -1566,10 +1573,17 @@ function setPlayMode(n) {
   document.getElementById('btnPlay9').classList.toggle('active', n === 9);
   document.getElementById('btnPlay18').classList.toggle('active', n === 18);
 
+  const base = dbFind(state.courseName, state.teeColor, 9);
+
   if (n === 18 && state.baseHoles === 9) {
-    // Double the course: 18 holes, same hpar twice, SI: odd for first 9, even for second 9
+    // Double the course: 18 holes, same hpar twice, SI: odd for first 9, even for second 9.
+    // Slope/CR/Par are left untouched — Swedish course cards (and this app's
+    // own input validation) always record them at their 18-hole-equivalent
+    // value even for a 9-hole course, and calcPlayingHandicap() is built
+    // around that: it computes the 18-hole playing handicap first and only
+    // halves it back down for genuine 9-hole play. Doubling them here would
+    // overcorrect and understate everyone's playing handicap.
     state.holes = 18;
-    const base = dbFind(state.courseName, state.teeColor, 9);
     const baseHpar = base?.hpar?.length === 9 ? base.hpar : new Array(9).fill(4);
     const baseSI   = base?.si?.length === 9   ? base.si   : [1,3,5,7,9,11,13,15,17];
     state.hpar = [...baseHpar, ...baseHpar];
@@ -1578,11 +1592,11 @@ function setPlayMode(n) {
   } else {
     // Revert to 9-hole
     state.holes = 9;
-    const base = dbFind(state.courseName, state.teeColor, 9);
     state.hpar = base?.hpar?.length === 9 ? [...base.hpar] : new Array(9).fill('');
     state.si   = base?.si?.length === 9   ? [...base.si]   : new Array(9).fill('');
   }
   buildHoleDataTable();
+  renderStep2CourseInfo();
 }
 
 function showNewCourseForm(show) {
@@ -1915,7 +1929,14 @@ function goToStep3Players() {
 
   state.hpar = hpar;
   state.si   = si;
-  saveCurrentCourseData({ hpar, si });
+  // Include slope/cr/par even though they haven't changed here: this may be
+  // the first time this exact (course, tee, holes) combination is saved —
+  // e.g. the first time a 9-hole course is doubled to 18 — in which case
+  // dbUpsert() creates a brand new DB entry from just this patch. Omitting
+  // them left that new entry with no slope/cr/par at all, which then made
+  // every later round on it compute a broken (NaN) playing handicap once
+  // that entry was found and used instead of falling back to state.
+  saveCurrentCourseData({ hpar, si, slope: state.slope, cr: state.cr, par: state.par });
 
   buildPlayerCards();
   goToStep(3);
@@ -4349,6 +4370,17 @@ function playersSave(list) {
 // (rounds are matched dynamically, never tagged). A player's tour total is
 // the sum of their own Stableford points (totalPoints) across their best
 // `bestOfN` matching rounds (or all of them if bestOfN is unset).
+// Each course entry is { name, maxRounds, holes }: maxRounds caps how many of
+// a player's rounds on that course can count, and holes (9 or 18) restricts
+// matching to rounds played in that mode — needed for courses like a 9-hole
+// track that can also be played as a doubled 18-hole round, so the two
+// aren't mixed together in one total. Tours created before this existed have
+// no `holes` on their course entries, which is treated as "any" so their
+// original matching behavior (any round on that course name, whatever its
+// length) is preserved.
+// When a player has more matching rounds on a course than maxRounds, tour.duplicateCourseRule ('first' or
+// 'best') decides which ones are kept — chronologically first N, or the N
+// with the highest points — same rule for every course in the tour.
 // Scramble/Foursome are excluded (shared team score isn't attributable to
 // one player), same precedent as Season/Course Records.
 const TOURS_KEY = 'golf_tours_db';
@@ -4358,8 +4390,16 @@ function toursLoad() {
   try {
     const tours = JSON.parse(localStorage.getItem(TOURS_KEY) || '[]');
     // Migrate tours created before the course/date-window rework (they had
-    // a `legs` array instead of `courses`) so old data doesn't crash the view.
-    return tours.map(t => ({ courses: [], ...t }));
+    // a `legs` array instead of `courses`), and tours created before courses
+    // carried a per-course round cap (they had a plain course name string
+    // instead of a { name, maxRounds } object) so old data doesn't crash the
+    // view. Old tours always deduped to a single round per course, so
+    // maxRounds defaults to 1 to preserve their original behavior.
+    return tours.map(t => {
+      const courses = (t.courses || []).map(c =>
+        typeof c === 'string' ? { name: c, maxRounds: 1 } : c);
+      return { courses: [], ...t, courses };
+    });
   }
   catch(e) { return []; }
 }
@@ -4405,7 +4445,7 @@ function tourMatchingRounds(tour) {
       .flatMap(p => [p.nick, p.name].filter(Boolean))
   );
   return roundsLoad().filter(r =>
-    tour.courses.includes(r.courseName) &&
+    tour.courses.some(c => c.name === r.courseName && (c.holes == null || c.holes === r.holes)) &&
     r.date >= tour.startDate && r.date <= tour.endDate &&
     r.gameMode !== 'scramble' && r.gameMode !== 'foursome' &&
     (r.subjects || []).some(s => rosterNames.has(s.name))
@@ -4426,21 +4466,30 @@ function computeTourStandings(tour) {
     });
   });
 
-  // If a player plays the same course more than once in the window, only one
-  // of those rounds should count — otherwise repeat plays inflate their total.
+  // Each course has its own maxRounds cap — if a player plays that course
+  // more times than the cap in the window, only maxRounds of those rounds
+  // should count, otherwise repeat plays inflate their total. Which ones are
+  // kept follows tour.duplicateCourseRule: the chronologically first N, or
+  // the N with the highest points.
   const dedupRule = tour.duplicateCourseRule || 'best';
+  const maxRoundsForCourse = courseName => {
+    const c = tour.courses.find(c => c.name === courseName);
+    return (c && c.maxRounds > 0) ? c.maxRounds : 1;
+  };
   const dedupeByCourse = results => {
     const byCourse = new Map();
     results.forEach(r => {
-      const existing = byCourse.get(r.courseName);
-      if (!existing) { byCourse.set(r.courseName, r); return; }
-      if (dedupRule === 'first') {
-        if (r.date < existing.date) byCourse.set(r.courseName, r);
-      } else {
-        if (r.points > existing.points) byCourse.set(r.courseName, r);
-      }
+      if (!byCourse.has(r.courseName)) byCourse.set(r.courseName, []);
+      byCourse.get(r.courseName).push(r);
     });
-    return Array.from(byCourse.values());
+    const kept = [];
+    byCourse.forEach((list, courseName) => {
+      const n = maxRoundsForCourse(courseName);
+      const sorted = list.slice().sort((a, b) =>
+        dedupRule === 'first' ? a.date.localeCompare(b.date) : b.points - a.points);
+      kept.push(...sorted.slice(0, n));
+    });
+    return kept;
   };
 
   const rows = roster.map(p => {
@@ -5020,12 +5069,23 @@ function renderTourCreateForm() {
           <span>${escapeHtml(p.nick || p.name)}</span>
         </label>`).join('')
     : '<p style="color:var(--muted);font-size:0.85rem;">Inga sparade spelare — lägg till spelare under 👤 Spelare först.</p>';
+  const nineHoleCourseNames = new Set(dbLoad().filter(c => c.holes === 9).map(c => c.name));
   const courseChecks = courseNames.length
-    ? courseNames.map(name => `
+    ? courseNames.map(name => {
+        const holesSelector = nineHoleCourseNames.has(name)
+          ? `<select class="tourCourseHolesInput" title="Spelform för denna bana i touren" style="font-size:0.78rem;padding:2px 4px;border-radius:6px;">
+               <option value="9">9 hål</option>
+               <option value="18">18 hål (dubbelrunda)</option>
+             </select>`
+          : '';
+        return `
         <label style="display:flex;align-items:center;gap:8px;padding:6px 0;">
           <input type="checkbox" class="tourCourseChk" value="${escapeHtml(name)}">
-          <span>${escapeHtml(name)}</span>
-        </label>`).join('')
+          <span style="flex:1;">${escapeHtml(name)}</span>
+          ${holesSelector}
+          <input type="number" class="tourCourseMaxInput" min="1" value="1" title="Antal rundor på denna bana som får räknas" style="width:52px;text-align:center;">
+        </label>`;
+      }).join('')
     : '<p style="color:var(--muted);font-size:0.85rem;">Inga sparade banor ännu — lägg till en bana när du startar en runda.</p>';
   el.innerHTML = `
     <label>Namn</label>
@@ -5042,10 +5102,10 @@ function renderTourCreateForm() {
     </div>
     <label style="margin-top:10px;">Räkna bästa X rundor (valfritt, lämna tomt = alla räknas)</label>
     <input type="number" id="tourBestOfNInput" min="1" placeholder="Alla rundor räknas">
-    <label style="margin-top:10px;">Om en spelare spelar samma bana flera gånger</label>
+    <label style="margin-top:10px;">Om en spelare spelar en bana fler gånger än den räknas</label>
     <select id="tourDuplicateCourseRuleInput">
-      <option value="best">Räkna bästa rundan på banan</option>
-      <option value="first">Räkna första rundan på banan</option>
+      <option value="best">Räkna de bästa rundorna på banan</option>
+      <option value="first">Räkna de första rundorna på banan</option>
     </select>
     <label style="margin-top:10px;">Deltagare</label>
     <div style="max-height:200px;overflow-y:auto;border:1px solid var(--border);border-radius:8px;padding:6px 10px;">
@@ -5055,7 +5115,7 @@ function renderTourCreateForm() {
     <div style="max-height:200px;overflow-y:auto;border:1px solid var(--border);border-radius:8px;padding:6px 10px;">
       ${courseChecks}
     </div>
-    <p style="font-size:0.78rem;color:var(--muted);margin-top:6px;">Alla rundor som spelas på en av dessa banor inom datumintervallet räknas automatiskt — ingen extra inmatning behövs, bara starta en vanlig runda som vanligt.</p>
+    <p style="font-size:0.78rem;color:var(--muted);margin-top:6px;">Siffran till höger om varje bana anger hur många rundor på den banan som får räknas per spelare — t.ex. 3 om ni spelar banan tre gånger under touren. Banor med 9 hål har även ett val för om touren räknar 9-hålsrundor eller dubblerade 18-hålsrundor på den banan — bara rundor i det valda formatet räknas. Alla rundor som spelas på en av dessa banor inom datumintervallet plockas upp automatiskt — ingen extra inmatning behövs, bara starta en vanlig runda som vanligt.</p>
     <div id="tourCreateError" class="hidden" style="background:#fdecea;border-left:3px solid var(--danger);border-radius:0 8px 8px 0;padding:10px 14px;font-size:0.9rem;color:var(--danger);margin-top:10px;"></div>
     <div style="display:flex;gap:10px;margin-top:14px;">
       <button class="btn secondary" style="flex:1;" onclick="_tourViewMode='list'; renderTourView();">Avbryt</button>
@@ -5079,7 +5139,14 @@ function saveNewTour() {
     });
   const courses = Array.from(document.querySelectorAll('.tourCourseChk'))
     .filter(el => el.checked)
-    .map(el => el.value);
+    .map(el => {
+      const row = el.parentElement;
+      const maxInput = row.querySelector('.tourCourseMaxInput');
+      const maxRounds = maxInput ? parseInt(maxInput.value) : 1;
+      const holesInput = row.querySelector('.tourCourseHolesInput');
+      const holes = holesInput ? parseInt(holesInput.value) : 18;
+      return { name: el.value, maxRounds: (maxRounds && maxRounds > 0) ? maxRounds : 1, holes };
+    });
   const errEl = document.getElementById('tourCreateError');
   const showErr = msg => { errEl.textContent = msg; errEl.classList.remove('hidden'); };
   if (!name) return showErr('Ange ett namn för touren.');
@@ -5134,8 +5201,8 @@ function renderTourDetail(id) {
     <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:6px;">
       <div>
         <strong style="font-size:1.05rem;">${escapeHtml(tour.name)}</strong><br>
-        <span style="font-size:0.8rem;color:var(--muted);">${tour.startDate} – ${tour.endDate}${tour.bestOfN ? ` · räknar bästa ${tour.bestOfN}` : ''} · ${tour.duplicateCourseRule === 'first' ? 'första rundan per bana räknas' : 'bästa rundan per bana räknas'}</span><br>
-        <span style="font-size:0.78rem;color:var(--muted);">${tour.courses.map(escapeHtml).join(', ')}</span>
+        <span style="font-size:0.8rem;color:var(--muted);">${tour.startDate} – ${tour.endDate}${tour.bestOfN ? ` · räknar bästa ${tour.bestOfN}` : ''} · ${tour.duplicateCourseRule === 'first' ? 'första rundorna per bana räknas' : 'bästa rundorna per bana räknas'}</span><br>
+        <span style="font-size:0.78rem;color:var(--muted);">${tour.courses.map(c => `${escapeHtml(c.name)}${c.holes ? ` · ${c.holes} hål` : ''} (${c.maxRounds})`).join(', ')}</span>
       </div>
       <span style="font-size:0.78rem;padding:3px 8px;border-radius:12px;${isOpen ? 'background:#e8f5e9;color:var(--heading);' : 'background:#eee;color:var(--muted);'}">${isOpen ? 'Pågår' : 'Avslutad'}</span>
     </div>
@@ -5174,6 +5241,7 @@ function deleteTourConfirm(id) {
 // tour's courses pre-searched. The round itself is completely normal — no
 // player restriction, no forced game mode — it just needs to land on one of
 // the tour's courses, within the date window, to be picked up automatically.
+let _pendingTourPlayHoles = null;
 function startTourLeg(tourId) {
   const tour = tourFind(tourId);
   if (!tour || tour.status !== 'open') return;
@@ -5182,9 +5250,12 @@ function startTourLeg(tourId) {
   if (tour.courses.length === 1) {
     const input = document.getElementById('courseSearchInput');
     if (input) {
-      input.value = tour.courses[0];
-      filterCourses(tour.courses[0]);
+      input.value = tour.courses[0].name;
+      filterCourses(tour.courses[0].name);
     }
+    // If the tour is configured for a specific hole count on a 9-hole
+    // course, pre-select that play mode once the course itself is loaded.
+    _pendingTourPlayHoles = tour.courses[0].holes || null;
   }
 }
 
