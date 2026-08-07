@@ -1,0 +1,42 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "golfcalc-sync",
+  "main": "src/index.js",
+  "compatibility_date": "2026-08-07",
+  "compatibility_flags": ["nodejs_compat"],
+  "durable_objects": {
+    "bindings": [
+      { "name": "GOLF_ROOMS", "class_name": "GolfRoom" },
+      { "name": "CREATE_LIMITER", "class_name": "CreateRateLimiter" }
+    ]
+  },
+  "exports": {
+    "GolfRoom": { "type": "durable-object", "storage": "sqlite" },
+    "CreateRateLimiter": { "type": "durable-object", "storage": "sqlite" }
+  },
+  "observability": {
+    "enabled": true,
+    "logs": { "enabled": true, "head_sampling_rate": 1 },
+    "traces": { "enabled": true, "head_sampling_rate": 0.05 }
+  },
+  "env": {
+    "production": {
+      "name": "golfcalc-sync",
+      "durable_objects": {
+        "bindings": [
+          { "name": "GOLF_ROOMS", "class_name": "GolfRoom" },
+          { "name": "CREATE_LIMITER", "class_name": "CreateRateLimiter" }
+        ]
+      }
+    },
+    "staging": {
+      "name": "golfcalc-sync-staging",
+      "durable_objects": {
+        "bindings": [
+          { "name": "GOLF_ROOMS", "class_name": "GolfRoom" },
+          { "name": "CREATE_LIMITER", "class_name": "CreateRateLimiter" }
+        ]
+      }
+    }
+  }
+}

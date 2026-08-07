@@ -1,25 +1,42 @@
 # golfcalc-sync-worker
 
-Live-round sync relay for GolfCalculator. A tiny Cloudflare Worker + KV
-backend — no framework, no dependencies at runtime. Only `wrangler` is
-needed locally to develop and deploy it.
+Secure live-round sync relay for GolfCalculator. A Cloudflare Worker routes
+each four-character join code to one SQLite-backed Durable Object. Host and
+seat bearer tokens authorize mutations while room reads remain available via
+the public join code.
 
 ## What it does
 
-Stores one JSON blob per live round, keyed by a short room code, so
-multiple phones can push/pull score updates for the same in-progress
-round. Rooms auto-expire after 24h (KV TTL) — nothing to clean up.
+Each room Durable Object serializes seat claims, score writes and betting
+decisions, preventing lost-update races. Tokens are generated with Web Crypto,
+stored as SHA-256 hashes, and compared in constant time. Rooms expire after
+24 hours through a Durable Object alarm.
 
 See `src/index.js` for the endpoints (`POST /room`, `GET /room/:code`,
 `PATCH /room/:code`, `POST /room/:code/claim`, `POST /room/:code/bets`,
 `POST /room/:code/bets/:id/respond`, `POST /room/:code/bets/:id/cancel`).
 
+## Authorization
+
+- Creating a room returns a public join code, a private host token and the
+  private token for seat 0.
+- Claiming an open seat returns that seat's private token.
+- Seat tokens authorize only that seat's scores and betting actions.
+- The host token authorizes markers, note/weather, unclaimed-seat scores and
+  cancellation of any pending bet.
+- Public room responses expose only `claimed: true|false`, never credentials or
+  internal ownership identifiers.
+
+Every mutation sends `X-Golf-Protocol: 2` and includes `protocolVersion: 2` in
+its bounded JSON body.
+
 ## Local test (no Cloudflare account needed)
 
-Runs the real Worker code against a `Map`-backed fake KV:
+Runs the real Worker and Durable Objects inside Cloudflare's Workers test
+runtime, including concurrent requests and alarms:
 
 ```bash
-node test/local-test.js
+npm test
 ```
 
 ## Deploy
@@ -33,22 +50,9 @@ npm install
 # 2. Log in — opens a browser to authorize
 npx wrangler login
 
-# 3. Create the KV namespace
-npx wrangler kv namespace create GOLF_ROOMS
-```
-
-That last command prints an `id`. Copy it into `wrangler.toml`, replacing
-`REPLACE_WITH_YOUR_KV_NAMESPACE_ID`:
-
-```toml
-kv_namespaces = [
-  { binding = "GOLF_ROOMS", id = "PASTE_THE_ID_HERE" }
-]
-```
-
-```bash
-# 4. Deploy
-npx wrangler deploy
+# 3. Deploy staging, then production
+npm run deploy:staging
+npm run deploy
 ```
 
 This prints your Worker's URL, something like:
@@ -67,14 +71,29 @@ subdomain or name.
 npx wrangler dev
 ```
 
-Runs the Worker locally with a real (local-mode) KV binding, so you can
+Runs the Worker locally with simulated Durable Object bindings, so you can
 `curl` it directly while making changes.
 
-## Redeploying after a change
+Staging and production use different Durable Object namespaces, so their room
+data cannot mix.
 
-Bump nothing on the app side — `wrangler deploy` overwrites the Worker at
-the same URL. Just re-run:
+## Redeploying and rollback
+
+Bump nothing on the app side — deployment keeps the same production URL. The
+GitHub workflow deploys staging, checks `/health`, and only then deploys
+production.
 
 ```bash
-npx wrangler deploy
+npm run deploy
 ```
+
+After the initial Durable Object lifecycle deployment, roll back a later Worker
+version with:
+
+```bash
+npx wrangler rollback --env production
+```
+
+The first deployment that creates the Durable Object namespaces is a lifecycle
+change and cannot be rolled back across that boundary. Validate that deployment
+on staging before allowing the production job to proceed.

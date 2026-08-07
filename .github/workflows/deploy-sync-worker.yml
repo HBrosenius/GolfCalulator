@@ -21,7 +21,14 @@ jobs:
         with:
           node-version: 20
       - run: npm ci
-      - run: npx wrangler deploy
+      - name: Deploy staging
+        run: npm run deploy:staging
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      - name: Check staging protocol
+        run: curl --fail --retry 5 --retry-delay 3 https://golfcalc-sync-staging.golfcalc-sync.workers.dev/health
+      - name: Deploy production
+        run: npm run deploy
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
   verify:

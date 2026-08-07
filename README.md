@@ -117,6 +117,10 @@ Låt varje spelare mata in sin egen score på sin egen telefon under rundan, ist
 - En live-runda sparas ändå lokalt precis som en vanlig runda och hamnar i **Rundhistorik** när den räknas klart
 - **💰 Satsa på hål** — vem som helst av de anslutna spelarna kan föreslå en satsning i kronor på att vinna ett hål; alla övriga måste acceptera innan den låses in, en enda nekad satsning avbryter den helt. Vinnare avgörs av ensam bästa nettoscore på hålet (delad bästa score = ingen vinner). Efter rundan visas en avräkning under resultatet med vem som ska betala vem, och den sparas med i Rundhistorik
 
+Live-rundor skyddas med privata värd- och spelartokens. Koden används bara för
+att hitta rundan och kan inte ensam användas för att ändra en upptagen spelares
+score, markörer eller anteckningar.
+
 > **För utvecklare:** kräver en egen driftsatt sync-relä (Cloudflare Worker) — se `sync-worker/README.md`.
 
 ## Återuppta pågående runda

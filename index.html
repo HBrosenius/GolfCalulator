@@ -1106,7 +1106,7 @@
         <button class="toggle-btn" id="wx_rain" onclick="setWeather('rain')">🌧️ Regn</button>
         <button class="toggle-btn" id="wx_wind" onclick="setWeather('wind')">💨 Blåst</button>
       </div>
-      <input type="text" id="roundNote" maxlength="120" placeholder="Kort anteckning (valfritt)" oninput="state.note = this.value">
+      <input type="text" id="roundNote" maxlength="120" placeholder="Kort anteckning (valfritt)" oninput="onRoundNoteInput(this.value)">
     </div>
     <div style="display:flex; gap:10px;">
       <button class="btn secondary" onclick="step4Back()">← Tillbaka</button>
@@ -1273,7 +1273,8 @@ let state = {
   playerTees: [],
   note: '', weather: null,
   markers: { ctp: { hole: null, player: '' }, ld: { hole: null, player: '' } },
-  liveRoomCode: null, liveSeat: null, liveSeatsClaimed: null, bets: []
+  liveRoomCode: null, liveSeat: null, liveSeatsClaimed: null,
+  liveHostToken: null, liveSeatToken: null, bets: []
 };
 
 // ============================================================
@@ -2400,13 +2401,7 @@ function seatsIActFor() {
     return Array.from({ length: n }, (_, i) => i);
   }
   if (state.liveSeat == null) return [];
-  if (state.liveSeat !== 0) return [state.liveSeat];
-  const n = numColumns();
-  const acted = [0];
-  for (let p = 1; p < n; p++) {
-    if (!(state.liveSeatsClaimed && state.liveSeatsClaimed[p])) acted.push(p);
-  }
-  return acted;
+  return [state.liveSeat];
 }
 
 // The latest non-superseded bet for a hole: a cancelled bet never blocks a fresh
@@ -2553,8 +2548,8 @@ function proposeBet(hole, amount, seat) {
   if (!state.liveRoomCode) return proposeBetLocal(hole, amount, seat);
   fetch(`${LIVE_SYNC_BASE}/room/${state.liveRoomCode}/bets`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ proposerSeat: seat, hole, amount, deviceId: liveDeviceId() }),
+    headers: liveMutationHeaders(state.liveSeatToken),
+    body: JSON.stringify({ protocolVersion: LIVE_PROTOCOL_VERSION, proposerSeat: seat, hole, amount }),
   })
     .then(r => r.json().then(body => ({ ok: r.ok, body })))
     .then(({ ok, body }) => {
@@ -2570,8 +2565,8 @@ function respondToBet(betId, seat, response) {
   if (!state.liveRoomCode) return respondToBetLocal(betId, seat, response);
   fetch(`${LIVE_SYNC_BASE}/room/${state.liveRoomCode}/bets/${betId}/respond`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ seat, response, deviceId: liveDeviceId() }),
+    headers: liveMutationHeaders(state.liveSeatToken),
+    body: JSON.stringify({ protocolVersion: LIVE_PROTOCOL_VERSION, seat, response }),
   })
     .then(r => r.json())
     .then(room => { liveSyncApplyRoom(room); inprogressSave(); })
@@ -2580,10 +2575,13 @@ function respondToBet(betId, seat, response) {
 
 function cancelBetById(betId, seat) {
   if (!state.liveRoomCode) return cancelBetByIdLocal(betId, seat);
+  const isHost = state.liveSeat === 0 && !!state.liveHostToken;
   fetch(`${LIVE_SYNC_BASE}/room/${state.liveRoomCode}/bets/${betId}/cancel`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ seat, deviceId: liveDeviceId() }),
+    headers: liveMutationHeaders(isHost ? state.liveHostToken : state.liveSeatToken),
+    body: JSON.stringify(isHost
+      ? { protocolVersion: LIVE_PROTOCOL_VERSION }
+      : { protocolVersion: LIVE_PROTOCOL_VERSION, seat }),
   })
     .then(r => r.json())
     .then(room => { liveSyncApplyRoom(room); inprogressSave(); })
@@ -2596,6 +2594,14 @@ function setWeather(key) {
     const btn = document.getElementById(`wx_${k}`);
     if (btn) btn.classList.toggle('active', state.weather === k);
   });
+  inprogressSave();
+  liveSyncPushMeta();
+}
+
+function onRoundNoteInput(value) {
+  state.note = value;
+  inprogressSave();
+  liveSyncPushMeta();
 }
 
 function syncRoundMeta() {
@@ -3370,7 +3376,7 @@ function newRound() {
     playerTees: [],
     note: '', weather: null,
     markers: { ctp: { hole: null, player: '' }, ld: { hole: null, player: '' } },
-    liveRoomCode: null, liveSeat: null, bets: []
+    liveRoomCode: null, liveSeat: null, liveHostToken: null, liveSeatToken: null, bets: []
   };
   resetCourseFields();
   try { document.getElementById('holeDataBody').innerHTML = ''; } catch(e) {}
@@ -3426,16 +3432,21 @@ function goToStep(n) {
 // UI comes in later phases — until state.liveRoomCode is set (by that UI),
 // every function here is a guarded no-op, so solo scoring is unaffected.
 const LIVE_SYNC_BASE = 'https://golfcalc-sync.golfcalc-sync.workers.dev';
+const LIVE_PROTOCOL_VERSION = 2;
 const LIVE_SYNC_POLL_MS = 4000;
 const LIVE_SYNC_PUSH_DEBOUNCE_MS = 600;
 
-function liveDeviceId() {
-  let id = _lsOk ? localStorage.getItem('golf_device_id') : null;
-  if (!id) {
-    id = 'dev_' + Date.now().toString(36) + Math.random().toString(36).slice(2);
-    if (_lsOk) { try { localStorage.setItem('golf_device_id', id); } catch(e) {} }
-  }
-  return id;
+function liveMutationHeaders(token) {
+  const headers = {
+    'Content-Type': 'application/json',
+    'X-Golf-Protocol': String(LIVE_PROTOCOL_VERSION),
+  };
+  if (token) headers.Authorization = `Bearer ${token}`;
+  return headers;
+}
+
+function liveTokenForSeat(seat) {
+  return seat === state.liveSeat ? state.liveSeatToken : state.liveHostToken;
 }
 
 let _livePushTimer = null;
@@ -3450,8 +3461,8 @@ function liveSyncPushNow() {
   seats.forEach(seat => {
     fetch(`${LIVE_SYNC_BASE}/room/${state.liveRoomCode}`, {
       method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ seat, scores: state.scores[seat] || [], deviceId: liveDeviceId() }),
+      headers: liveMutationHeaders(liveTokenForSeat(seat)),
+      body: JSON.stringify({ protocolVersion: LIVE_PROTOCOL_VERSION, seat, scores: state.scores[seat] || [] }),
     }).catch(() => {}); // network failure must never block local scoring
   });
 }
@@ -3484,7 +3495,7 @@ function liveSyncApplyRoom(room) {
     Object.keys(room.seats).forEach(seatKey => {
       const seat = Number(seatKey);
       if (seat === state.liveSeat) return;
-      nextClaimed[seat] = !!room.seats[seatKey].claimedBy;
+      nextClaimed[seat] = !!room.seats[seatKey].claimed;
     });
     const claimsChanged = Object.keys(nextClaimed).some(seat => !!nextClaimed[seat] !== !!prevClaimed[seat]);
     state.liveSeatsClaimed = nextClaimed;
@@ -3500,6 +3511,11 @@ function liveSyncApplyRoom(room) {
     state.markers.ld.player  = (room.markers.ld  && room.markers.ld.player)  || '';
     renderLiveMarkerSelects();
   }
+  if (state.liveSeat !== 0) {
+    if (room.note !== undefined) state.note = room.note || '';
+    if (room.weather !== undefined) state.weather = room.weather || null;
+    syncRoundMeta();
+  }
 
   // Bets are fully server-authoritative — every client just mirrors whatever
   // the worker returns, no per-seat merge needed (unlike scores).
@@ -3510,11 +3526,20 @@ function liveSyncApplyRoom(room) {
 }
 
 function liveSyncPushMarkers() {
-  if (!state.liveRoomCode) return;
+  if (!state.liveRoomCode || !state.liveHostToken) return;
   fetch(`${LIVE_SYNC_BASE}/room/${state.liveRoomCode}`, {
     method: 'PATCH',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ markers: state.markers }),
+    headers: liveMutationHeaders(state.liveHostToken),
+    body: JSON.stringify({ protocolVersion: LIVE_PROTOCOL_VERSION, markers: state.markers }),
+  }).catch(() => {});
+}
+
+function liveSyncPushMeta() {
+  if (!state.liveRoomCode || state.liveSeat !== 0 || !state.liveHostToken) return;
+  fetch(`${LIVE_SYNC_BASE}/room/${state.liveRoomCode}`, {
+    method: 'PATCH',
+    headers: liveMutationHeaders(state.liveHostToken),
+    body: JSON.stringify({ protocolVersion: LIVE_PROTOCOL_VERSION, note: state.note || '', weather: state.weather || null }),
   }).catch(() => {});
 }
 
@@ -3593,6 +3618,7 @@ function startLiveRound() {
   if (btn) { btn.disabled = true; btn.textContent = 'Startar…'; }
 
   const payload = {
+    protocolVersion: LIVE_PROTOCOL_VERSION,
     courseName: state.courseName || 'Okänd bana',
     teeColor: state.teeColor,
     holes: state.holes,
@@ -3615,15 +3641,11 @@ function startLiveRound() {
       if (!data || !data.code) throw new Error('no code in response');
       state.liveRoomCode = data.code;
       state.liveSeat = 0; // host always owns seat 0
+      state.liveHostToken = data.hostToken;
+      state.liveSeatToken = data.seatToken;
       buildScoreTable(); // rebuild now that liveRoomCode/liveSeat are set, so other seats render read-only
       inprogressSave();
       showLiveCodeModal(data.code);
-      // Claim seat 0 for this device so a joiner can't take it before the host's first push.
-      fetch(`${LIVE_SYNC_BASE}/room/${data.code}/claim`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ seat: 0, deviceId: liveDeviceId() }),
-      }).catch(() => {});
     })
     .catch(() => {
       alert('Kunde inte starta live-runda (nätverksfel). Fortsätter offline istället.');
@@ -3710,7 +3732,7 @@ function renderJoinLiveSeatList(room, code) {
   const list = document.getElementById('joinLiveSeatList');
   list.innerHTML = seatNames.map((name, i) => {
     const seatData = room.seats && room.seats[i];
-    const taken = !!(seatData && seatData.claimedBy);
+    const taken = !!(seatData && seatData.claimed);
     return `<button class="btn ${taken ? 'secondary' : ''}" ${taken ? 'disabled' : ''}
       style="${taken ? 'opacity:0.5;' : ''}" onclick="claimLiveSeat('${code}', ${i})">
       ${escapeHtml(name)}${taken ? ' (upptagen)' : ''}
@@ -3721,13 +3743,13 @@ function renderJoinLiveSeatList(room, code) {
 function claimLiveSeat(code, seat) {
   fetch(`${LIVE_SYNC_BASE}/room/${code}/claim`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ seat, deviceId: liveDeviceId() }),
+    headers: liveMutationHeaders(),
+    body: JSON.stringify({ protocolVersion: LIVE_PROTOCOL_VERSION, seat }),
   })
     .then(r => r.json().then(body => ({ ok: r.ok, body })))
     .then(({ ok, body }) => {
       if (!ok) { renderJoinLiveSeatList(body.room || _joinLiveRoom, code); showJoinLiveError('Platsen är redan tagen — välj en annan.'); return; }
-      buildStateFromRoom(body, code, seat);
+      buildStateFromRoom(body.room, code, seat, body.seatToken);
       closeJoinLiveModal();
       goToStep(4);
     })
@@ -3737,7 +3759,7 @@ function claimLiveSeat(code, seat) {
 // Builds local `state` from a fetched room, the same way editRound() builds
 // state from a saved round — but seeded from the worker's room JSON instead
 // of localStorage, and tagged with the live room/seat so sync can resume.
-function buildStateFromRoom(room, code, seat) {
+function buildStateFromRoom(room, code, seat, seatToken) {
   const shared = isSharedScoreMode(room.gameMode);
   state = {
     courseName: room.courseName, teeColor: room.teeColor, holes: room.holes,
@@ -3752,6 +3774,7 @@ function buildStateFromRoom(room, code, seat) {
     note: room.note || '', weather: room.weather || null,
     markers: room.markers || { ctp: { hole: null, player: '' }, ld: { hole: null, player: '' } },
     liveRoomCode: code, liveSeat: seat, liveSeatsClaimed: null,
+    liveHostToken: null, liveSeatToken: seatToken,
     bets: Array.isArray(room.bets) ? room.bets : []
   };
 

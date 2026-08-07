@@ -29,5 +29,5 @@ jobs:
       - run: npm run test:unit
       - run: npx playwright install --with-deps chromium
       - run: npm run test:browser
-      - run: npx wrangler deploy --dry-run
+      - run: npm run check
         working-directory: sync-worker
