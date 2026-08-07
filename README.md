@@ -219,7 +219,7 @@ När en uppdatering är redo visas **En ny version finns** med knappen **Uppdate
 
 Kärnlogiken ligger i fristående moduler under `src/`: poängberäkning, lokal lagring och migrering, live-API samt klientvalidering. Modulerna fungerar både direkt i webbläsaren och från Node-tester utan byggsteg. Rendering och vyhantering ligger fortfarande i `index.html`.
 
-Kör hela testsviten med `npm test`. Den omfattar regel- och lagringstester, Worker-tester samt ett webbläsartest av en komplett sparad runda.
+Kör hela testsviten med `npm test`. Den omfattar regel- och lagringstester, Worker-tester, återanslutning till live-rundor, export/import och migrering samt webbläsartester av en komplett sparad runda, offline-återladdning och säkra PWA-uppgraderingar.
 
 ## Kom igång
 

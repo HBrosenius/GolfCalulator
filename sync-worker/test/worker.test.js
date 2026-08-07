@@ -135,6 +135,24 @@ describe('secure live-room protocol', () => {
     expect(state.seats[1].scores).toEqual(second);
   });
 
+  it('allows a client to reconnect and continue from public room state', async () => {
+    const created = await createRoom(2);
+    const guest = await claim(created.code, 1);
+    const beforeDisconnect = [5, 4, '', '', '', '', '', '', ''];
+    expect((await patch(created.code, guest.body.seatToken, { seat: 1, scores: beforeDisconnect })).status).toBe(200);
+
+    // A reconnect carries no credentials while reading. The locally persisted
+    // seat token is only sent again when that seat resumes mutating its score.
+    const reconnected = await SELF.fetch(`https://worker.test/room/${created.code}`);
+    expect(reconnected.status).toBe(200);
+    expect((await reconnected.json()).seats[1].scores).toEqual(beforeDisconnect);
+
+    const afterReconnect = [5, 4, 3, '', '', '', '', '', ''];
+    expect((await patch(created.code, guest.body.seatToken, { seat: 1, scores: afterReconnect })).status).toBe(200);
+    const finalState = await (await SELF.fetch(`https://worker.test/room/${created.code}`)).json();
+    expect(finalState.seats[1].scores).toEqual(afterReconnect);
+  });
+
   it('preserves concurrent bet responses and enforces cancellation authority', async () => {
     const created = await createRoom(3);
     const seat1 = await claim(created.code, 1);
