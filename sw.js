@@ -2,6 +2,7 @@ const CACHE = 'golf-v16'; // bump on each deploy
 const SHELL = [
   './',
   './index.html',
+  './src/scoring.js',
   './manifest.json',
   './icon-192.png',
   './icon-512.png',

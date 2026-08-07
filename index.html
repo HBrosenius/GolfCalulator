@@ -11,6 +11,7 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Poängbogey">
+<script src="src/scoring.js"></script>
 <script>
 // Apply saved/system theme before first paint to avoid a flash of the wrong theme.
 (function() {
@@ -1946,9 +1947,7 @@ function goToStep3Players() {
 // STEP 3 – Players
 // ============================================================
 function calcPlayingHandicap(hi, slope, cr, par, holes) {
-  const ph = hi * (slope / 113) + (cr - par);
-  const ph18 = Math.round(ph);
-  return holes === 9 ? Math.round(ph18 / 2) : ph18;
+  return GolfScoring.calculatePlayingHandicap(hi, slope, cr, par, holes);
 }
 
 // ── Per-player tees ──────────────────────────────────────────
@@ -2120,13 +2119,11 @@ function assignTeam(playerIdx, team) {
 }
 
 function calcScrambleHandicap(hi1, hi2) {
-  const lo = Math.min(hi1, hi2);
-  const hi = Math.max(hi1, hi2);
-  return Math.round(lo * 0.5 + hi * 0.4);
+  return GolfScoring.calculateScrambleHandicap(hi1, hi2);
 }
 
 function calcFoursomeHandicap(ph1, ph2) {
-  return Math.round((ph1 + ph2) / 2);
+  return GolfScoring.calculateFoursomeHandicap(ph1, ph2);
 }
 
 function buildTeamInfo() {
@@ -2197,11 +2194,7 @@ function updatePlayerPH(p) {
 // STEP 4 – Score table
 // ============================================================
 function strokesOnHole(ph, si, totalHoles) {
-  // 9-hole courses use 18-hole SI numbering (1,3,5...17) — convert to rank 1-9
-  const rank = totalHoles === 9 ? Math.ceil(si / 2) : si;
-  let s = Math.floor(ph / totalHoles);
-  if (rank <= (ph % totalHoles)) s++;
-  return s;
+  return GolfScoring.strokesOnHole(ph, si, totalHoles);
 }
 
 function goToStep4Score() {
@@ -2637,31 +2630,7 @@ function setLdPlayer(v) {
 // Match play (1v1): compare the two subjects' per-hole net points.
 // Returns { winnerIdx, text, aWon, bWon, halved, playedHoles }.
 function computeMatchResult(results) {
-  const A = results[0], B = results[1];
-  if (!A || !B) return null;
-  const n = Math.min(A.rows.length, B.rows.length);
-  const seq = [];
-  for (let i = 0; i < n; i++) {
-    const ra = A.rows[i], rb = B.rows[i];
-    if (ra.skipped || rb.skipped) continue;
-    seq.push(ra.pts > rb.pts ? 1 : (ra.pts < rb.pts ? -1 : 0));
-  }
-  let lead = 0, winnerIdx = null, text = 'Delad match', decidedAt = seq.length;
-  for (let k = 0; k < seq.length; k++) {
-    lead += seq[k];
-    const rem = seq.length - (k + 1);
-    if (Math.abs(lead) > rem) {
-      winnerIdx = lead > 0 ? 0 : 1;
-      text = rem > 0 ? `${Math.abs(lead)}&${rem}` : `${Math.abs(lead)} upp`;
-      decidedAt = k + 1;
-      break;
-    }
-  }
-  const decided = seq.slice(0, decidedAt);
-  const aWon = decided.filter(x => x > 0).length;
-  const bWon = decided.filter(x => x < 0).length;
-  const halved = decided.filter(x => x === 0).length;
-  return { winnerIdx, text, aWon, bWon, halved, playedHoles: seq.length };
+  return GolfScoring.calculateMatchPlayResult(results);
 }
 
 function matchResultText(results) {
@@ -2677,7 +2646,7 @@ function calcLivePts(p, i, score) {
   const ph  = (isSharedScoreMode(state.gameMode) ? state.teams : state.players)[p].playingHandicap;
   const strokes = strokesOnHole(ph, si, state.holes);
   const netto = score - strokes;
-  return Math.max(0, par + 2 - netto);
+  return GolfScoring.calculateStablefordPoints(score, par, strokes);
 }
 
 function updateLiveLeader() {
@@ -2918,7 +2887,7 @@ function calculateAll() {
         continue;
       }
       const netto = score - strokes;
-      const pts   = Math.max(0, par + 2 - netto);
+      const pts   = GolfScoring.calculateStablefordPoints(score, par, strokes);
       totalPoints += pts;
       totalBrutto += score;
       rows.push({ h: i+1, par, si, strokes, score, netto, pts, skipped: false });
@@ -2940,7 +2909,6 @@ function applyFourballTeamScoring(results) {
   ['A','B'].forEach(team => {
     const memberIdxs = results.map((_, p) => p).filter(p => teamOf(p) === team);
     if (memberIdxs.length === 0) return;
-    let teamTotal = 0;
     for (let i = 0; i < state.holes; i++) {
       let holeBest = -1;
       memberIdxs.forEach(p => {
@@ -2952,8 +2920,10 @@ function applyFourballTeamScoring(results) {
         const row = results[p].rows[i];
         row.countsForTeam = !row.skipped && row.pts === holeBest;
       });
-      teamTotal += holeBest;
     }
+    const teamTotal = GolfScoring.calculateFourballTeamPoints(
+      memberIdxs.map(p => results[p].rows.map(row => row.skipped ? null : row.pts))
+    );
     memberIdxs.forEach(p => {
       results[p].totalPoints = teamTotal;
       results[p].teamId = team;

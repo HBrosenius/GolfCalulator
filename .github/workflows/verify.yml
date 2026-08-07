@@ -1,0 +1,33 @@
+name: Verify
+
+on:
+  workflow_call:
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: verify-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Scoring, Worker and browser
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            sync-worker/package-lock.json
+      - run: npm ci
+      - run: npm ci --prefix sync-worker
+      - run: npm run test:unit
+      - run: npx playwright install --with-deps chromium
+      - run: npm run test:browser
+      - run: npx wrangler deploy --dry-run
+        working-directory: sync-worker

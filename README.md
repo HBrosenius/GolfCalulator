@@ -226,6 +226,7 @@ Håldata valideras innan rundan startar: varje hål måste ha par och ett unikt 
 ## Teknisk info
 
 - Ren HTML/CSS/JavaScript — inga beroenden eller byggsteg
+- Kärnlogiken för spelhandicap, slagfördelning, poängbogey och matchspel ligger i `src/scoring.js`. `npm test` kör poäng-, Worker- och webbläsartester lokalt.
 - All data sparas lokalt i webbläsarens `localStorage`:
   - `golf_courses_db` — bandata
   - `golf_rounds_db` — rundhistorik
