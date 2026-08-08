@@ -110,7 +110,7 @@ test('a shared tour invitation lets the contributor select any tour player', asy
   const tour = {
     protocolVersion: 2, schemaVersion: 1, revision: 1,
     name: 'Delad sommartour', startDate: '2026-06-01', endDate: '2026-08-31', status: 'open',
-    bestOfN: null, duplicateCourseRule: 'best', contributorCount: 1, rounds: [],
+    bestOfN: 2, duplicateCourseRule: 'first', contributorCount: 1, rounds: [],
     members: [{ id: 'member-ada', name: 'Ada', hi: 18 }, { id: 'member-bo', name: 'Bo', hi: 12 }],
     courses: [{
       id: 'course-1', name: 'Delad bana', holes: 9, maxRounds: 1,
@@ -138,6 +138,11 @@ test('a shared tour invitation lets the contributor select any tour player', asy
   await page.goto(`/index.html#tour=${code}&invite=${invitationToken}`);
   await expect(page.locator('#tourView')).toBeVisible();
   await expect(page.locator('#tourContent')).toContainText('Delad sommartour');
+  await expect(page.locator('#tourContent')).toContainText('Villkor');
+  await expect(page.locator('#tourContent')).toContainText('2026-06-01 – 2026-08-31');
+  await expect(page.locator('#tourContent')).toContainText('Spelarens bästa 2 rundor');
+  await expect(page.locator('#tourContent')).toContainText('De första rundorna upp till banans gräns räknas');
+  await expect(page.locator('#tourContent')).toContainText('Individuellt, bästboll och matchspel');
   await expect(page.locator('#tourContent')).toContainText('Inkluderade banor');
   await expect(page.locator('#tourContent')).toContainText('Delad bana');
   await expect(page.locator('#tourContent')).toContainText('9 hål · tee Gul · högst 1 runda räknas');

@@ -231,6 +231,13 @@
     font-size: 0.8rem; font-weight: 700; cursor: pointer;
   }
   .tour-revoke-btn:hover { background: color-mix(in srgb, var(--danger) 10%, var(--card)); }
+  .tour-condition-list { display: grid; gap: 7px; }
+  .tour-condition-row {
+    display: grid; grid-template-columns: 24px 1fr; gap: 8px; align-items: start;
+    padding: 9px 10px; border-radius: 8px; background: var(--bg); border: 1px solid var(--border);
+    font-size: 0.84rem; line-height: 1.35;
+  }
+  .tour-condition-row strong { color: var(--heading); }
 
   /* Score table */
   .score-table-wrap {
@@ -4893,6 +4900,11 @@ function renderSharedTourDetail(code) {
     return `<div class="hi-row"><strong>${escapeHtml(course.name)}</strong><br>
       <span style="color:var(--muted);font-size:0.8rem;">${course.holes} hål · tee ${tees || 'saknas'}${roundLimit}</span></div>`;
   }).join('');
+  const conditionRows = `
+    <div class="tour-condition-row"><span>📅</span><div><strong>Spelperiod</strong><br>${tour.startDate} – ${tour.endDate}</div></div>
+    <div class="tour-condition-row"><span>⭐</span><div><strong>Rundor som räknas</strong><br>${tour.bestOfN ? `Spelarens bästa ${tour.bestOfN} rundor` : 'Alla godkända rundor'}</div></div>
+    <div class="tour-condition-row"><span>🔁</span><div><strong>Fler rundor på samma bana</strong><br>${tour.duplicateCourseRule === 'first' ? 'De första rundorna upp till banans gräns räknas' : 'De bästa rundorna upp till banans gräns räknas'}</div></div>
+    <div class="tour-condition-row"><span>🏌️</span><div><strong>Godkända spelformer</strong><br>Individuellt, bästboll och matchspel</div></div>`;
   const activeContributors = (record.contributors || []).filter(contributor => !contributor.revokedAt)
     .sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
   const contributorRows = activeContributors.map(contributor => {
@@ -4920,6 +4932,7 @@ function renderSharedTourDetail(code) {
       ${tour.status === 'open' ? `<button class="btn" style="flex:1;" onclick="startSharedTourRound('${escapeHtml(record.code)}')">+ Ny tourrunda</button>` : '<span style="color:var(--muted);">Touren är avslutad</span>'}
       ${record.role === 'organizer' ? `<button class="btn secondary" style="flex:1;" onclick="shareSharedTourInvitation('${escapeHtml(record.code)}')">🔗 Bjud in</button>` : ''}
     </div>
+    <div class="card-title" style="margin-top:16px;">Villkor</div><div class="tour-condition-list">${conditionRows}</div>
     <div class="card-title" style="margin-top:16px;">Inkluderade banor</div>${courseRows || '<p style="color:var(--muted);font-size:0.85rem;">Inga banor har lagts till.</p>'}
     <div class="card-title" style="margin-top:16px;">Tourspelare</div>
     ${(tour.members || []).map(member => `<div class="hi-row"><strong>${escapeHtml(member.name)}</strong><span style="float:right;color:var(--muted);">HCP ${member.hi}</span></div>`).join('') || '<p>Inga deltagare.</p>'}
