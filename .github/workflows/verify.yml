@@ -26,8 +26,5 @@ jobs:
             sync-worker/package-lock.json
       - run: npm ci
       - run: npm ci --prefix sync-worker
-      - run: npm run test:unit
       - run: npx playwright install --with-deps chromium
-      - run: npm run test:browser
-      - run: npm run check
-        working-directory: sync-worker
+      - run: npm run verify

@@ -221,6 +221,16 @@ Kärnlogiken ligger i fristående moduler under `src/`: poängberäkning, lokal 
 
 Kör hela testsviten med `npm test`. Den omfattar regel- och lagringstester, Worker-tester, återanslutning till live-rundor, export/import och migrering samt webbläsartester av en komplett sparad runda, offline-återladdning och säkra PWA-uppgraderingar.
 
+Inför en release körs `npm run verify:release`. Kommandot kör hela testsviten, validerar Worker-konfigurationen med en torrkörning och kontrollerar båda beroendeträden efter kända sårbarheter. Första gången behövs `npm ci`, `npm ci --prefix sync-worker` och `npx playwright install chromium`.
+
+### Checklista efter driftsättning
+
+1. Kontrollera att Worker-endpointens `/health` svarar med `ok`.
+2. Öppna den installerade appen och ladda om den offline.
+3. Skapa en live-runda och anslut från en andra enhet; registrera resultat och kontrollera att score, markör och anteckning synkas åt båda håll.
+4. Avsluta rundan och kontrollera att den finns i historiken på värdens enhet.
+5. Exportera och återimportera en säkerhetskopia samt kontrollera att spelarkopplingar och historik finns kvar efter ett namnbyte.
+
 ## Kom igång
 
 1. Ladda ner `index.html`
