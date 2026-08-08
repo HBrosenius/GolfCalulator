@@ -1,6 +1,7 @@
 name: Deploy sync-worker
 
 on:
+  workflow_dispatch:
   push:
     branches: [main]
     paths:
@@ -10,7 +11,6 @@ on:
 jobs:
   deploy:
     needs: verify
-    if: github.event_name == 'push'
     runs-on: ubuntu-latest
     defaults:
       run:
