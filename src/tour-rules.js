@@ -135,7 +135,7 @@
     if (!course) throw new Error('Round course is not in the shared tour');
     const links = sharedRecord.memberLinks || {};
     const subjects = (round.subjects || []).map(subject => {
-      const memberId = links[subject.playerId];
+      const memberId = subject.memberId || links[subject.playerId];
       if (!memberId) return null;
       const teeName = subject.tee || round.tee;
       if (!course.tees.some(tee => tee.name === teeName)) throw new Error(`Round tee is not in the shared tour: ${teeName}`);

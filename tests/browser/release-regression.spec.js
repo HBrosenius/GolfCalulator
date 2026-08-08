@@ -102,7 +102,7 @@ test('a live joiner can link their seat to a local saved player', async ({ page 
   expect(linked).toEqual({ playerId: 42, slotId: 42, selectorVisible: true });
 });
 
-test('a shared tour invitation links a local member and starts a connected round', async ({ page }) => {
+test('a shared tour invitation lets the contributor select any tour player', async ({ page }) => {
   const code = 'ABCD2345';
   const invitationToken = 'A'.repeat(43);
   const contributorToken = 'B'.repeat(43);
@@ -110,7 +110,7 @@ test('a shared tour invitation links a local member and starts a connected round
     protocolVersion: 2, schemaVersion: 1, revision: 1,
     name: 'Delad sommartour', startDate: '2026-06-01', endDate: '2026-08-31', status: 'open',
     bestOfN: null, duplicateCourseRule: 'best', contributorCount: 1, rounds: [],
-    members: [{ id: 'member-ada', name: 'Ada', hi: 18 }],
+    members: [{ id: 'member-ada', name: 'Ada', hi: 18 }, { id: 'member-bo', name: 'Bo', hi: 12 }],
     courses: [{
       id: 'course-1', name: 'Delad bana', holes: 9, maxRounds: 1,
       tees: [{ name: 'Gul', slope: 113, cr: 36, par: 36, hpar: Array(9).fill(4), si: [1,2,3,4,5,6,7,8,9] }],
@@ -134,16 +134,27 @@ test('a shared tour invitation links a local member and starts a connected round
   await expect(page.locator('#tourContent')).toContainText('Inkluderade banor');
   await expect(page.locator('#tourContent')).toContainText('Delad bana');
   await expect(page.locator('#tourContent')).toContainText('9 hål · tee Gul · högst 1 runda räknas');
-  await expect(page.locator('#tourContent select')).toHaveValue('42');
+  await expect(page.locator('#tourContent')).toContainText('Ada');
+  await expect(page.locator('#tourContent')).toContainText('Bo');
+  await expect(page.locator('#tourContent')).not.toContainText('Spelarkoppling på denna enhet');
   await expect.poll(() => page.evaluate(() => location.hash)).toBe('');
 
   await page.getByRole('button', { name: '+ Ny tourrunda' }).click();
+  await page.evaluate(() => {
+    buildPlayerCards();
+    document.getElementById('step3').classList.remove('hidden');
+  });
+  await page.locator('#ppicker_0').selectOption('member-bo');
   const context = await page.evaluate(() => ({
     tourCode: state.tourContext?.code,
     savedCourse: dbFind('Delad bana', 'Gul', 9),
+    selectedMemberId: state.playerMemberIds[0],
+    selectedName: document.getElementById('pname_0').value,
+    selectedHi: document.getElementById('phi_0').value,
   }));
   expect(context.tourCode).toBe(code);
   expect(context.savedCourse).toMatchObject({ name: 'Delad bana', tee: 'Gul', holes: 9 });
+  expect(context).toMatchObject({ selectedMemberId: 'member-bo', selectedName: 'Bo', selectedHi: '12' });
 });
 
 test('an invited contributor saves and synchronizes a completed tour round', async ({ page }) => {

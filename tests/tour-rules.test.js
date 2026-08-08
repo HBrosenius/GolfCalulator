@@ -105,6 +105,20 @@ test('saved rounds serialize with linked tour-member IDs and per-player tees', (
   assert.equal(payload.subjects[0].teeName, 'Gul');
 });
 
+test('shared rounds use authoritative member IDs without device-specific player links', () => {
+  const rows = Array.from({ length: 9 }, (_, index) => ({
+    h: index + 1, par: 4, si: index + 1, strokes: 1, score: 5, netto: 4, pts: 2, skipped: false,
+  }));
+  const payload = tours.buildRoundSubmission({
+    id: 'round-direct', date: '2026-07-01', courseName: 'Binga', holes: 9, tee: 'Gul', gameMode: 'individual',
+    subjects: [{ memberId: 'member-2', name: 'Bo', tee: 'Gul', totalPoints: 18, totalBrutto: 45, rows }],
+  }, {
+    tour: { courses: [{ id: 'course-1', name: 'Binga', holes: 9, tees: [{ name: 'Gul' }] }] },
+    memberLinks: {},
+  });
+  assert.equal(payload.subjects[0].memberId, 'member-2');
+});
+
 test('shared server rounds feed the same standings rules', () => {
   const standings = tours.computeSharedStandings({
     startDate: '2026-06-01', endDate: '2026-08-31', bestOfN: null, duplicateCourseRule: 'best',
