@@ -211,6 +211,12 @@
   .btn:hover { background: var(--green-light); }
   .btn.secondary { background: white; color: var(--green); border: 1.5px solid var(--green); }
   .btn.secondary:hover { background: var(--bg); }
+  .tour-admin-actions { display: grid; gap: 8px; margin-top: 10px; }
+  .tour-admin-actions .btn { margin-top: 0; text-align: left; }
+  .tour-admin-invite { background: var(--green); color: white; border: 1.5px solid var(--green); }
+  .tour-admin-invite:hover { background: var(--green-light); }
+  .tour-admin-complete { background: var(--card); color: var(--danger); border: 1.5px solid var(--danger); }
+  .tour-admin-complete:hover { background: color-mix(in srgb, var(--danger) 10%, var(--card)); }
 
   /* Score table */
   .score-table-wrap {
@@ -4886,9 +4892,9 @@ function renderSharedTourDetail(code) {
   const organizerControls = record.role === 'organizer' ? `
     <div class="card-title" style="margin-top:16px;">Administration</div>
     ${contributorRows || '<p style="color:var(--muted);font-size:0.85rem;">Inga inbjudna enheter ännu.</p>'}
-    <div style="display:flex;gap:8px;margin-top:8px;">
-      <button class="btn secondary" style="flex:1;" onclick="rotateSharedTourInvitation('${escapeHtml(record.code)}')">Byt inbjudningslänk</button>
-      ${tour.status === 'open' ? `<button class="btn secondary" style="flex:1;" onclick="completeSharedTour('${escapeHtml(record.code)}')">Avsluta touren</button>` : ''}
+    <div class="tour-admin-actions">
+      <button class="btn tour-admin-invite" onclick="rotateSharedTourInvitation('${escapeHtml(record.code)}')">🔄 Skapa ny inbjudningslänk</button>
+      ${tour.status === 'open' ? `<button class="btn tour-admin-complete" onclick="completeSharedTour('${escapeHtml(record.code)}')">✓ Avsluta touren</button>` : ''}
     </div>` : '';
   el.innerHTML = `
     <button class="btn secondary" style="margin-bottom:12px;" onclick="_tourViewMode='list';renderTourView();">← Alla tourer</button>

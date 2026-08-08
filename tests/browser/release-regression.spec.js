@@ -196,6 +196,39 @@ test('an invited contributor saves and synchronizes a completed tour round', asy
   expect(authorization).toBe(`Bearer ${token}`);
 });
 
+test('shared tour organizer actions remain readable on a dark mobile screen', async ({ page }) => {
+  await page.setViewportSize({ width: 360, height: 740 });
+  await page.goto('/index.html');
+  await page.evaluate(() => {
+    document.documentElement.setAttribute('data-theme', 'dark');
+    sharedTourStore.upsert({
+      code: 'ABCD2345', role: 'organizer', token: 'A'.repeat(43), invitationToken: 'B'.repeat(43),
+      tour: {
+        name: 'Mörk tour', startDate: '2026-06-01', endDate: '2026-08-31', status: 'open', rounds: [],
+        members: [{ id: 'member-1', name: 'Ada', hi: 18 }],
+        courses: [{ id: 'course-1', name: 'Testbanan', holes: 9, maxRounds: 1, tees: [{ name: 'Gul' }] }],
+      },
+      contributors: [], memberLinks: {}, pendingSubmissions: [],
+    });
+    openSharedTourDetail('ABCD2345');
+  });
+
+  const rotate = page.getByRole('button', { name: '🔄 Skapa ny inbjudningslänk' });
+  const complete = page.getByRole('button', { name: '✓ Avsluta touren' });
+  await expect(rotate).toBeVisible();
+  await expect(complete).toBeVisible();
+  const styles = await page.locator('.tour-admin-actions').evaluate(element => {
+    const buttons = [...element.querySelectorAll('button')];
+    return {
+      columns: getComputedStyle(element).gridTemplateColumns.split(' ').length,
+      colors: buttons.map(button => ({ background: getComputedStyle(button).backgroundColor, color: getComputedStyle(button).color })),
+    };
+  });
+  expect(styles.columns).toBe(1);
+  expect(styles.colors[0]).not.toEqual(styles.colors[1]);
+  expect(styles.colors.every(style => style.background !== style.color)).toBe(true);
+});
+
 test('installed PWA reloads offline and defers an upgrade during an active round', async ({ page, context }) => {
   await page.goto('/index.html');
   await page.evaluate(() => localStorage.clear());
