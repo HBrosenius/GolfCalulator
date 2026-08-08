@@ -12,9 +12,20 @@ decisions, preventing lost-update races. Tokens are generated with Web Crypto,
 stored as SHA-256 hashes, and compared in constant time. Rooms expire after
 24 hours through a Durable Object alarm.
 
+Shared tours use a separate Durable Object namespace. An organizer publishes
+the immutable roster/course configuration, invitation links are exchanged for
+revocable per-device contributor tokens, and accepted rounds are recomputed
+server-side and deduplicated by their client round ID.
+
 See `src/index.js` for the endpoints (`POST /room`, `GET /room/:code`,
 `PATCH /room/:code`, `POST /room/:code/claim`, `POST /room/:code/bets`,
 `POST /room/:code/bets/:id/respond`, `POST /room/:code/bets/:id/cancel`).
+
+Tour endpoints are `POST /tour`, `GET /tour/:code`, `POST /tour/:code/join`,
+`GET /tour/:code/access`, `POST /tour/:code/rounds`, and the organizer-only
+`GET /tour/:code/manage`, `POST /tour/:code/rotate-invitation`,
+`POST /tour/:code/complete`, and
+`POST /tour/:code/contributors/:id/revoke`.
 
 ## Authorization
 
@@ -26,6 +37,8 @@ See `src/index.js` for the endpoints (`POST /room`, `GET /room/:code`,
   cancellation of any pending bet.
 - Public room responses expose only `claimed: true|false`, never credentials or
   internal ownership identifiers.
+- Public tour responses never expose token hashes. Invitation secrets are used
+  only for joining; organizer and contributor bearer tokens authorize changes.
 
 Every mutation sends `X-Golf-Protocol: 2` and includes `protocolVersion: 2` in
 its bounded JSON body.

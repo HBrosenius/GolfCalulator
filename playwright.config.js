@@ -13,7 +13,7 @@ module.exports = defineConfig({
     { name: 'chromium', use: { ...devices['Desktop Chrome'], channel: 'chromium' } },
   ],
   webServer: {
-    command: 'python3 -m http.server 8765 --bind 127.0.0.1',
+    command: 'node tests/browser/server.js',
     url: 'http://127.0.0.1:8765/index.html',
     reuseExistingServer: !process.env.CI,
     timeout: 15_000,

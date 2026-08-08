@@ -85,3 +85,35 @@ test('shared serialization fails if roster or course definitions are incomplete'
   assert.throws(() => tours.buildSharedTourCreate({ ...tour, roster: [1, 99] }, players, []), /unknown player/);
   assert.throws(() => tours.buildSharedTourCreate(tour, players, []), /no saved tee/);
 });
+
+test('saved rounds serialize with linked tour-member IDs and per-player tees', () => {
+  const rows = Array.from({ length: 18 }, (_, index) => ({
+    h: index + 1, par: 4, si: index + 1, strokes: 1, score: 5, netto: 4, pts: 2, skipped: false,
+  }));
+  const payload = tours.buildRoundSubmission({
+    id: 123, date: '2026-07-01', courseName: 'Banan', holes: 18, tee: 'Gul', gameMode: 'individual',
+    subjects: [
+      { playerId: 1, tee: 'Gul', totalPoints: 36, totalBrutto: 90, rows },
+      { playerId: 3, tee: 'Gul', totalPoints: 36, totalBrutto: 90, rows },
+    ],
+  }, {
+    memberLinks: { 1: 'member-1' },
+    tour: { courses: [{ id: 'course-1', name: 'Banan', holes: 18, tees: [{ name: 'Gul' }] }] },
+  });
+  assert.equal(payload.clientRoundId, '123');
+  assert.deepEqual(payload.subjects.map(subject => subject.memberId), ['member-1']);
+  assert.equal(payload.subjects[0].teeName, 'Gul');
+});
+
+test('shared server rounds feed the same standings rules', () => {
+  const standings = tours.computeSharedStandings({
+    startDate: '2026-06-01', endDate: '2026-08-31', bestOfN: null, duplicateCourseRule: 'best',
+    members: [{ id: 'm1', name: 'Ada', hi: 12 }, { id: 'm2', name: 'Bo', hi: 8 }],
+    courses: [{ id: 'c1', name: 'Banan', holes: 18, maxRounds: 1 }],
+    rounds: [{
+      id: 'r1', playedDate: '2026-07-01', courseName: 'Banan', holes: 18, gameMode: 'individual',
+      subjects: [{ memberId: 'm1', name: 'Ada', totalPoints: 36 }, { memberId: 'm2', name: 'Bo', totalPoints: 35 }],
+    }],
+  });
+  assert.deepEqual(standings.map(row => [row.player.name, row.total]), [['Ada', 36], ['Bo', 35]]);
+});

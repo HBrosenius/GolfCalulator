@@ -47,6 +47,19 @@
         }),
       }),
       access: (code, token) => jsonRequest(`/tour/${String(code).toUpperCase()}/access`, { headers: headers(token) }),
+      manage: (code, token) => jsonRequest(`/tour/${String(code).toUpperCase()}/manage`, { headers: headers(token) }),
+      rotateInvitation: (code, token) => jsonRequest(`/tour/${String(code).toUpperCase()}/rotate-invitation`, {
+        method: 'POST', headers: headers(token), body: JSON.stringify({ protocolVersion: PROTOCOL_VERSION, schemaVersion: SCHEMA_VERSION }),
+      }),
+      complete: (code, token) => jsonRequest(`/tour/${String(code).toUpperCase()}/complete`, {
+        method: 'POST', headers: headers(token), body: JSON.stringify({ protocolVersion: PROTOCOL_VERSION, schemaVersion: SCHEMA_VERSION }),
+      }),
+      revokeContributor: (code, token, contributorId) => jsonRequest(`/tour/${String(code).toUpperCase()}/contributors/${contributorId}/revoke`, {
+        method: 'POST', headers: headers(token), body: JSON.stringify({ protocolVersion: PROTOCOL_VERSION, schemaVersion: SCHEMA_VERSION }),
+      }),
+      submitRound: (code, token, payload) => jsonRequest(`/tour/${String(code).toUpperCase()}/rounds`, {
+        method: 'POST', headers: headers(token), body: JSON.stringify(payload),
+      }),
     });
   }
 
@@ -82,7 +95,53 @@
       return save(load().filter(record => record.code !== String(code).toUpperCase()));
     }
 
-    return Object.freeze({ load, upsert, find, remove });
+    function queueSubmission(code, payload) {
+      const record = find(code);
+      if (!record) return false;
+      const pending = Array.isArray(record.pendingSubmissions) ? record.pendingSubmissions.slice() : [];
+      const index = pending.findIndex(item => item.payload.clientRoundId === payload.clientRoundId);
+      const queued = { payload, attempts: index >= 0 ? pending[index].attempts : 0, lastError: null };
+      if (index >= 0) pending[index] = queued;
+      else pending.push(queued);
+      return upsert({ ...record, pendingSubmissions: pending });
+    }
+
+    function updateSubmission(code, clientRoundId, patch) {
+      const record = find(code);
+      if (!record) return false;
+      const pending = (record.pendingSubmissions || []).map(item =>
+        item.payload.clientRoundId === clientRoundId ? { ...item, ...patch } : item);
+      return upsert({ ...record, pendingSubmissions: pending });
+    }
+
+    function completeSubmission(code, clientRoundId, tour) {
+      const record = find(code);
+      if (!record) return false;
+      const pending = (record.pendingSubmissions || []).filter(item => item.payload.clientRoundId !== clientRoundId);
+      return upsert({ ...record, tour: tour || record.tour, pendingSubmissions: pending });
+    }
+
+    return Object.freeze({ load, upsert, find, remove, queueSubmission, updateSubmission, completeSubmission });
+  }
+
+  async function flushPending(store, client) {
+    const results = [];
+    for (const record of store.load()) {
+      for (const queued of record.pendingSubmissions || []) {
+        try {
+          const response = await client.submitRound(record.code, record.token, queued.payload);
+          store.completeSubmission(record.code, queued.payload.clientRoundId, response.tour);
+          results.push({ code: record.code, clientRoundId: queued.payload.clientRoundId, ok: true, response });
+        } catch (error) {
+          store.updateSubmission(record.code, queued.payload.clientRoundId, {
+            attempts: (queued.attempts || 0) + 1,
+            lastError: error.message || 'Synchronization failed',
+          });
+          results.push({ code: record.code, clientRoundId: queued.payload.clientRoundId, ok: false, error });
+        }
+      }
+    }
+    return results;
   }
 
   function invitationFragment(code, invitationToken) {
@@ -103,6 +162,6 @@
 
   return Object.freeze({
     DEFAULT_BASE_URL, PROTOCOL_VERSION, SCHEMA_VERSION, STORE_KEY,
-    createClient, createStore, invitationFragment, parseInvitationFragment,
+    createClient, createStore, flushPending, invitationFragment, parseInvitationFragment,
   });
 }));

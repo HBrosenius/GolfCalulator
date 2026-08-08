@@ -97,6 +97,15 @@ Under Spelarregister → **🚌 Tour** kan du sätta upp en tour för ett fast s
 - **Avsluta touren** manuellt, eller låt den stänga automatiskt när slutdatumet passerats — vinnaren är den med mest totalpoäng; vid lika poäng vinner den med lägst handicapindex (svårare att nå samma poängsumma med lägre hcp)
 - En borttagen tour påverkar inte de sparade rundorna — de finns kvar i Rundhistorik som vanligt
 
+### Delad tour och gemensam liverapportering
+
+En lokal tour kan publiceras med **Dela tour online**. Det skapar en fristående delad kopia och en inbjudningslänk. Befintliga lokala tourer ändras inte automatiskt; publiceringen är den uttryckliga migreringen och de gamla lokala rundorna ligger kvar orörda.
+
+- Alla som öppnar inbjudningslänken får en egen enhetsbehörighet och kan starta, spela och spara rundor kopplade till touren. Resultaten valideras av servern och visas i samma ställning för alla.
+- Sparade resultat köas lokalt om nätet saknas och skickas igen automatiskt. Samma runda kan därför inte råka registreras två gånger vid återförsök.
+- Organisatören kan kopiera eller byta inbjudningslänk, se och återkalla inbjudna enheter samt avsluta touren. Efter avslut kan inga fler resultat läggas till.
+- Spelarkopplingen mellan tourdeltagare och lokala spelarprofiler görs per enhet. Vanliga säkerhetskopior innehåller inte tourens hemliga organisations- eller enhetsnycklar; de ligger bara på den enhet där länken öppnades eller touren publicerades.
+
 ## Live-poäng och ledartavla
 
 - **Poäng per hål** visas direkt under scoreinmatningen (färgkodad: bogey/par/birdie/eagle)

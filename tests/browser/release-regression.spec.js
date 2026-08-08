@@ -102,6 +102,97 @@ test('a live joiner can link their seat to a local saved player', async ({ page 
   expect(linked).toEqual({ playerId: 42, slotId: 42, selectorVisible: true });
 });
 
+test('a shared tour invitation links a local member and starts a connected round', async ({ page }) => {
+  const code = 'ABCD2345';
+  const invitationToken = 'A'.repeat(43);
+  const contributorToken = 'B'.repeat(43);
+  const tour = {
+    protocolVersion: 2, schemaVersion: 1, revision: 1,
+    name: 'Delad sommartour', startDate: '2026-06-01', endDate: '2026-08-31', status: 'open',
+    bestOfN: null, duplicateCourseRule: 'best', contributorCount: 1, rounds: [],
+    members: [{ id: 'member-ada', name: 'Ada', hi: 18 }],
+    courses: [{
+      id: 'course-1', name: 'Delad bana', holes: 9, maxRounds: 1,
+      tees: [{ name: 'Gul', slope: 113, cr: 36, par: 36, hpar: Array(9).fill(4), si: [1,2,3,4,5,6,7,8,9] }],
+    }],
+  };
+  await page.addInitScript(() => {
+    localStorage.clear();
+    localStorage.setItem('golf_players_db', JSON.stringify([{ id: 42, name: 'Ada', nick: 'Ace', hi: 18 }]));
+  });
+  await page.route(`**/tour/${code}/join`, route => route.fulfill({
+    status: 200, contentType: 'application/json',
+    body: JSON.stringify({ tour, contributorId: 'contributor-1', contributorToken }),
+  }));
+  await page.route(`**/tour/${code}`, route => route.fulfill({
+    status: 200, contentType: 'application/json', body: JSON.stringify(tour),
+  }));
+
+  await page.goto(`/index.html#tour=${code}&invite=${invitationToken}`);
+  await expect(page.locator('#tourView')).toBeVisible();
+  await expect(page.locator('#tourContent')).toContainText('Delad sommartour');
+  await expect(page.locator('#tourContent select')).toHaveValue('42');
+  await expect.poll(() => page.evaluate(() => location.hash)).toBe('');
+
+  await page.getByRole('button', { name: '+ Ny tourrunda' }).click();
+  const context = await page.evaluate(() => ({
+    tourCode: state.tourContext?.code,
+    savedCourse: dbFind('Delad bana', 'Gul', 9),
+  }));
+  expect(context.tourCode).toBe(code);
+  expect(context.savedCourse).toMatchObject({ name: 'Delad bana', tee: 'Gul', holes: 9 });
+});
+
+test('an invited contributor saves and synchronizes a completed tour round', async ({ page }) => {
+  const code = 'ABCD2345';
+  const token = 'B'.repeat(43);
+  const rows = Array.from({ length: 9 }, (_, index) => ({
+    h: index + 1, par: 4, si: index + 1, strokes: 1,
+    score: 5, netto: 4, pts: 2, skipped: false,
+  }));
+  const tour = {
+    revision: 1, name: 'Delad tour', startDate: '2026-01-01', endDate: '2026-12-31', status: 'open',
+    members: [{ id: 'member-ada', name: 'Ada', hi: 18 }], rounds: [],
+    courses: [{ id: 'course-1', name: 'Synkbanan', holes: 9, maxRounds: 1, tees: [{ name: 'Gul' }] }],
+  };
+  let authorization;
+  await page.route(`**/tour/${code}/rounds`, async route => {
+    const request = route.request();
+    authorization = request.headers().authorization;
+    const payload = request.postDataJSON();
+    const serverRound = {
+      id: 'submission-1', clientRoundId: payload.clientRoundId, playedDate: payload.playedDate,
+      courseId: 'course-1', courseName: 'Synkbanan', holes: 9, gameMode: 'individual', subjects: payload.subjects,
+    };
+    await route.fulfill({
+      status: 201, contentType: 'application/json',
+      body: JSON.stringify({ tour: { ...tour, revision: 2, rounds: [serverRound] }, round: serverRound, duplicate: false }),
+    });
+  });
+  await page.goto('/index.html');
+  await page.evaluate(({ code, token, tour, rows }) => {
+    localStorage.clear();
+    sharedTourStore.upsert({
+      code, role: 'contributor', token, tour, memberLinks: { 42: 'member-ada' }, pendingSubmissions: [],
+    });
+    state = {
+      courseName: 'Synkbanan', teeColor: 'Gul', holes: 9, slope: 113, cr: 36, par: 36,
+      hpar: Array(9).fill(4), si: [1,2,3,4,5,6,7,8,9], gameMode: 'individual',
+      note: '', weather: null, markers: { ctp: { hole: null, player: '' }, ld: { hole: null, player: '' } },
+      bets: [], liveRoomCode: null, tourContext: { code, submissionOwner: true },
+    };
+    saveCurrentRound([{
+      subj: { playerId: 42, name: 'Ada', hi: 18, tee: 'Gul', slope: 113, cr: 36, par: 36 },
+      ph: 9, totalPoints: 18, totalBrutto: 45, rows,
+    }]);
+  }, { code, token, tour, rows });
+
+  await expect.poll(() => page.evaluate(() => roundsLoad()[0]?.tourRef?.syncStatus)).toBe('synced');
+  const saved = await page.evaluate(() => roundsLoad()[0]);
+  expect(saved.tourRef.submissionId).toBe('submission-1');
+  expect(authorization).toBe(`Bearer ${token}`);
+});
+
 test('installed PWA reloads offline and defers an upgrade during an active round', async ({ page, context }) => {
   await page.goto('/index.html');
   await page.evaluate(() => localStorage.clear());

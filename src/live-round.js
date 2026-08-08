@@ -39,6 +39,7 @@
       liveRoomCode: settings.code, liveSeat: settings.seat, liveSeatsClaimed: null,
       liveHostToken: null, liveSeatToken: settings.seatToken,
       bets: Array.isArray(room.bets) ? room.bets : [],
+      tourContext: room.tourRef ? { code: room.tourRef.code, submissionOwner: false } : null,
     };
 
     if (shared) {

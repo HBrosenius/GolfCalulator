@@ -1291,7 +1291,7 @@ let state = {
   note: '', weather: null,
   markers: { ctp: { hole: null, player: '' }, ld: { hole: null, player: '' } },
   liveRoomCode: null, liveSeat: null, liveSeatsClaimed: null,
-  liveHostToken: null, liveSeatToken: null, bets: []
+  liveHostToken: null, liveSeatToken: null, bets: [], tourContext: null
 };
 
 // ============================================================
@@ -1301,6 +1301,8 @@ let state = {
 const DB_KEY = 'golf_courses_db';
 const storageDb = GolfStorage.createJsonStore(localStorage);
 const _lsOk = storageDb.available;
+const sharedTourStore = GolfTourSync.createStore(localStorage);
+const sharedTourClient = GolfTourSync.createClient();
 
 function dbLoad() {
   const entries = storageDb.load(DB_KEY, []);
@@ -3201,7 +3203,7 @@ function newRound() {
     playerTees: [],
     note: '', weather: null,
     markers: { ctp: { hole: null, player: '' }, ld: { hole: null, player: '' } },
-    liveRoomCode: null, liveSeat: null, liveHostToken: null, liveSeatToken: null, bets: []
+    liveRoomCode: null, liveSeat: null, liveHostToken: null, liveSeatToken: null, bets: [], tourContext: null
   };
   resetCourseFields();
   try { document.getElementById('holeDataBody').innerHTML = ''; } catch(e) {}
@@ -3407,11 +3409,14 @@ function startLiveRound() {
     players: state.players,
     seatCount: numColumns(),
     markers: state.markers,
+    ...(state.tourContext ? { tourRef: { code: state.tourContext.code } } : {}),
   };
+
+  const sharedTourRecord = state.tourContext ? sharedTourStore.find(state.tourContext.code) : null;
 
   liveSyncClient.request('/room', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: state.tourContext ? liveMutationHeaders(sharedTourRecord?.token) : { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
   })
     .then(r => r.ok ? r.json() : Promise.reject(new Error('http ' + r.status)))
@@ -4082,10 +4087,16 @@ function saveCurrentRound(playerResults) {
     weather: state.weather || null,
     markers: state.markers || { ctp: { hole: null, player: '' }, ld: { hole: null, player: '' } },
     bets: state.bets || [],
+    liveRoomCode: state.liveRoomCode || null,
+    tourRef: state.tourContext ? { code: state.tourContext.code, syncStatus: 'pending' } : null,
     subjects
   };
   if (isEditing) roundUpdate(roundData);
-  else { roundSaveNew(roundData); inprogressClear(); }
+  else {
+    roundSaveNew(roundData);
+    if (state.tourContext && state.tourContext.submissionOwner !== false) queueSharedTourRound(roundData, state.tourContext.code);
+    inprogressClear();
+  }
 }
 
 // ============================================================
@@ -4693,6 +4704,7 @@ function closeTourView() {
 function renderTourView() {
   if (_tourViewMode === 'create') renderTourCreateForm();
   else if (_tourViewMode === 'detail') renderTourDetail(_tourViewActiveId);
+  else if (_tourViewMode === 'shared') renderSharedTourDetail(_tourViewActiveId);
   else renderTourList();
 }
 
@@ -4707,6 +4719,7 @@ function tourAutoCloseIfExpired(tour) {
 
 function renderTourList() {
   const tours = toursLoad().map(tourAutoCloseIfExpired);
+  const sharedTours = sharedTourStore.load();
   const el = document.getElementById('tourContent');
   const rows = tours.map(t => `
     <div class="hi-row" style="cursor:pointer;" onclick="openTourDetail(${t.id})">
@@ -4718,10 +4731,236 @@ function renderTourList() {
         <span style="font-size:0.78rem;padding:3px 8px;border-radius:12px;${t.status === 'open' ? 'background:#e8f5e9;color:var(--heading);' : 'background:#eee;color:var(--muted);'}">${t.status === 'open' ? 'Pågår' : 'Avslutad'}</span>
       </div>
     </div>`).join('');
+  const sharedRows = sharedTours.map(record => `
+    <div class="hi-row" style="cursor:pointer;" onclick="openSharedTourDetail('${escapeHtml(record.code)}')">
+      <div style="display:flex;justify-content:space-between;align-items:center;">
+        <div><strong>🌐 ${escapeHtml(record.tour?.name || record.code)}</strong><br>
+          <span style="font-size:0.8rem;color:var(--muted);">${escapeHtml(record.code)} · ${record.role === 'organizer' ? 'Organisatör' : 'Deltagare'}${(record.pendingSubmissions || []).length ? ` · ${(record.pendingSubmissions || []).length} väntar på synk` : ''}</span>
+        </div>
+        <span style="font-size:0.78rem;padding:3px 8px;border-radius:12px;background:#e3f2fd;color:#1565c0;">Delad</span>
+      </div>
+    </div>`).join('');
   el.innerHTML = `
     <button class="btn" onclick="showTourCreateForm()">+ Ny tour</button>
-    ${tours.length ? rows : '<p style="color:var(--muted);font-size:0.85rem;margin-top:12px;">Inga tourer ännu.</p>'}
+    ${sharedRows ? `<div class="card-title" style="margin-top:16px;">Delade tourer</div>${sharedRows}` : ''}
+    ${rows ? `<div class="card-title" style="margin-top:16px;">Lokala tourer</div>${rows}` : ''}
+    ${!tours.length && !sharedTours.length ? '<p style="color:var(--muted);font-size:0.85rem;margin-top:12px;">Inga tourer ännu.</p>' : ''}
   `;
+}
+
+function automaticSharedMemberLinks(tour) {
+  const links = {};
+  const localPlayers = playersLoad();
+  (tour.members || []).forEach(member => {
+    const matches = localPlayers.filter(player => player.name === member.name || player.nick === member.name);
+    if (matches.length === 1) links[matches[0].id] = member.id;
+  });
+  return links;
+}
+
+async function publishLocalTour(id) {
+  const tour = tourFind(id);
+  if (!tour) return;
+  try {
+    const existing = tour.sharedCode && sharedTourStore.find(tour.sharedCode);
+    if (existing) { await shareSharedTourInvitation(existing.code); return; }
+    const payload = GolfTourRules.buildSharedTourCreate(tour, playersLoad(), dbLoad());
+    const created = await sharedTourClient.create(payload);
+    const memberLinks = {};
+    tour.roster.forEach((playerId, index) => { if (created.tour.members[index]) memberLinks[playerId] = created.tour.members[index].id; });
+    sharedTourStore.upsert({
+      code: created.code, role: 'organizer', token: created.organizerToken,
+      invitationToken: created.invitationToken, tour: created.tour, memberLinks, pendingSubmissions: [],
+    });
+    tour.sharedCode = created.code;
+    tourUpdate(tour);
+    await shareSharedTourInvitation(created.code);
+    openSharedTourDetail(created.code);
+  } catch (error) {
+    alert('Kunde inte dela touren: ' + (error.message || 'nätverksfel'));
+  }
+}
+
+async function shareSharedTourInvitation(code) {
+  const record = sharedTourStore.find(code);
+  if (!record?.invitationToken) { alert('Endast organisatören kan dela inbjudningslänken.'); return; }
+  const url = location.origin + location.pathname + GolfTourSync.invitationFragment(code, record.invitationToken);
+  try { await navigator.clipboard.writeText(url); showShareToast('🔗 Inbjudningslänken är kopierad!'); }
+  catch (_) { prompt('Kopiera inbjudningslänken:', url); }
+}
+
+function openSharedTourDetail(code) {
+  _tourViewMode = 'shared';
+  _tourViewActiveId = String(code).toUpperCase();
+  renderTourView();
+  document.getElementById('playersView').classList.add('hidden');
+  document.getElementById('tourView').classList.remove('hidden');
+  refreshSharedTour(code);
+}
+
+async function refreshSharedTour(code) {
+  const record = sharedTourStore.find(code);
+  if (!record) return;
+  try {
+    const response = record.role === 'organizer'
+      ? await sharedTourClient.manage(code, record.token)
+      : { tour: await sharedTourClient.get(code) };
+    sharedTourStore.upsert({ ...record, tour: response.tour, contributors: response.contributors || record.contributors || [] });
+    if (_tourViewMode === 'shared' && _tourViewActiveId === String(code).toUpperCase()) renderSharedTourDetail(code);
+  } catch (_) {}
+}
+
+async function rotateSharedTourInvitation(code) {
+  const record = sharedTourStore.find(code);
+  if (!record || record.role !== 'organizer') return;
+  if (!confirm('Skapa en ny inbjudningslänk? Den gamla länken slutar fungera.')) return;
+  try {
+    const response = await sharedTourClient.rotateInvitation(code, record.token);
+    sharedTourStore.upsert({ ...record, tour: response.tour, invitationToken: response.invitationToken });
+    await shareSharedTourInvitation(code);
+    renderSharedTourDetail(code);
+  } catch (error) { alert('Kunde inte byta inbjudningslänk: ' + error.message); }
+}
+
+async function revokeSharedTourContributor(code, contributorId) {
+  const record = sharedTourStore.find(code);
+  if (!record || record.role !== 'organizer') return;
+  if (!confirm('Ta bort den här enhetens rätt att registrera rundor?')) return;
+  try {
+    await sharedTourClient.revokeContributor(code, record.token, contributorId);
+    await refreshSharedTour(code);
+  } catch (error) { alert('Kunde inte återkalla åtkomsten: ' + error.message); }
+}
+
+async function completeSharedTour(code) {
+  const record = sharedTourStore.find(code);
+  if (!record || record.role !== 'organizer') return;
+  if (!confirm('Avsluta touren? Inga fler rundor kan registreras.')) return;
+  try {
+    const response = await sharedTourClient.complete(code, record.token);
+    sharedTourStore.upsert({ ...record, tour: response.tour || response });
+    renderSharedTourDetail(code);
+  } catch (error) { alert('Kunde inte avsluta touren: ' + error.message); }
+}
+
+function setSharedMemberLink(code, memberId, localPlayerId) {
+  const record = sharedTourStore.find(code);
+  if (!record) return;
+  const links = { ...(record.memberLinks || {}) };
+  Object.keys(links).forEach(playerId => { if (links[playerId] === memberId) delete links[playerId]; });
+  if (localPlayerId) links[localPlayerId] = memberId;
+  sharedTourStore.upsert({ ...record, memberLinks: links });
+  renderSharedTourDetail(code);
+}
+
+function renderSharedTourDetail(code) {
+  const record = sharedTourStore.find(code);
+  const el = document.getElementById('tourContent');
+  if (!record?.tour) { el.innerHTML = '<p>Den delade touren kunde inte läsas.</p>'; return; }
+  const tour = record.tour;
+  const players = playersLoad();
+  const standings = GolfTourRules.computeSharedStandings(tour);
+  const standingsRows = standings.map((row, index) => `<tr><td>${index + 1}</td><td>${escapeHtml(row.player.name)}</td><td style="text-align:right;">${row.total}p</td><td style="text-align:right;color:var(--muted);">${row.roundsCounted}/${row.roundsPlayed}</td></tr>`).join('');
+  const memberRows = (tour.members || []).map(member => {
+    const selected = Object.keys(record.memberLinks || {}).find(playerId => record.memberLinks[playerId] === member.id) || '';
+    return `<label style="display:block;margin:8px 0;">${escapeHtml(member.name)}
+      <select onchange="setSharedMemberLink('${escapeHtml(record.code)}','${escapeHtml(member.id)}',this.value)">
+        <option value="">Inte kopplad på denna enhet</option>
+        ${players.map(player => `<option value="${player.id}"${String(player.id) === String(selected) ? ' selected' : ''}>${escapeHtml(player.nick || player.name)}</option>`).join('')}
+      </select></label>`;
+  }).join('');
+  const roundRows = (tour.rounds || []).slice().sort((a, b) => b.playedDate.localeCompare(a.playedDate)).map(round =>
+    `<div class="hi-row"><strong>${escapeHtml(round.courseName)}</strong> · ${round.playedDate}<br><span style="color:var(--muted);font-size:0.8rem;">${round.subjects.map(subject => `${escapeHtml(subject.name)} ${subject.totalPoints}p`).join(', ')}</span></div>`).join('');
+  const contributorRows = (record.contributors || []).map(contributor => `<div class="hi-row">
+    <strong>${escapeHtml(contributor.deviceLabel || 'Namnlös enhet')}</strong>
+    ${contributor.revokedAt ? '<span style="color:var(--muted);"> · återkallad</span>' : `<button class="btn secondary" style="float:right;padding:4px 8px;" onclick="revokeSharedTourContributor('${escapeHtml(record.code)}','${escapeHtml(contributor.id)}')">Återkalla</button>`}
+  </div>`).join('');
+  const organizerControls = record.role === 'organizer' ? `
+    <div class="card-title" style="margin-top:16px;">Administration</div>
+    ${contributorRows || '<p style="color:var(--muted);font-size:0.85rem;">Inga inbjudna enheter ännu.</p>'}
+    <div style="display:flex;gap:8px;margin-top:8px;">
+      <button class="btn secondary" style="flex:1;" onclick="rotateSharedTourInvitation('${escapeHtml(record.code)}')">Byt inbjudningslänk</button>
+      ${tour.status === 'open' ? `<button class="btn secondary" style="flex:1;" onclick="completeSharedTour('${escapeHtml(record.code)}')">Avsluta touren</button>` : ''}
+    </div>` : '';
+  el.innerHTML = `
+    <button class="btn secondary" style="margin-bottom:12px;" onclick="_tourViewMode='list';renderTourView();">← Alla tourer</button>
+    <strong style="font-size:1.1rem;">🌐 ${escapeHtml(tour.name)}</strong><br>
+    <span style="font-size:0.8rem;color:var(--muted);">${tour.startDate} – ${tour.endDate} · kod ${escapeHtml(record.code)}</span>
+    <div style="display:flex;gap:8px;margin-top:12px;">
+      ${tour.status === 'open' ? `<button class="btn" style="flex:1;" onclick="startSharedTourRound('${escapeHtml(record.code)}')">+ Ny tourrunda</button>` : '<span style="color:var(--muted);">Touren är avslutad</span>'}
+      ${record.role === 'organizer' ? `<button class="btn secondary" style="flex:1;" onclick="shareSharedTourInvitation('${escapeHtml(record.code)}')">🔗 Bjud in</button>` : ''}
+    </div>
+    <div class="card-title" style="margin-top:16px;">Spelarkoppling på denna enhet</div>${memberRows || '<p>Inga deltagare.</p>'}
+    <table style="width:100%;font-size:0.88rem;margin-top:16px;"><thead><tr><th></th><th style="text-align:left;">Spelare</th><th style="text-align:right;">Poäng</th><th style="text-align:right;">Räknade/spelade</th></tr></thead><tbody>${standingsRows || '<tr><td colspan="4">Inga rundor ännu.</td></tr>'}</tbody></table>
+    <div class="card-title" style="margin-top:16px;">Rundor</div>${roundRows || '<p style="color:var(--muted);font-size:0.85rem;">Inga rundor ännu.</p>'}
+    ${organizerControls}
+  `;
+}
+
+function startSharedTourRound(code) {
+  const record = sharedTourStore.find(code);
+  if (!record?.tour || record.tour.status !== 'open') return;
+  (record.tour.courses || []).forEach(course => (course.tees || []).forEach(tee => dbUpsert({
+    name: course.name, tee: tee.name, holes: course.holes,
+    slope: tee.slope, cr: tee.cr, par: tee.par, hpar: tee.hpar, si: tee.si,
+  })));
+  document.getElementById('tourView').classList.add('hidden');
+  newRound();
+  state.tourContext = { code: record.code, submissionOwner: true };
+  if (record.tour.courses.length === 1) {
+    const course = record.tour.courses[0];
+    const input = document.getElementById('courseSearchInput');
+    if (input) { input.value = course.name; filterCourses(course.name); }
+    _pendingTourPlayHoles = course.holes;
+  }
+}
+
+function queueSharedTourRound(round, code) {
+  const record = sharedTourStore.find(code);
+  if (!record) return;
+  try {
+    const payload = GolfTourRules.buildRoundSubmission(round, record);
+    sharedTourStore.queueSubmission(code, payload);
+    syncSharedTourSubmissions();
+  } catch (error) {
+    showShareToast('Tourrundan sparades lokalt men kunde inte köas: ' + error.message);
+  }
+}
+
+async function syncSharedTourSubmissions() {
+  const results = await GolfTourSync.flushPending(sharedTourStore, sharedTourClient);
+  if (!results.length) return;
+  const rounds = roundsLoad();
+  let changed = false;
+  results.forEach(result => {
+    const round = rounds.find(item => String(item.id) === result.clientRoundId);
+    if (!round?.tourRef) return;
+    round.tourRef = {
+      ...round.tourRef,
+      syncStatus: result.ok ? 'synced' : 'pending',
+      submissionId: result.ok ? result.response.round.id : null,
+    };
+    changed = true;
+  });
+  if (changed) roundsSave(rounds);
+}
+
+async function acceptSharedTourInvitationIfPresent() {
+  const invitation = GolfTourSync.parseInvitationFragment(location.hash);
+  if (!invitation) return;
+  history.replaceState(null, '', location.pathname + location.search);
+  try {
+    const joined = await sharedTourClient.join(invitation.code, invitation.invitationToken, _getOriginLabel());
+    sharedTourStore.upsert({
+      code: invitation.code, role: 'contributor', token: joined.contributorToken,
+      contributorId: joined.contributorId, tour: joined.tour,
+      memberLinks: automaticSharedMemberLinks(joined.tour), pendingSubmissions: [],
+    });
+    openTourView();
+    openSharedTourDetail(invitation.code);
+  } catch (error) {
+    alert('Kunde inte ansluta till touren: ' + (error.message || 'ogiltig inbjudan'));
+  }
 }
 
 function showTourCreateForm() {
@@ -4889,6 +5128,7 @@ function renderTourDetail(id) {
       ${isOpen ? `<button class="btn" style="flex:1;" onclick="startTourLeg(${tour.id})">+ Ny runda</button>` : ''}
       ${isOpen ? `<button class="btn secondary" style="flex:1;" onclick="completeTour(${tour.id})">Avsluta tour</button>` : ''}
     </div>
+    ${isOpen ? `<button class="btn secondary" style="margin-top:10px;" onclick="publishLocalTour(${tour.id})">🌐 ${tour.sharedCode ? 'Kopiera inbjudan' : 'Dela tour online'}</button>` : ''}
     <button class="btn secondary" style="margin-top:10px;color:var(--danger);" onclick="deleteTourConfirm(${tour.id})">Ta bort tour</button>
   `;
 }
@@ -5834,6 +6074,9 @@ try { renderSavedCourses(); } catch(e) {}
 try { showResumeBannerIfAny(); } catch(e) {}
 try { _updateLastBackupLabel(); } catch(e) {}
 try { _populateOriginLabelInput(); } catch(e) {}
+try { acceptSharedTourInvitationIfPresent(); } catch(e) {}
+try { syncSharedTourSubmissions(); } catch(e) {}
+window.addEventListener('online', () => syncSharedTourSubmissions());
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.addEventListener('controllerchange', () => {
     if (_applyingPwaUpdate) window.location.reload();

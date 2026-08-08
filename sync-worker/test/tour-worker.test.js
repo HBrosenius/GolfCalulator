@@ -46,6 +46,33 @@ async function joinTour(created, invitationToken = created.invitationToken) {
   return { response, body: await response.json() };
 }
 
+function submission(created, overrides = {}) {
+  const member = created.tour.members[0];
+  const course = created.tour.courses[0];
+  const rows = course.tees[0].hpar.map((par, index) => ({
+    h: index + 1, par, si: course.tees[0].si[index], strokes: 1,
+    score: par + 1, netto: par, pts: 2, skipped: false,
+  }));
+  return {
+    protocolVersion: PROTOCOL_VERSION, schemaVersion: TOUR_SCHEMA_VERSION,
+    clientRoundId: crypto.randomUUID(), playedDate: '2026-07-10',
+    courseId: course.id, gameMode: 'individual',
+    subjects: [{ memberId: member.id, teeName: course.tees[0].name, totalPoints: 18, totalBrutto: rows.reduce((sum, row) => sum + row.score, 0), rows, teamId: null }],
+    ...overrides,
+  };
+}
+
+function liveRound(tourCode) {
+  return {
+    protocolVersion: PROTOCOL_VERSION,
+    courseName: 'Testbanan', teeColor: 'Gul', holes: 9,
+    slope: 113, cr: 36, par: 36,
+    hpar: [4, 3, 4, 4, 5, 3, 4, 4, 5], si: [1, 3, 5, 7, 9, 11, 13, 15, 17],
+    gameMode: 'individual', players: [{ name: 'Ada', hi: 12, ph: 6, tee: 'Gul' }],
+    teams: null, seatCount: 1, tourRef: { code: tourCode },
+  };
+}
+
 describe('shared tour authorization', () => {
   it('creates durable public state without leaking credentials', async () => {
     const created = await createTour();
@@ -107,5 +134,105 @@ describe('shared tour authorization', () => {
       headers: headers(joined.body.contributorToken),
     });
     expect(access.status).toBe(403);
+  });
+
+  it('lets the organizer manage contributors, rotate invitations, and complete the tour', async () => {
+    const created = await createTour();
+    const joined = await joinTour(created);
+    const denied = await SELF.fetch(`https://worker.test/tour/${created.code}/manage`, {
+      headers: headers(joined.body.contributorToken),
+    });
+    expect(denied.status).toBe(403);
+
+    const managed = await SELF.fetch(`https://worker.test/tour/${created.code}/manage`, {
+      headers: headers(created.organizerToken),
+    });
+    expect(managed.status).toBe(200);
+    const managedBody = await managed.json();
+    expect(managedBody.contributors[0]).toMatchObject({ id: joined.body.contributorId, deviceLabel: 'Bos telefon', revokedAt: null });
+    expect(JSON.stringify(managedBody)).not.toContain(joined.body.contributorToken);
+
+    const body = JSON.stringify({ protocolVersion: PROTOCOL_VERSION, schemaVersion: TOUR_SCHEMA_VERSION });
+    const rotated = await SELF.fetch(`https://worker.test/tour/${created.code}/rotate-invitation`, {
+      method: 'POST', headers: headers(created.organizerToken), body,
+    });
+    expect(rotated.status).toBe(200);
+    const rotatedBody = await rotated.json();
+    expect(rotatedBody.invitationToken).not.toBe(created.invitationToken);
+    expect((await joinTour(created)).response.status).toBe(403);
+    expect((await joinTour(created, rotatedBody.invitationToken)).response.status).toBe(200);
+
+    const completed = await SELF.fetch(`https://worker.test/tour/${created.code}/complete`, {
+      method: 'POST', headers: headers(created.organizerToken), body,
+    });
+    expect(completed.status).toBe(200);
+    expect((await completed.json()).status).toBe('completed');
+    const rejectedRound = await SELF.fetch(`https://worker.test/tour/${created.code}/rounds`, {
+      method: 'POST', headers: headers(joined.body.contributorToken), body: JSON.stringify(submission(created)),
+    });
+    expect(rejectedRound.status).toBe(400);
+  });
+
+  it('allows contributors to submit validated rounds idempotently', async () => {
+    const created = await createTour();
+    const joined = await joinTour(created);
+    const payload = submission(created);
+    const first = await SELF.fetch(`https://worker.test/tour/${created.code}/rounds`, {
+      method: 'POST', headers: headers(joined.body.contributorToken), body: JSON.stringify(payload),
+    });
+    expect(first.status).toBe(201);
+    const firstBody = await first.json();
+    expect(firstBody.duplicate).toBe(false);
+    expect(firstBody.round.subjects[0].name).toBe('Ada');
+
+    const retry = await SELF.fetch(`https://worker.test/tour/${created.code}/rounds`, {
+      method: 'POST', headers: headers(joined.body.contributorToken), body: JSON.stringify(payload),
+    });
+    expect(retry.status).toBe(200);
+    const retryBody = await retry.json();
+    expect(retryBody.duplicate).toBe(true);
+    expect(retryBody.round.id).toBe(firstBody.round.id);
+    expect(retryBody.tour.rounds).toHaveLength(1);
+  });
+
+  it('rejects unauthorized, ineligible, and internally inconsistent rounds', async () => {
+    const created = await createTour();
+    const payload = submission(created);
+    const unauthorized = await SELF.fetch(`https://worker.test/tour/${created.code}/rounds`, {
+      method: 'POST', headers: headers(), body: JSON.stringify(payload),
+    });
+    expect(unauthorized.status).toBe(403);
+
+    const joined = await joinTour(created);
+    const badPoints = submission(created);
+    badPoints.subjects[0].totalPoints = 19;
+    const invalid = await SELF.fetch(`https://worker.test/tour/${created.code}/rounds`, {
+      method: 'POST', headers: headers(joined.body.contributorToken), body: JSON.stringify(badPoints),
+    });
+    expect(invalid.status).toBe(400);
+    expect((await invalid.json()).error).toMatch(/points/i);
+
+    const outside = await SELF.fetch(`https://worker.test/tour/${created.code}/rounds`, {
+      method: 'POST', headers: headers(joined.body.contributorToken),
+      body: JSON.stringify(submission(created, { playedDate: '2026-09-01' })),
+    });
+    expect(outside.status).toBe(400);
+  });
+
+  it('requires tour access before creating a tour-linked live room', async () => {
+    const created = await createTour();
+    const joined = await joinTour(created);
+    const denied = await SELF.fetch('https://worker.test/room', {
+      method: 'POST', headers: { 'Content-Type': 'application/json', 'CF-Connecting-IP': crypto.randomUUID() },
+      body: JSON.stringify(liveRound(created.code)),
+    });
+    expect(denied.status).toBe(403);
+
+    const allowed = await SELF.fetch('https://worker.test/room', {
+      method: 'POST', headers: { ...headers(joined.body.contributorToken), 'CF-Connecting-IP': crypto.randomUUID() },
+      body: JSON.stringify(liveRound(created.code)),
+    });
+    expect(allowed.status).toBe(201);
+    expect((await allowed.json()).room.tourRef).toEqual({ code: created.code });
   });
 });

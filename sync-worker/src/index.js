@@ -59,6 +59,10 @@ async function createRoom(request, env) {
   if (parsed.response) return parsed.response;
   const invalid = validateCreate(parsed.body);
   if (invalid) return json({ error: invalid }, invalid.startsWith('Unsupported') ? 426 : 400);
+  if (parsed.body.tourRef) {
+    const access = await env.GOLF_TOURS.getByName(parsed.body.tourRef.code).access(bearerToken(request));
+    if (access.status !== 200) return json({ error: 'Not authorized for tour' }, 403);
+  }
 
   const clientKey = request.headers.get('CF-Connecting-IP') || 'local';
   if (!await env.CREATE_LIMITER.getByName(clientKey).check()) return json({ error: 'Too many attempts' }, 429);
@@ -117,9 +121,13 @@ async function route(request, env) {
     if (!protocolHeaderValid(request)) return json({ error: 'Unsupported protocol version' }, 426);
     const token = bearerToken(request);
     if (parts.length === 3 && parts[2] === 'access' && request.method === 'GET') return fromTourResult(await tour.access(token));
+    if (parts.length === 3 && parts[2] === 'manage' && request.method === 'GET') return fromTourResult(await tour.manage(token));
     const parsed = await bodyOrResponse(request);
     if (parsed.response) return parsed.response;
     if (parts.length === 3 && parts[2] === 'join' && request.method === 'POST') return fromTourResult(await tour.join(parsed.body));
+    if (parts.length === 3 && parts[2] === 'rounds' && request.method === 'POST') return fromTourResult(await tour.submitRound(parsed.body, token));
+    if (parts.length === 3 && parts[2] === 'rotate-invitation' && request.method === 'POST') return fromTourResult(await tour.rotateInvitation(token, parsed.body));
+    if (parts.length === 3 && parts[2] === 'complete' && request.method === 'POST') return fromTourResult(await tour.complete(token, parsed.body));
     if (parts.length === 5 && parts[2] === 'contributors' && parts[4] === 'revoke' && request.method === 'POST') {
       return fromTourResult(await tour.revokeContributor(parts[3], token, parsed.body));
     }

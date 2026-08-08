@@ -53,12 +53,12 @@ export function validateCreate(body) {
   if (!hasProtocol(body)) return 'Unsupported protocol version';
   const allowed = new Set([
     'protocolVersion', 'courseName', 'teeColor', 'holes', 'slope', 'cr', 'par',
-    'hpar', 'si', 'gameMode', 'teams', 'players', 'seatCount', 'markers',
+    'hpar', 'si', 'gameMode', 'teams', 'players', 'seatCount', 'markers', 'tourRef',
   ]);
   if (!hasOnlyKeys(body, allowed)) return 'Invalid round configuration';
   if (!isText(body.courseName, 80) || !isText(body.teeColor, 20)) return 'Invalid round configuration';
   if (body.holes !== 9 && body.holes !== 18) return 'Invalid round configuration';
-  if (!isNumber(body.slope, 55, 155) || !isNumber(body.cr, 50, 85) || !isInteger(body.par, 27, 90)) return 'Invalid round configuration';
+  if (!isNumber(body.slope, 55, 155) || !isNumber(body.cr, 25, 85) || !isInteger(body.par, 27, 90)) return 'Invalid round configuration';
   if (!GAME_MODES.has(body.gameMode)) return 'Invalid round configuration';
   if (!isInteger(body.seatCount, 1, 12)) return 'Invalid round configuration';
   if (!Array.isArray(body.players) || body.players.length < 1 || body.players.length > 12) return 'Invalid round configuration';
@@ -74,6 +74,8 @@ export function validateCreate(body) {
     (player.playingHandicap == null || isInteger(player.playingHandicap, -20, 72)))) return 'Invalid round configuration';
   if (!validateTeams(body.teams, body.players, body.gameMode)) return 'Invalid round configuration';
   if (body.markers !== undefined && !validateMarkers(body.markers, body)) return 'Invalid round configuration';
+  if (body.tourRef !== undefined && (!hasOnlyKeys(body.tourRef, new Set(['code'])) ||
+    !/^[A-HJ-KM-NP-Z2-9]{8}$/.test(body.tourRef.code))) return 'Invalid round configuration';
   return null;
 }
 

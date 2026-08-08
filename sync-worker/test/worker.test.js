@@ -51,6 +51,17 @@ async function patch(code, token, body) {
 }
 
 describe('secure live-room protocol', () => {
+  it('accepts a genuine 9-hole course rating', async () => {
+    const payload = round(1);
+    payload.cr = 36;
+    payload.par = 36;
+    const response = await SELF.fetch('https://worker.test/room', {
+      method: 'POST', headers: { 'Content-Type': 'application/json', 'CF-Connecting-IP': crypto.randomUUID() },
+      body: JSON.stringify(payload),
+    });
+    expect(response.status).toBe(201);
+  });
+
   it('reports the deployed protocol version for staging health checks', async () => {
     const response = await SELF.fetch('https://worker.test/health');
     expect(response.status).toBe(200);

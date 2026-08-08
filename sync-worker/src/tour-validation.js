@@ -73,3 +73,44 @@ export function validateTourCreate(body) {
   if (new Set(courseKeys).size !== courseKeys.length) return 'Tour courses must be unique';
   return null;
 }
+
+function validateResultRow(row, expectedHole) {
+  const allowed = new Set(['h', 'par', 'si', 'strokes', 'score', 'netto', 'pts', 'skipped']);
+  if (!hasOnlyKeys(row, allowed) || row.h !== expectedHole || !isInteger(row.par, 3, 6) ||
+    !isInteger(row.si, 1, 18) || !isInteger(row.strokes, -5, 10) || typeof row.skipped !== 'boolean') return false;
+  if (row.skipped) return row.score === '–' && row.netto === '–' && row.pts === 0;
+  return isInteger(row.score, 1, 20) && row.netto === row.score - row.strokes &&
+    row.pts === Math.max(0, row.par + 2 - row.netto);
+}
+
+export function validateTourRoundSubmission(body, tour) {
+  const allowed = new Set([
+    'protocolVersion', 'schemaVersion', 'clientRoundId', 'playedDate', 'courseId',
+    'gameMode', 'subjects', 'liveRoomCode',
+  ]);
+  if (!body || body.protocolVersion !== PROTOCOL_VERSION) return 'Unsupported protocol version';
+  if (body.schemaVersion !== TOUR_SCHEMA_VERSION) return 'Unsupported tour schema version';
+  if (!hasOnlyKeys(body, allowed) || !isText(body.clientRoundId, 80) || !isDate(body.playedDate)) return 'Invalid round submission';
+  if (tour.status !== 'open' || body.playedDate < tour.startDate || body.playedDate > tour.endDate) return 'Round is outside the open tour';
+  if (!['individual', 'fourball', 'match'].includes(body.gameMode)) return 'Unsupported tour game mode';
+  if (body.liveRoomCode !== undefined && !/^[A-HJ-KM-NP-Z2-9]{4}$/.test(body.liveRoomCode)) return 'Invalid live room code';
+  const course = tour.courses.find(item => item.id === body.courseId);
+  if (!course) return 'Round course is not in the tour';
+  if (!Array.isArray(body.subjects) || body.subjects.length < 1 || body.subjects.length > tour.members.length) return 'Invalid round subjects';
+  const memberIds = new Set(tour.members.map(member => member.id));
+  const seen = new Set();
+  for (const subject of body.subjects) {
+    const subjectKeys = new Set(['memberId', 'teeName', 'totalPoints', 'totalBrutto', 'rows', 'teamId']);
+    if (!hasOnlyKeys(subject, subjectKeys) || !memberIds.has(subject.memberId) || seen.has(subject.memberId) ||
+      !course.tees.some(tee => tee.name === subject.teeName) ||
+      !isInteger(subject.totalPoints, 0, course.holes * 8) || !isInteger(subject.totalBrutto, 0, course.holes * 20) ||
+      (subject.teamId !== null && subject.teamId !== undefined && !isText(subject.teamId, 30)) ||
+      !Array.isArray(subject.rows) || subject.rows.length !== course.holes ||
+      !subject.rows.every((row, index) => validateResultRow(row, index + 1))) return 'Invalid round subjects';
+    if (subject.rows.reduce((sum, row) => sum + row.pts, 0) !== subject.totalPoints) return 'Round points do not match hole results';
+    const gross = subject.rows.reduce((sum, row) => sum + (row.skipped ? 0 : row.score), 0);
+    if (gross !== subject.totalBrutto) return 'Round gross score does not match hole results';
+    seen.add(subject.memberId);
+  }
+  return null;
+}

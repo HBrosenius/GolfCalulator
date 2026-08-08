@@ -55,6 +55,17 @@ test('shared room conversion links only unambiguous team member names', () => {
   assert.equal(state.teams[0].members[1].playerId, null);
 });
 
+test('a joined live room retains tour context without submission ownership', () => {
+  const room = {
+    courseName: 'B', teeColor: 'Gul', holes: 9, slope: 113, cr: 36, par: 36,
+    gameMode: 'individual', players: [{ name: 'Ada', hi: 1 }], seats: [], tourRef: { code: 'ABCD2345' },
+  };
+  const state = liveRound.buildStateFromRoom(room, {
+    code: 'LIVE', seat: 0, seatToken: 'token', teeData: () => ({ slope: 113, cr: 36, par: 36 }), calculatePlayingHandicap: () => 1,
+  });
+  assert.deepEqual(state.tourContext, { code: 'ABCD2345', submissionOwner: false });
+});
+
 test('snapshot merge preserves the local seat and applies remote scores', () => {
   const current = { holes: 2, liveSeat: 1, scores: [['', ''], ['4', '5']], markers: { ctp: {}, ld: {} }, note: '', weather: null, bets: [] };
   const result = liveRound.mergeRoomSnapshot(current, {

@@ -2,6 +2,7 @@ import { DurableObject } from 'cloudflare:workers';
 import { generateToken, hashToken, tokenMatches } from './auth.js';
 import { PROTOCOL_VERSION } from './validation.js';
 import { TOUR_SCHEMA_VERSION } from './tour-validation.js';
+import { validateTourRoundSubmission } from './tour-validation.js';
 
 const TOUR_KEY = 'tour';
 const RETENTION_MS = 365 * 24 * 60 * 60 * 1000;
@@ -29,6 +30,16 @@ function publicTour(tour) {
 }
 
 export class Tour extends DurableObject {
+  async actorForToken(tour, token) {
+    if (await tokenMatches(token, tour.organizerTokenHash)) return { role: 'organizer', id: 'organizer' };
+    for (const contributor of tour.contributors) {
+      if (!contributor.revokedAt && await tokenMatches(token, contributor.tokenHash)) {
+        return { role: 'contributor', id: contributor.id };
+      }
+    }
+    return null;
+  }
+
   async create(config, organizerTokenHash, invitationTokenHash) {
     if (await this.ctx.storage.get(TOUR_KEY)) return result(409, { error: 'Tour unavailable' });
     const now = Date.now();
@@ -90,13 +101,89 @@ export class Tour extends DurableObject {
   async access(token) {
     const tour = await this.ctx.storage.get(TOUR_KEY);
     if (!tour) return result(404, { error: 'Tour not found' });
-    if (await tokenMatches(token, tour.organizerTokenHash)) return result(200, { role: 'organizer' });
-    for (const contributor of tour.contributors) {
-      if (!contributor.revokedAt && await tokenMatches(token, contributor.tokenHash)) {
-        return result(200, { role: 'contributor', contributorId: contributor.id });
-      }
-    }
+    const actor = await this.actorForToken(tour, token);
+    if (actor?.role === 'organizer') return result(200, { role: 'organizer' });
+    if (actor) return result(200, { role: 'contributor', contributorId: actor.id });
     return result(403, { error: 'Not authorized' });
+  }
+
+  async manage(token) {
+    const tour = await this.ctx.storage.get(TOUR_KEY);
+    if (!tour) return result(404, { error: 'Tour not found' });
+    if (!await tokenMatches(token, tour.organizerTokenHash)) return result(403, { error: 'Not authorized' });
+    return result(200, {
+      tour: publicTour(tour),
+      contributors: tour.contributors.map(item => ({
+        id: item.id, deviceLabel: item.deviceLabel, createdAt: item.createdAt, revokedAt: item.revokedAt,
+      })),
+    });
+  }
+
+  async rotateInvitation(token, body) {
+    const tour = await this.ctx.storage.get(TOUR_KEY);
+    if (!tour) return result(404, { error: 'Tour not found' });
+    if (body?.protocolVersion !== PROTOCOL_VERSION || body?.schemaVersion !== TOUR_SCHEMA_VERSION || Object.keys(body).length !== 2) {
+      return result(400, { error: 'Invalid request' });
+    }
+    if (!await tokenMatches(token, tour.organizerTokenHash)) return result(403, { error: 'Not authorized' });
+    const invitationToken = generateToken();
+    tour.invitationTokenHash = await hashToken(invitationToken);
+    tour.updatedAt = Date.now();
+    tour.revision++;
+    await this.ctx.storage.put(TOUR_KEY, tour);
+    return result(200, { tour: publicTour(tour), invitationToken });
+  }
+
+  async complete(token, body) {
+    const tour = await this.ctx.storage.get(TOUR_KEY);
+    if (!tour) return result(404, { error: 'Tour not found' });
+    if (body?.protocolVersion !== PROTOCOL_VERSION || body?.schemaVersion !== TOUR_SCHEMA_VERSION || Object.keys(body).length !== 2) {
+      return result(400, { error: 'Invalid request' });
+    }
+    if (!await tokenMatches(token, tour.organizerTokenHash)) return result(403, { error: 'Not authorized' });
+    if (tour.status !== 'completed') {
+      tour.status = 'completed';
+      tour.updatedAt = Date.now();
+      tour.revision++;
+      await this.ctx.storage.put(TOUR_KEY, tour);
+    }
+    return result(200, { tour: publicTour(tour) });
+  }
+
+  async submitRound(body, token) {
+    const tour = await this.ctx.storage.get(TOUR_KEY);
+    if (!tour) return result(404, { error: 'Tour not found' });
+    const actor = await this.actorForToken(tour, token);
+    if (!actor) return result(403, { error: 'Not authorized' });
+    const invalid = validateTourRoundSubmission(body, tour);
+    if (invalid) return result(invalid.startsWith('Unsupported') ? 426 : 400, { error: invalid });
+    const existing = tour.rounds.find(round => round.clientRoundId === body.clientRoundId);
+    if (existing) return result(200, { tour: publicTour(tour), round: existing, duplicate: true });
+    const course = tour.courses.find(item => item.id === body.courseId);
+    const memberById = new Map(tour.members.map(member => [member.id, member]));
+    const submittedAt = Date.now();
+    const round = {
+      id: crypto.randomUUID(),
+      clientRoundId: body.clientRoundId,
+      playedDate: body.playedDate,
+      courseId: course.id,
+      courseName: course.name,
+      holes: course.holes,
+      gameMode: body.gameMode,
+      liveRoomCode: body.liveRoomCode || null,
+      submittedAt,
+      submittedBy: actor.id,
+      subjects: body.subjects.map(subject => ({
+        ...subject,
+        name: memberById.get(subject.memberId).name,
+        rows: subject.rows.map(row => ({ ...row })),
+      })),
+    };
+    tour.rounds.push(round);
+    tour.updatedAt = submittedAt;
+    tour.revision++;
+    await this.ctx.storage.put(TOUR_KEY, tour);
+    return result(201, { tour: publicTour(tour), round, duplicate: false });
   }
 
   async revokeContributor(contributorId, token, body) {

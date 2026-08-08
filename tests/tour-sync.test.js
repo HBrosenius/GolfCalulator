@@ -36,6 +36,29 @@ test('tour client exposes server errors with status', async () => {
   await assert.rejects(client.join('ABCD2345', 'A'.repeat(43)), error => error.status === 403 && /rejected/.test(error.message));
 });
 
+test('organizer client operations use bearer authorization and bounded version bodies', async () => {
+  const requests = [];
+  const client = sync.createClient({
+    baseUrl: 'https://example.test',
+    fetchImpl: async (url, options = {}) => {
+      requests.push({ url, options });
+      return { ok: true, json: async () => ({ tour: {} }) };
+    },
+  });
+  await client.manage('abcd2345', 'organizer');
+  await client.rotateInvitation('abcd2345', 'organizer');
+  await client.complete('abcd2345', 'organizer');
+  await client.revokeContributor('abcd2345', 'organizer', 'device-1');
+  assert.deepEqual(requests.map(item => item.url), [
+    'https://example.test/tour/ABCD2345/manage',
+    'https://example.test/tour/ABCD2345/rotate-invitation',
+    'https://example.test/tour/ABCD2345/complete',
+    'https://example.test/tour/ABCD2345/contributors/device-1/revoke',
+  ]);
+  requests.forEach(item => assert.equal(item.options.headers.Authorization, 'Bearer organizer'));
+  requests.slice(1).forEach(item => assert.deepEqual(JSON.parse(item.options.body), { protocolVersion: 2, schemaVersion: 1 }));
+});
+
 test('shared tour cache upserts credentials without duplicating codes', () => {
   const store = sync.createStore(memoryStorage());
   assert.equal(store.upsert({ code: 'abcd2345', role: 'contributor', token: 'one' }), true);
@@ -54,4 +77,25 @@ test('invitation links use URL fragments and reject malformed data', () => {
   assert.deepEqual(sync.parseInvitationFragment(fragment), { code: 'ABCD2345', invitationToken: token });
   assert.equal(sync.parseInvitationFragment('?tour=ABCD2345&invite=' + token), null);
   assert.throws(() => sync.invitationFragment('bad', token), /Invalid/);
+});
+
+test('pending submissions survive failures and clear after an idempotent retry', async () => {
+  const store = sync.createStore(memoryStorage());
+  store.upsert({ code: 'ABCD2345', token: 'secret', pendingSubmissions: [] });
+  store.queueSubmission('ABCD2345', { clientRoundId: 'round-1' });
+  let fail = true;
+  const client = {
+    submitRound: async () => {
+      if (fail) throw new Error('offline');
+      return { tour: { revision: 3 }, duplicate: true };
+    },
+  };
+  const first = await sync.flushPending(store, client);
+  assert.equal(first[0].ok, false);
+  assert.equal(store.find('ABCD2345').pendingSubmissions[0].attempts, 1);
+  fail = false;
+  const second = await sync.flushPending(store, client);
+  assert.equal(second[0].ok, true);
+  assert.deepEqual(store.find('ABCD2345').pendingSubmissions, []);
+  assert.equal(store.find('ABCD2345').tour.revision, 3);
 });

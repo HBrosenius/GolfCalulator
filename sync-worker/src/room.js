@@ -33,6 +33,7 @@ function publicRoom(room) {
     note: room.note,
     weather: room.weather,
     bets: room.bets,
+    tourRef: room.tourRef || null,
   };
 }
 
@@ -69,6 +70,7 @@ export class GolfRoom extends DurableObject {
       note: '',
       weather: null,
       bets: [],
+      tourRef: config.tourRef || null,
       failedClaims: [],
     };
     await this.ctx.storage.put(ROOM_KEY, room);
