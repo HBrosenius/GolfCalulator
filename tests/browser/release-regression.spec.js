@@ -106,6 +106,7 @@ test('a shared tour invitation lets the contributor select any tour player', asy
   const code = 'ABCD2345';
   const invitationToken = 'A'.repeat(43);
   const contributorToken = 'B'.repeat(43);
+  let joinCalls = 0;
   const tour = {
     protocolVersion: 2, schemaVersion: 1, revision: 1,
     name: 'Delad sommartour', startDate: '2026-06-01', endDate: '2026-08-31', status: 'open',
@@ -120,9 +121,15 @@ test('a shared tour invitation lets the contributor select any tour player', asy
     localStorage.clear();
     localStorage.setItem('golf_players_db', JSON.stringify([{ id: 42, name: 'Ada', nick: 'Ace', hi: 18 }]));
   });
-  await page.route(`**/tour/${code}/join`, route => route.fulfill({
-    status: 200, contentType: 'application/json',
-    body: JSON.stringify({ tour, contributorId: 'contributor-1', contributorToken }),
+  await page.route(`**/tour/${code}/join`, route => {
+    joinCalls++;
+    return route.fulfill({
+      status: 200, contentType: 'application/json',
+      body: JSON.stringify({ tour, contributorId: 'contributor-1', contributorToken }),
+    });
+  });
+  await page.route(`**/tour/${code}/access`, route => route.fulfill({
+    status: 200, contentType: 'application/json', body: JSON.stringify({ role: 'contributor', contributorId: 'contributor-1' }),
   }));
   await page.route(`**/tour/${code}`, route => route.fulfill({
     status: 200, contentType: 'application/json', body: JSON.stringify(tour),
@@ -138,6 +145,11 @@ test('a shared tour invitation lets the contributor select any tour player', asy
   await expect(page.locator('#tourContent')).toContainText('Bo');
   await expect(page.locator('#tourContent')).not.toContainText('Spelarkoppling på denna enhet');
   await expect.poll(() => page.evaluate(() => location.hash)).toBe('');
+  await page.evaluate(({ code, invitationToken }) => {
+    location.hash = GolfTourSync.invitationFragment(code, invitationToken);
+    return acceptSharedTourInvitationIfPresent();
+  }, { code, invitationToken });
+  expect(joinCalls).toBe(1);
 
   await page.getByRole('button', { name: '+ Ny tourrunda' }).click();
   await page.evaluate(() => {
@@ -219,7 +231,9 @@ test('shared tour organizer actions remain readable on a dark mobile screen', as
         members: [{ id: 'member-1', name: 'Ada', hi: 18 }],
         courses: [{ id: 'course-1', name: 'Testbanan', holes: 9, maxRounds: 1, tees: [{ name: 'Gul' }] }],
       },
-      contributors: [], memberLinks: {}, pendingSubmissions: [],
+      contributors: [1, 2, 3].map(index => ({
+        id: `device-${index}`, deviceLabel: `Chrome på mobil ${index}`, createdAt: Date.UTC(2026, 6, index), revokedAt: null,
+      })), memberLinks: {}, pendingSubmissions: [],
     });
     openSharedTourDetail('ABCD2345');
   });
@@ -228,6 +242,7 @@ test('shared tour organizer actions remain readable on a dark mobile screen', as
   const complete = page.getByRole('button', { name: '✓ Avsluta touren' });
   await expect(rotate).toBeVisible();
   await expect(complete).toBeVisible();
+  await expect(page.locator('.tour-revoke-btn')).toHaveCount(3);
   const styles = await page.locator('.tour-admin-actions').evaluate(element => {
     const buttons = [...element.querySelectorAll('button')];
     return {
@@ -238,6 +253,17 @@ test('shared tour organizer actions remain readable on a dark mobile screen', as
   expect(styles.columns).toBe(1);
   expect(styles.colors[0]).not.toEqual(styles.colors[1]);
   expect(styles.colors.every(style => style.background !== style.color)).toBe(true);
+  const contributorLayout = await page.locator('.tour-contributor-list').evaluate(element => {
+    const rows = [...element.querySelectorAll('.tour-contributor-row')];
+    const buttons = [...element.querySelectorAll('.tour-revoke-btn')];
+    return {
+      buttonsFitRows: buttons.every((button, index) => button.getBoundingClientRect().width < rows[index].getBoundingClientRect().width / 2),
+      listBottom: element.getBoundingClientRect().bottom,
+    };
+  });
+  const actionsTop = await page.locator('.tour-admin-actions').evaluate(element => element.getBoundingClientRect().top);
+  expect(contributorLayout.buttonsFitRows).toBe(true);
+  expect(actionsTop).toBeGreaterThanOrEqual(contributorLayout.listBottom);
 });
 
 test('installed PWA reloads offline and defers an upgrade during an active round', async ({ page, context }) => {

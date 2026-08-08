@@ -217,6 +217,20 @@
   .tour-admin-invite:hover { background: var(--green-light); }
   .tour-admin-complete { background: var(--card); color: var(--danger); border: 1.5px solid var(--danger); }
   .tour-admin-complete:hover { background: color-mix(in srgb, var(--danger) 10%, var(--card)); }
+  .tour-contributor-list { display: grid; gap: 8px; }
+  .tour-contributor-row {
+    display: flex; align-items: center; justify-content: space-between; gap: 10px;
+    padding: 10px 12px; border: 1px solid var(--border); border-radius: 9px; background: var(--bg);
+  }
+  .tour-contributor-info { min-width: 0; }
+  .tour-contributor-name { display: block; font-weight: 700; overflow-wrap: anywhere; }
+  .tour-contributor-meta { display: block; margin-top: 2px; color: var(--muted); font-size: 0.75rem; }
+  .tour-revoke-btn {
+    flex: 0 0 auto; width: auto; margin: 0; padding: 7px 10px; border-radius: 8px;
+    border: 1.5px solid var(--danger); background: var(--card); color: var(--danger);
+    font-size: 0.8rem; font-weight: 700; cursor: pointer;
+  }
+  .tour-revoke-btn:hover { background: color-mix(in srgb, var(--danger) 10%, var(--card)); }
 
   /* Score table */
   .score-table-wrap {
@@ -4879,13 +4893,21 @@ function renderSharedTourDetail(code) {
     return `<div class="hi-row"><strong>${escapeHtml(course.name)}</strong><br>
       <span style="color:var(--muted);font-size:0.8rem;">${course.holes} hål · tee ${tees || 'saknas'}${roundLimit}</span></div>`;
   }).join('');
-  const contributorRows = (record.contributors || []).map(contributor => `<div class="hi-row">
-    <strong>${escapeHtml(contributor.deviceLabel || 'Namnlös enhet')}</strong>
-    ${contributor.revokedAt ? '<span style="color:var(--muted);"> · återkallad</span>' : `<button class="btn secondary" style="float:right;padding:4px 8px;" onclick="revokeSharedTourContributor('${escapeHtml(record.code)}','${escapeHtml(contributor.id)}')">Återkalla</button>`}
-  </div>`).join('');
+  const activeContributors = (record.contributors || []).filter(contributor => !contributor.revokedAt)
+    .sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+  const contributorRows = activeContributors.map(contributor => {
+    const joinedDate = contributor.createdAt ? new Date(contributor.createdAt).toLocaleString('sv-SE', { dateStyle: 'short', timeStyle: 'short' }) : '';
+    return `<div class="tour-contributor-row">
+      <div class="tour-contributor-info">
+        <span class="tour-contributor-name">${escapeHtml(contributor.deviceLabel || 'Namnlös enhet')}</span>
+        <span class="tour-contributor-meta">Behörig enhet${joinedDate ? ` · ansluten ${joinedDate}` : ''}</span>
+      </div>
+      <button class="tour-revoke-btn" onclick="revokeSharedTourContributor('${escapeHtml(record.code)}','${escapeHtml(contributor.id)}')">Återkalla</button>
+    </div>`;
+  }).join('');
   const organizerControls = record.role === 'organizer' ? `
     <div class="card-title" style="margin-top:16px;">Administration</div>
-    ${contributorRows || '<p style="color:var(--muted);font-size:0.85rem;">Inga inbjudna enheter ännu.</p>'}
+    ${contributorRows ? `<div class="tour-contributor-list">${contributorRows}</div>` : '<p style="color:var(--muted);font-size:0.85rem;">Inga inbjudna enheter ännu.</p>'}
     <div class="tour-admin-actions">
       <button class="btn tour-admin-invite" onclick="rotateSharedTourInvitation('${escapeHtml(record.code)}')">🔄 Skapa ny inbjudningslänk</button>
       ${tour.status === 'open' ? `<button class="btn tour-admin-complete" onclick="completeSharedTour('${escapeHtml(record.code)}')">✓ Avsluta touren</button>` : ''}
@@ -4960,6 +4982,19 @@ async function acceptSharedTourInvitationIfPresent() {
   if (!invitation) return;
   history.replaceState(null, '', location.pathname + location.search);
   try {
+    const existing = sharedTourStore.find(invitation.code);
+    if (existing?.token) {
+      try {
+        await sharedTourClient.access(invitation.code, existing.token);
+        const tour = await sharedTourClient.get(invitation.code);
+        sharedTourStore.upsert({ ...existing, tour });
+        openTourView();
+        openSharedTourDetail(invitation.code);
+        return;
+      } catch (error) {
+        if (error.status !== 403) throw error;
+      }
+    }
     const joined = await sharedTourClient.join(invitation.code, invitation.invitationToken, _getOriginLabel());
     sharedTourStore.upsert({
       code: invitation.code, role: 'contributor', token: joined.contributorToken,
