@@ -11,6 +11,7 @@ const SHELL = [
   './src/round-extras.js',
   './src/live-round.js',
   './src/tour-rules.js',
+  './src/tour-sync.js',
   './manifest.json',
   './icon-192.png',
   './icon-512.png',

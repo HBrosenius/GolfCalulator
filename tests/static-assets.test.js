@@ -22,7 +22,7 @@ test('service-worker shell contains existing files and application modules', () 
   const shellMatch = source.match(/const SHELL = \[([\s\S]*?)\];/);
   assert.ok(shellMatch, 'SHELL asset list was not found');
   const assets = [...shellMatch[1].matchAll(/['"]\.\/?([^'"]+)['"]/g)].map(match => match[1]);
-  for (const moduleName of ['scoring', 'storage', 'live-sync', 'validation', 'round-extras', 'live-round', 'tour-rules']) {
+  for (const moduleName of ['scoring', 'storage', 'live-sync', 'validation', 'round-extras', 'live-round', 'tour-rules', 'tour-sync']) {
     assert.ok(assets.includes(`src/${moduleName}.js`), `missing ${moduleName} module`);
   }
   for (const asset of assets.filter(asset => asset !== '')) {
