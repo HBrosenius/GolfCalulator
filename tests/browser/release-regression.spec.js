@@ -131,6 +131,9 @@ test('a shared tour invitation links a local member and starts a connected round
   await page.goto(`/index.html#tour=${code}&invite=${invitationToken}`);
   await expect(page.locator('#tourView')).toBeVisible();
   await expect(page.locator('#tourContent')).toContainText('Delad sommartour');
+  await expect(page.locator('#tourContent')).toContainText('Inkluderade banor');
+  await expect(page.locator('#tourContent')).toContainText('Delad bana');
+  await expect(page.locator('#tourContent')).toContainText('9 hål · tee Gul · högst 1 runda räknas');
   await expect(page.locator('#tourContent select')).toHaveValue('42');
   await expect.poll(() => page.evaluate(() => location.hash)).toBe('');
 
