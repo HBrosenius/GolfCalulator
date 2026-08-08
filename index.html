@@ -3295,54 +3295,14 @@ function liveSyncPush(seat) {
 }
 
 function liveSyncApplyRoom(room) {
-  if (!room || !room.seats) return;
-  Object.keys(room.seats).forEach(seatKey => {
-    const seat = Number(seatKey);
-    if (seat === state.liveSeat) return; // never let a poll clobber our own seat
-    const seatData = room.seats[seatKey];
-    if (!seatData || !Array.isArray(seatData.scores)) return;
-    if (!state.scores[seat]) state.scores[seat] = new Array(state.holes).fill('');
-    seatData.scores.forEach((val, i) => { state.scores[seat][i] = val; });
-  });
-
-  // Track which seats are claimed by some other device, so the host (seat 0) can
-  // keep editing any seat nobody has joined yet — see buildScoreTable().
-  if (state.liveSeat === 0) {
-    const prevClaimed = state.liveSeatsClaimed || {};
-    const nextClaimed = {};
-    Object.keys(room.seats).forEach(seatKey => {
-      const seat = Number(seatKey);
-      if (seat === state.liveSeat) return;
-      nextClaimed[seat] = !!room.seats[seatKey].claimed;
-    });
-    const claimsChanged = Object.keys(nextClaimed).some(seat => !!nextClaimed[seat] !== !!prevClaimed[seat]);
-    state.liveSeatsClaimed = nextClaimed;
-    if (claimsChanged) { buildScoreTable(); restoreScoresToTable(); }
-  }
-
+  const merged = GolfLiveRound.mergeRoomSnapshot(state, room);
+  state = merged.state;
+  if (merged.claimsChanged) { buildScoreTable(); restoreScoresToTable(); }
   if (typeof renderLiveSeatCells === 'function') renderLiveSeatCells(room);
-
-  // Only the host (seat 0) may set marker winners — everyone else mirrors the
-  // host's picks here instead of editing them locally.
-  if (state.liveSeat !== 0 && room.markers && state.markers) {
-    state.markers.ctp.player = (room.markers.ctp && room.markers.ctp.player) || '';
-    state.markers.ld.player  = (room.markers.ld  && room.markers.ld.player)  || '';
-    renderLiveMarkerSelects();
-  }
-  if (state.liveSeat !== 0) {
-    if (room.note !== undefined) state.note = room.note || '';
-    if (room.weather !== undefined) state.weather = room.weather || null;
-    syncRoundMeta();
-  }
-
-  // Bets are fully server-authoritative — every client just mirrors whatever
-  // the worker returns, no per-seat merge needed (unlike scores).
-  if (Array.isArray(room.bets)) {
-    state.bets = room.bets;
-    if (typeof renderBetRows === 'function') renderBetRows();
-  }
+  if (merged.markersChanged) renderLiveMarkerSelects();
+  if (state.liveSeat !== 0 && (merged.metaChanged || room?.note !== undefined || room?.weather !== undefined)) syncRoundMeta();
+  if (merged.betsChanged && typeof renderBetRows === 'function') renderBetRows();
 }
-
 function liveSyncPushMarkers() {
   if (!state.liveRoomCode || !state.liveHostToken) return;
   liveSyncClient.request(`/room/${state.liveRoomCode}`, {

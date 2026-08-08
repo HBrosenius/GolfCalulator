@@ -54,3 +54,46 @@ test('shared room conversion links only unambiguous team member names', () => {
   assert.equal(state.teams[0].members[0].playerId, 1);
   assert.equal(state.teams[0].members[1].playerId, null);
 });
+
+test('snapshot merge preserves the local seat and applies remote scores', () => {
+  const current = { holes: 2, liveSeat: 1, scores: [['', ''], ['4', '5']], markers: { ctp: {}, ld: {} }, note: '', weather: null, bets: [] };
+  const result = liveRound.mergeRoomSnapshot(current, {
+    seats: { 0: { scores: ['3', '4'] }, 1: { scores: ['9', '9'] } }, bets: [],
+  });
+  assert.deepEqual(result.state.scores, [['3', '4'], ['4', '5']]);
+  assert.equal(result.scoresChanged, true);
+  assert.deepEqual(current.scores, [['', ''], ['4', '5']]);
+});
+
+test('host snapshot tracks claim changes without accepting remote metadata', () => {
+  const current = {
+    holes: 1, liveSeat: 0, scores: [['4'], ['']], liveSeatsClaimed: { 1: false },
+    markers: { ctp: { player: 'Ada' }, ld: { player: '' } }, note: 'Lokalt', weather: 'sun', bets: [],
+  };
+  const result = liveRound.mergeRoomSnapshot(current, {
+    seats: { 0: { scores: ['4'], claimed: true }, 1: { scores: ['5'], claimed: true } },
+    markers: { ctp: { player: 'Bo' }, ld: { player: 'Bo' } }, note: 'Fjärr', weather: 'rain', bets: [],
+  });
+  assert.equal(result.claimsChanged, true);
+  assert.deepEqual(result.state.liveSeatsClaimed, { 1: true });
+  assert.equal(result.state.note, 'Lokalt');
+  assert.equal(result.state.markers.ctp.player, 'Ada');
+});
+
+test('joiner snapshot mirrors markers, metadata and authoritative bets', () => {
+  const current = {
+    holes: 1, liveSeat: 1, scores: [[''], ['4']],
+    markers: { ctp: { hole: 0, player: '' }, ld: { hole: 0, player: '' } }, note: '', weather: null, bets: [],
+  };
+  const bets = [{ id: 'b1', status: 'locked' }];
+  const result = liveRound.mergeRoomSnapshot(current, {
+    seats: { 0: { scores: ['3'] }, 1: { scores: ['4'] } },
+    markers: { ctp: { player: 'Ada' }, ld: { player: 'Bo' } }, note: 'Blåsigt', weather: 'wind', bets,
+  });
+  assert.equal(result.markersChanged, true);
+  assert.equal(result.metaChanged, true);
+  assert.equal(result.betsChanged, true);
+  assert.equal(result.state.markers.ctp.player, 'Ada');
+  assert.equal(result.state.note, 'Blåsigt');
+  assert.equal(result.state.bets, bets);
+});

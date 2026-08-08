@@ -81,5 +81,58 @@
     return next;
   }
 
-  return Object.freeze({ isSharedScoreMode, isSeatEditable, buildStateFromRoom });
+  function mergeRoomSnapshot(current, room) {
+    if (!room || !room.seats) return { state: current, scoresChanged: false, claimsChanged: false, markersChanged: false, metaChanged: false, betsChanged: false };
+    const next = { ...current, scores: (current.scores || []).map(row => Array.isArray(row) ? [...row] : row) };
+    let scoresChanged = false;
+    Object.keys(room.seats).forEach(seatKey => {
+      const seat = Number(seatKey);
+      const seatData = room.seats[seatKey];
+      if (seat === current.liveSeat || !seatData || !Array.isArray(seatData.scores)) return;
+      if (!next.scores[seat]) next.scores[seat] = new Array(current.holes).fill('');
+      seatData.scores.forEach((value, hole) => {
+        if (next.scores[seat][hole] !== value) scoresChanged = true;
+        next.scores[seat][hole] = value;
+      });
+    });
+
+    let claimsChanged = false;
+    if (current.liveSeat === 0) {
+      const claimed = {};
+      Object.keys(room.seats).forEach(seatKey => {
+        const seat = Number(seatKey);
+        if (seat !== current.liveSeat) claimed[seat] = !!room.seats[seatKey].claimed;
+      });
+      const previous = current.liveSeatsClaimed || {};
+      const seats = new Set([...Object.keys(previous), ...Object.keys(claimed)]);
+      claimsChanged = [...seats].some(seat => !!previous[seat] !== !!claimed[seat]);
+      next.liveSeatsClaimed = claimed;
+    }
+
+    let markersChanged = false;
+    let metaChanged = false;
+    if (current.liveSeat !== 0) {
+      if (room.markers && current.markers) {
+        const ctp = room.markers.ctp?.player || '';
+        const ld = room.markers.ld?.player || '';
+        markersChanged = ctp !== (current.markers.ctp?.player || '') || ld !== (current.markers.ld?.player || '');
+        next.markers = {
+          ...current.markers,
+          ctp: { ...current.markers.ctp, player: ctp },
+          ld: { ...current.markers.ld, player: ld },
+        };
+      }
+      const note = room.note !== undefined ? room.note || '' : current.note;
+      const weather = room.weather !== undefined ? room.weather || null : current.weather;
+      metaChanged = note !== current.note || weather !== current.weather;
+      next.note = note;
+      next.weather = weather;
+    }
+
+    const betsChanged = Array.isArray(room.bets) && room.bets !== current.bets;
+    if (Array.isArray(room.bets)) next.bets = room.bets;
+    return { state: next, scoresChanged, claimsChanged, markersChanged, metaChanged, betsChanged };
+  }
+
+  return Object.freeze({ isSharedScoreMode, isSeatEditable, buildStateFromRoom, mergeRoomSnapshot });
 }));
