@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { TOUR_SCHEMA_VERSION, validateTourCreate, validateTourRoundSubmission } from '../src/tour-validation.js';
+import { TOUR_SCHEMA_VERSION, validateTourCreate, validateTourRoundSubmission, validateTourUpdate } from '../src/tour-validation.js';
 import { PROTOCOL_VERSION } from '../src/validation.js';
 
 function validTour() {
@@ -67,5 +67,31 @@ describe('shared tour round contract', () => {
     expect(validateTourRoundSubmission(body, tour)).toBeNull();
     body.subjects[0].rows[0].pts = 8;
     expect(validateTourRoundSubmission(body, tour)).toMatch(/subjects|points/i);
+  });
+});
+
+describe('shared tour update contract', () => {
+  it('accepts editable conditions while requiring exact course coverage', () => {
+    const config = validTour();
+    const tour = { courses: [{ id: 'c1', ...config.courses[0] }], rounds: [] };
+    const update = {
+      protocolVersion: PROTOCOL_VERSION, schemaVersion: TOUR_SCHEMA_VERSION, expectedRevision: 1,
+      name: 'Hösttouren', startDate: '2026-06-01', endDate: '2026-09-30', bestOfN: null,
+      duplicateCourseRule: 'first', courseLimits: [{ courseId: 'c1', maxRounds: 4 }],
+    };
+    expect(validateTourUpdate(update, tour)).toBeNull();
+    expect(validateTourUpdate({ ...update, courseLimits: [] }, tour)).toMatch(/limits/i);
+    expect(validateTourUpdate({ ...update, members: [] }, tour)).toMatch(/update/i);
+  });
+
+  it('does not allow edited dates to exclude an existing round', () => {
+    const config = validTour();
+    const tour = { courses: [{ id: 'c1', ...config.courses[0] }], rounds: [{ playedDate: '2026-07-10' }] };
+    const update = {
+      protocolVersion: PROTOCOL_VERSION, schemaVersion: TOUR_SCHEMA_VERSION, expectedRevision: 2,
+      name: 'Tour', startDate: '2026-07-11', endDate: '2026-08-31', bestOfN: 2,
+      duplicateCourseRule: 'best', courseLimits: [{ courseId: 'c1', maxRounds: 2 }],
+    };
+    expect(validateTourUpdate(update, tour)).toMatch(/existing rounds/i);
   });
 });

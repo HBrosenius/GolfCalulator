@@ -323,6 +323,75 @@ test('shared tour organizer actions remain readable on a dark mobile screen', as
   expect(actionsTop).toBeGreaterThanOrEqual(contributorLayout.listBottom);
 });
 
+test('organizer can edit published shared-tour conditions', async ({ page }) => {
+  const code = 'ABCD2345';
+  const token = 'A'.repeat(43);
+  const tour = {
+    revision: 3, name: 'Sommartour', startDate: '2026-06-01', endDate: '2026-08-31', status: 'open',
+    bestOfN: 2, duplicateCourseRule: 'best', rounds: [], members: [{ id: 'member-1', name: 'Ada', hi: 18 }],
+    courses: [{ id: 'course-1', name: 'Testbanan', holes: 9, maxRounds: 1, tees: [{ name: 'Gul' }] }],
+  };
+  let submitted;
+  await page.route(`**/tour/${code}/conditions`, async route => {
+    submitted = route.request().postDataJSON();
+    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({
+      ...tour, ...submitted, revision: 4,
+      courses: tour.courses.map(course => ({ ...course, maxRounds: submitted.courseLimits[0].maxRounds })),
+    }) });
+  });
+  await page.route(`**/tour/${code}/manage`, route => route.fulfill({
+    status: 200, contentType: 'application/json', body: JSON.stringify({ tour, contributors: [] }),
+  }));
+  await page.goto('/index.html');
+  await page.evaluate(({ code, token, tour }) => {
+    localStorage.clear();
+    sharedTourStore.upsert({ code, role: 'organizer', token, tour, pendingSubmissions: [] });
+    openSharedTourDetail(code);
+  }, { code, token, tour });
+  await page.getByRole('button', { name: /Redigera villkor/ }).click();
+  await page.locator('#sharedTourEditName').fill('Hösttour');
+  await page.locator('#sharedTourEditEnd').fill('2026-09-30');
+  await page.locator('#sharedTourEditBest').fill('3');
+  await page.locator('#sharedTourEditRule').selectOption('first');
+  await page.locator('.shared-tour-course-limit').fill('4');
+  await page.getByRole('button', { name: 'Spara villkor' }).click();
+  await expect(page.locator('#tourContent')).toContainText('Hösttour');
+  expect(submitted).toMatchObject({ expectedRevision: 3, endDate: '2026-09-30', bestOfN: 3, duplicateCourseRule: 'first' });
+  expect(submitted.courseLimits).toEqual([{ courseId: 'course-1', maxRounds: 4 }]);
+});
+
+test('offline shared-tour submission shows its error and can be retried', async ({ page }) => {
+  const code = 'ABCD2345';
+  const tour = {
+    revision: 1, name: 'Offline-tour', startDate: '2026-01-01', endDate: '2026-12-31', status: 'open',
+    bestOfN: null, duplicateCourseRule: 'best', rounds: [], members: [{ id: 'member-1', name: 'Ada', hi: 18 }],
+    courses: [{ id: 'course-1', name: 'Synkbanan', holes: 9, maxRounds: 1, tees: [{ name: 'Gul' }] }],
+  };
+  await page.route(`**/tour/${code}/rounds`, route => route.fulfill({
+    status: 200, contentType: 'application/json', body: JSON.stringify({
+      tour: { ...tour, revision: 2 }, round: { id: 'server-round-1' }, duplicate: false,
+    }),
+  }));
+  await page.route(`**/tour/${code}`, route => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(tour) }));
+  await page.goto('/index.html');
+  await page.evaluate(({ code, tour }) => {
+    localStorage.clear();
+    sharedTourStore.upsert({
+      code, role: 'contributor', token: 'B'.repeat(43), tour,
+      pendingSubmissions: [{
+        attempts: 2, lastError: 'Nätverket svarar inte',
+        payload: { protocolVersion: 2, schemaVersion: 1, clientRoundId: 'round-offline', playedDate: '2026-08-08', courseId: 'course-1' },
+      }],
+    });
+    openSharedTourDetail(code);
+  }, { code, tour });
+  await expect(page.locator('.tour-sync-panel')).toContainText('1 runda väntar på synkning');
+  await expect(page.locator('.tour-sync-panel')).toContainText('Senaste fel: Nätverket svarar inte');
+  await page.getByRole('button', { name: 'Försök synka igen' }).click();
+  await expect(page.locator('.tour-sync-panel')).toHaveCount(0);
+  expect(await page.evaluate(code => sharedTourStore.find(code).pendingSubmissions, code)).toEqual([]);
+});
+
 test('installed PWA reloads offline and defers an upgrade during an active round', async ({ page, context }) => {
   await page.goto('/index.html');
   await page.evaluate(() => localStorage.clear());

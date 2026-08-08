@@ -74,6 +74,33 @@ export function validateTourCreate(body) {
   return null;
 }
 
+export function validateTourUpdate(body, tour) {
+  const allowed = new Set([
+    'protocolVersion', 'schemaVersion', 'expectedRevision', 'name', 'startDate', 'endDate',
+    'bestOfN', 'duplicateCourseRule', 'courseLimits',
+  ]);
+  if (!body || body.protocolVersion !== PROTOCOL_VERSION) return 'Unsupported protocol version';
+  if (body.schemaVersion !== TOUR_SCHEMA_VERSION) return 'Unsupported tour schema version';
+  if (!hasOnlyKeys(body, allowed) || !isInteger(body.expectedRevision, 1, Number.MAX_SAFE_INTEGER) || !isText(body.name, 80)) {
+    return 'Invalid tour update';
+  }
+  if (!isDate(body.startDate) || !isDate(body.endDate) || body.endDate < body.startDate) return 'Invalid tour dates';
+  if (body.bestOfN !== null && !isInteger(body.bestOfN, 1, 100)) return 'Invalid best-of value';
+  if (!DUPLICATE_RULES.has(body.duplicateCourseRule)) return 'Invalid duplicate-course rule';
+  if (!Array.isArray(body.courseLimits) || body.courseLimits.length !== tour.courses.length) return 'Invalid course limits';
+  const limits = new Map();
+  for (const limit of body.courseLimits) {
+    if (!hasOnlyKeys(limit, new Set(['courseId', 'maxRounds'])) || !isText(limit.courseId, 80) ||
+      !isInteger(limit.maxRounds, 1, 50) || limits.has(limit.courseId)) return 'Invalid course limits';
+    limits.set(limit.courseId, limit.maxRounds);
+  }
+  if (tour.courses.some(course => !limits.has(course.id))) return 'Invalid course limits';
+  if (tour.rounds.some(round => round.playedDate < body.startDate || round.playedDate > body.endDate)) {
+    return 'Tour dates must include existing rounds';
+  }
+  return null;
+}
+
 function validateResultRow(row, expectedHole) {
   const allowed = new Set(['h', 'par', 'si', 'strokes', 'score', 'netto', 'pts', 'skipped']);
   if (!hasOnlyKeys(row, allowed) || row.h !== expectedHole || !isInteger(row.par, 3, 6) ||

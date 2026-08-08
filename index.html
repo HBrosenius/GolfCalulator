@@ -232,6 +232,15 @@
   }
   .tour-revoke-btn:hover { background: color-mix(in srgb, var(--danger) 10%, var(--card)); }
   .tour-condition-list { display: grid; gap: 7px; }
+  .tour-condition-editor, .tour-sync-panel { margin-top: 10px; padding: 12px; border-radius: 10px; }
+  .tour-condition-editor { border: 1px solid var(--border); background: var(--card); }
+  .tour-condition-editor label { display: block; margin-top: 9px; font-size: 0.8rem; font-weight: 700; }
+  .tour-condition-editor input, .tour-condition-editor select { width: 100%; margin-top: 4px; }
+  .tour-edit-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .tour-sync-panel { border: 1px solid #e1a928; background: #fff7df; color: #4f3a00; }
+  .tour-sync-row { padding: 8px 0; border-top: 1px solid rgba(79,58,0,.18); font-size: .82rem; }
+  .tour-sync-row:first-of-type { margin-top: 8px; }
+  .tour-sync-error { display: block; margin-top: 3px; overflow-wrap: anywhere; }
   .tour-condition-row {
     display: grid; grid-template-columns: 24px 1fr; gap: 8px; align-items: start;
     padding: 9px 10px; border-radius: 8px; background: var(--bg); border: 1px solid var(--border);
@@ -4749,6 +4758,9 @@ let _tourOpenedFromStart = false;
 const SHARED_TOUR_REFRESH_MS = 10000;
 let _sharedTourRefreshTimer = null;
 let _sharedTourRefreshGeneration = 0;
+let _editingSharedTourCode = null;
+let _retryingSharedTourCode = null;
+let _sharedTourSyncPromise = null;
 
 function stopSharedTourRefresh() {
   _sharedTourRefreshGeneration++;
@@ -4976,6 +4988,59 @@ async function completeSharedTour(code) {
   } catch (error) { alert('Kunde inte avsluta touren: ' + error.message); }
 }
 
+function beginSharedTourEdit(code) {
+  _editingSharedTourCode = String(code).toUpperCase();
+  stopSharedTourRefresh();
+  renderSharedTourDetail(code);
+}
+
+function cancelSharedTourEdit(code) {
+  _editingSharedTourCode = null;
+  renderSharedTourDetail(code);
+  startSharedTourRefresh(code);
+}
+
+async function saveSharedTourConditions(code) {
+  const record = sharedTourStore.find(code);
+  if (!record || record.role !== 'organizer') return;
+  const bestValue = document.getElementById('sharedTourEditBest').value;
+  const payload = {
+    protocolVersion: GolfTourSync.PROTOCOL_VERSION,
+    schemaVersion: GolfTourSync.SCHEMA_VERSION,
+    expectedRevision: record.tour.revision,
+    name: document.getElementById('sharedTourEditName').value.trim(),
+    startDate: document.getElementById('sharedTourEditStart').value,
+    endDate: document.getElementById('sharedTourEditEnd').value,
+    bestOfN: bestValue === '' ? null : Number(bestValue),
+    duplicateCourseRule: document.getElementById('sharedTourEditRule').value,
+    courseLimits: Array.from(document.querySelectorAll('.shared-tour-course-limit')).map(input => ({
+      courseId: input.dataset.courseId, maxRounds: Number(input.value),
+    })),
+  };
+  try {
+    const response = await sharedTourClient.updateConditions(code, record.token, payload);
+    sharedTourStore.upsert({ ...record, tour: response.tour || response });
+    _editingSharedTourCode = null;
+    renderSharedTourDetail(code);
+    renderActiveToursCard();
+    startSharedTourRefresh(code);
+    showShareToast('Tourvillkoren har uppdaterats.');
+  } catch (error) {
+    if (error.status === 409) await refreshSharedTour(code);
+    alert('Kunde inte uppdatera tourvillkoren: ' + (error.message || 'nätverksfel'));
+  }
+}
+
+async function retrySharedTourSubmissions(code) {
+  _retryingSharedTourCode = String(code).toUpperCase();
+  renderSharedTourDetail(code);
+  try { await syncSharedTourSubmissions(code); }
+  finally {
+    _retryingSharedTourCode = null;
+    renderSharedTourDetail(code);
+  }
+}
+
 function renderSharedTourDetail(code) {
   const record = sharedTourStore.find(code);
   const el = document.getElementById('tourContent');
@@ -4998,6 +5063,28 @@ function renderSharedTourDetail(code) {
     <div class="tour-condition-row"><span>⭐</span><div><strong>Rundor som räknas</strong><br>${tour.bestOfN ? `Spelarens bästa ${tour.bestOfN} rundor` : 'Alla godkända rundor'}</div></div>
     <div class="tour-condition-row"><span>🔁</span><div><strong>Fler rundor på samma bana</strong><br>${tour.duplicateCourseRule === 'first' ? 'De första rundorna upp till banans gräns räknas' : 'De bästa rundorna upp till banans gräns räknas'}</div></div>
     <div class="tour-condition-row"><span>🏌️</span><div><strong>Godkända spelformer</strong><br>Individuellt, bästboll och matchspel</div></div>`;
+  const editing = record.role === 'organizer' && _editingSharedTourCode === record.code;
+  const conditionEditor = editing ? `<div class="tour-condition-editor">
+    <label>Namn<input id="sharedTourEditName" maxlength="80" value="${escapeHtml(tour.name)}"></label>
+    <div class="tour-edit-grid">
+      <label>Startdatum<input id="sharedTourEditStart" type="date" value="${tour.startDate}"></label>
+      <label>Slutdatum<input id="sharedTourEditEnd" type="date" value="${tour.endDate}"></label>
+    </div>
+    <label>Antal bästa rundor (tomt = alla)<input id="sharedTourEditBest" type="number" min="1" max="100" value="${tour.bestOfN || ''}"></label>
+    <label>Flera rundor på samma bana<select id="sharedTourEditRule"><option value="best"${tour.duplicateCourseRule === 'best' ? ' selected' : ''}>Bästa rundorna räknas</option><option value="first"${tour.duplicateCourseRule === 'first' ? ' selected' : ''}>Första rundorna räknas</option></select></label>
+    ${(tour.courses || []).map(course => `<label>Max rundor · ${escapeHtml(course.name)}<input class="shared-tour-course-limit" data-course-id="${escapeHtml(course.id)}" type="number" min="1" max="50" value="${course.maxRounds}"></label>`).join('')}
+    <p style="font-size:.78rem;color:var(--muted);">Banor och spelare är låsta efter publicering. Datum kan inte utesluta redan registrerade rundor.</p>
+    <div class="tour-admin-actions"><button class="btn" onclick="saveSharedTourConditions('${escapeHtml(record.code)}')">Spara villkor</button><button class="btn secondary" onclick="cancelSharedTourEdit('${escapeHtml(record.code)}')">Avbryt</button></div>
+  </div>` : '';
+  const pending = record.pendingSubmissions || [];
+  const syncPanel = pending.length ? `<div class="tour-sync-panel"><strong>⚠ ${pending.length} ${pending.length === 1 ? 'runda väntar' : 'rundor väntar'} på synkning</strong>
+    <p style="font-size:.8rem;margin:5px 0;">Rundorna är sparade på den här enheten och skickas automatiskt när anslutningen fungerar.</p>
+    ${pending.map(item => {
+      const course = (tour.courses || []).find(entry => entry.id === item.payload.courseId);
+      return `<div class="tour-sync-row"><strong>${escapeHtml(course?.name || 'Tourrunda')}</strong> · ${escapeHtml(item.payload.playedDate || '')}<span class="tour-sync-error">Försök: ${item.attempts || 0}${item.lastError ? ` · Senaste fel: ${escapeHtml(item.lastError)}` : ''}</span></div>`;
+    }).join('')}
+    <button class="btn" ${_retryingSharedTourCode === record.code ? 'disabled' : ''} onclick="retrySharedTourSubmissions('${escapeHtml(record.code)}')">${_retryingSharedTourCode === record.code ? 'Försöker synka…' : 'Försök synka igen'}</button>
+  </div>` : '';
   const activeContributors = (record.contributors || []).filter(contributor => !contributor.revokedAt)
     .sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
   const contributorRows = activeContributors.map(contributor => {
@@ -5014,6 +5101,7 @@ function renderSharedTourDetail(code) {
     <div class="card-title" style="margin-top:16px;">Administration</div>
     ${contributorRows ? `<div class="tour-contributor-list">${contributorRows}</div>` : '<p style="color:var(--muted);font-size:0.85rem;">Inga inbjudna enheter ännu.</p>'}
     <div class="tour-admin-actions">
+      <button class="btn secondary" onclick="beginSharedTourEdit('${escapeHtml(record.code)}')">✎ Redigera villkor</button>
       <button class="btn tour-admin-invite" onclick="rotateSharedTourInvitation('${escapeHtml(record.code)}')">🔄 Skapa ny inbjudningslänk</button>
       ${tour.status === 'open' ? `<button class="btn tour-admin-complete" onclick="completeSharedTour('${escapeHtml(record.code)}')">✓ Avsluta touren</button>` : ''}
     </div>` : '';
@@ -5026,7 +5114,8 @@ function renderSharedTourDetail(code) {
       ${record.role === 'organizer' ? `<button class="btn secondary" style="flex:1;" onclick="shareSharedTourInvitation('${escapeHtml(record.code)}')">🔗 Bjud in</button>` : ''}
     </div>
 
-    <div class="card-title" style="margin-top:16px;">Villkor</div><div class="tour-condition-list">${conditionRows}</div>
+    ${syncPanel}
+    <div class="card-title" style="margin-top:16px;">Villkor</div><div class="tour-condition-list">${conditionRows}</div>${conditionEditor}
     <div class="card-title" style="margin-top:16px;">Inkluderade banor</div>${courseRows || '<p style="color:var(--muted);font-size:0.85rem;">Inga banor har lagts till.</p>'}
     <div class="card-title" style="margin-top:16px;">Tourspelare</div>
     ${(tour.members || []).map(member => `<div class="hi-row"><strong>${escapeHtml(member.name)}</strong><span style="float:right;color:var(--muted);">HCP ${member.hi}</span></div>`).join('') || '<p>Inga deltagare.</p>'}
@@ -5067,8 +5156,10 @@ function queueSharedTourRound(round, code) {
   }
 }
 
-async function syncSharedTourSubmissions() {
-  const results = await GolfTourSync.flushPending(sharedTourStore, sharedTourClient);
+async function syncSharedTourSubmissions(onlyCode = null) {
+  if (_sharedTourSyncPromise) return _sharedTourSyncPromise;
+  _sharedTourSyncPromise = GolfTourSync.flushPending(sharedTourStore, sharedTourClient, onlyCode);
+  const results = await _sharedTourSyncPromise.finally(() => { _sharedTourSyncPromise = null; });
   if (!results.length) return;
   const rounds = roundsLoad();
   let changed = false;
@@ -5083,6 +5174,8 @@ async function syncSharedTourSubmissions() {
     changed = true;
   });
   if (changed) roundsSave(rounds);
+  renderActiveToursCard();
+  if (_tourViewMode === 'shared' && _tourViewActiveId) renderSharedTourDetail(_tourViewActiveId);
 }
 
 async function acceptSharedTourInvitationIfPresent() {

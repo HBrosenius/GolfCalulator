@@ -46,17 +46,36 @@ test('organizer client operations use bearer authorization and bounded version b
     },
   });
   await client.manage('abcd2345', 'organizer');
+  const update = { protocolVersion: 2, schemaVersion: 1, expectedRevision: 1, name: 'Ny' };
+  await client.updateConditions('abcd2345', 'organizer', update);
   await client.rotateInvitation('abcd2345', 'organizer');
   await client.complete('abcd2345', 'organizer');
   await client.revokeContributor('abcd2345', 'organizer', 'device-1');
   assert.deepEqual(requests.map(item => item.url), [
     'https://example.test/tour/ABCD2345/manage',
+    'https://example.test/tour/ABCD2345/conditions',
     'https://example.test/tour/ABCD2345/rotate-invitation',
     'https://example.test/tour/ABCD2345/complete',
     'https://example.test/tour/ABCD2345/contributors/device-1/revoke',
   ]);
   requests.forEach(item => assert.equal(item.options.headers.Authorization, 'Bearer organizer'));
-  requests.slice(1).forEach(item => assert.deepEqual(JSON.parse(item.options.body), { protocolVersion: 2, schemaVersion: 1 }));
+  assert.equal(requests[1].options.method, 'PATCH');
+  assert.deepEqual(JSON.parse(requests[1].options.body), update);
+  requests.slice(2).forEach(item => assert.deepEqual(JSON.parse(item.options.body), { protocolVersion: 2, schemaVersion: 1 }));
+});
+
+test('pending submission retry can be limited to one tour', async () => {
+  const store = sync.createStore(memoryStorage());
+  store.upsert({ code: 'ABCD2345', token: 'one', pendingSubmissions: [] });
+  store.upsert({ code: 'EFGH2345', token: 'two', pendingSubmissions: [] });
+  store.queueSubmission('ABCD2345', { clientRoundId: 'round-1' });
+  store.queueSubmission('EFGH2345', { clientRoundId: 'round-2' });
+  const submitted = [];
+  const client = { submitRound: async code => { submitted.push(code); return { tour: { revision: 2 } }; } };
+  await sync.flushPending(store, client, 'abcd2345');
+  assert.deepEqual(submitted, ['ABCD2345']);
+  assert.equal(store.find('ABCD2345').pendingSubmissions.length, 0);
+  assert.equal(store.find('EFGH2345').pendingSubmissions.length, 1);
 });
 
 test('shared tour cache upserts credentials without duplicating codes', () => {

@@ -2,7 +2,7 @@ import { DurableObject } from 'cloudflare:workers';
 import { generateToken, hashToken, tokenMatches } from './auth.js';
 import { PROTOCOL_VERSION } from './validation.js';
 import { TOUR_SCHEMA_VERSION } from './tour-validation.js';
-import { validateTourRoundSubmission } from './tour-validation.js';
+import { validateTourRoundSubmission, validateTourUpdate } from './tour-validation.js';
 
 const TOUR_KEY = 'tour';
 const RETENTION_MS = 365 * 24 * 60 * 60 * 1000;
@@ -20,6 +20,7 @@ function publicTour(tour) {
     startDate: tour.startDate,
     endDate: tour.endDate,
     status: tour.status,
+    completedReason: tour.completedReason || null,
     bestOfN: tour.bestOfN,
     duplicateCourseRule: tour.duplicateCourseRule,
     members: tour.members,
@@ -30,6 +31,28 @@ function publicTour(tour) {
 }
 
 export class Tour extends DurableObject {
+  completionAt(tour) {
+    return new Date(`${tour.endDate}T23:59:59.999Z`).getTime() + 1;
+  }
+
+  async scheduleLifecycle(tour) {
+    const next = tour.status === 'open' ? Math.min(this.completionAt(tour), tour.retentionUntil) : tour.retentionUntil;
+    await this.ctx.storage.setAlarm(Math.max(Date.now() + 1, next));
+  }
+
+  async ensureLifecycle(tour) {
+    const today = new Date().toISOString().slice(0, 10);
+    if (tour.status === 'open' && tour.endDate < today) {
+      tour.status = 'completed';
+      tour.completedReason = 'expired';
+      tour.updatedAt = Date.now();
+      tour.revision++;
+      await this.ctx.storage.put(TOUR_KEY, tour);
+      await this.scheduleLifecycle(tour);
+    }
+    return tour;
+  }
+
   async actorForToken(tour, token) {
     if (await tokenMatches(token, tour.organizerTokenHash)) return { role: 'organizer', id: 'organizer' };
     for (const contributor of tour.contributors) {
@@ -55,6 +78,7 @@ export class Tour extends DurableObject {
       startDate: config.startDate,
       endDate: config.endDate,
       status: 'open',
+      completedReason: null,
       bestOfN: config.bestOfN,
       duplicateCourseRule: config.duplicateCourseRule,
       members: config.members.map(member => ({ id: crypto.randomUUID(), name: member.name.trim(), hi: member.hi })),
@@ -65,17 +89,19 @@ export class Tour extends DurableObject {
       contributors: [],
     };
     await this.ctx.storage.put(TOUR_KEY, tour);
-    await this.ctx.storage.setAlarm(retentionUntil);
+    await this.scheduleLifecycle(tour);
     return result(201, { tour: publicTour(tour) });
   }
 
   async getPublicState() {
-    const tour = await this.ctx.storage.get(TOUR_KEY);
+    const stored = await this.ctx.storage.get(TOUR_KEY);
+    const tour = stored ? await this.ensureLifecycle(stored) : null;
     return tour ? result(200, { tour: publicTour(tour) }) : result(404, { error: 'Tour not found' });
   }
 
   async join(body) {
-    const tour = await this.ctx.storage.get(TOUR_KEY);
+    const stored = await this.ctx.storage.get(TOUR_KEY);
+    const tour = stored ? await this.ensureLifecycle(stored) : null;
     if (!tour) return result(404, { error: 'Tour not found' });
     if (body?.protocolVersion !== PROTOCOL_VERSION || body?.schemaVersion !== TOUR_SCHEMA_VERSION ||
       typeof body.invitationToken !== 'string' || !/^[A-Za-z0-9_-]{40,64}$/.test(body.invitationToken) ||
@@ -99,7 +125,8 @@ export class Tour extends DurableObject {
   }
 
   async access(token) {
-    const tour = await this.ctx.storage.get(TOUR_KEY);
+    const stored = await this.ctx.storage.get(TOUR_KEY);
+    const tour = stored ? await this.ensureLifecycle(stored) : null;
     if (!tour) return result(404, { error: 'Tour not found' });
     const actor = await this.actorForToken(tour, token);
     if (actor?.role === 'organizer') return result(200, { role: 'organizer' });
@@ -108,7 +135,8 @@ export class Tour extends DurableObject {
   }
 
   async manage(token) {
-    const tour = await this.ctx.storage.get(TOUR_KEY);
+    const stored = await this.ctx.storage.get(TOUR_KEY);
+    const tour = stored ? await this.ensureLifecycle(stored) : null;
     if (!tour) return result(404, { error: 'Tour not found' });
     if (!await tokenMatches(token, tour.organizerTokenHash)) return result(403, { error: 'Not authorized' });
     return result(200, {
@@ -134,6 +162,34 @@ export class Tour extends DurableObject {
     return result(200, { tour: publicTour(tour), invitationToken });
   }
 
+  async update(token, body) {
+    const stored = await this.ctx.storage.get(TOUR_KEY);
+    const tour = stored ? await this.ensureLifecycle(stored) : null;
+    if (!tour) return result(404, { error: 'Tour not found' });
+    if (!await tokenMatches(token, tour.organizerTokenHash)) return result(403, { error: 'Not authorized' });
+    const invalid = validateTourUpdate(body, tour);
+    if (invalid) return result(invalid.startsWith('Unsupported') ? 426 : 400, { error: invalid });
+    if (body.expectedRevision !== tour.revision) return result(409, { error: 'Tour changed; refresh and try again' });
+    tour.name = body.name.trim();
+    tour.startDate = body.startDate;
+    tour.endDate = body.endDate;
+    tour.bestOfN = body.bestOfN;
+    tour.duplicateCourseRule = body.duplicateCourseRule;
+    const limits = new Map(body.courseLimits.map(item => [item.courseId, item.maxRounds]));
+    tour.courses.forEach(course => { course.maxRounds = limits.get(course.id); });
+    tour.retentionUntil = this.completionAt(tour) + RETENTION_MS;
+    const today = new Date().toISOString().slice(0, 10);
+    if (tour.completedReason === 'expired' || tour.status === 'open') {
+      tour.status = tour.endDate < today ? 'completed' : 'open';
+      tour.completedReason = tour.status === 'completed' ? 'expired' : null;
+    }
+    tour.updatedAt = Date.now();
+    tour.revision++;
+    await this.ctx.storage.put(TOUR_KEY, tour);
+    await this.scheduleLifecycle(tour);
+    return result(200, { tour: publicTour(tour) });
+  }
+
   async complete(token, body) {
     const tour = await this.ctx.storage.get(TOUR_KEY);
     if (!tour) return result(404, { error: 'Tour not found' });
@@ -143,6 +199,7 @@ export class Tour extends DurableObject {
     if (!await tokenMatches(token, tour.organizerTokenHash)) return result(403, { error: 'Not authorized' });
     if (tour.status !== 'completed') {
       tour.status = 'completed';
+      tour.completedReason = 'manual';
       tour.updatedAt = Date.now();
       tour.revision++;
       await this.ctx.storage.put(TOUR_KEY, tour);
@@ -151,7 +208,8 @@ export class Tour extends DurableObject {
   }
 
   async submitRound(body, token) {
-    const tour = await this.ctx.storage.get(TOUR_KEY);
+    const stored = await this.ctx.storage.get(TOUR_KEY);
+    const tour = stored ? await this.ensureLifecycle(stored) : null;
     if (!tour) return result(404, { error: 'Tour not found' });
     const actor = await this.actorForToken(tour, token);
     if (!actor) return result(403, { error: 'Not authorized' });
@@ -205,6 +263,13 @@ export class Tour extends DurableObject {
   }
 
   async alarm() {
-    await this.ctx.storage.deleteAll();
+    const tour = await this.ctx.storage.get(TOUR_KEY);
+    if (!tour) return;
+    if (Date.now() >= tour.retentionUntil) {
+      await this.ctx.storage.deleteAll();
+      return;
+    }
+    await this.ensureLifecycle(tour);
+    await this.scheduleLifecycle(tour);
   }
 }

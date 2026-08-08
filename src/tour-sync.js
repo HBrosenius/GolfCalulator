@@ -48,6 +48,9 @@
       }),
       access: (code, token) => jsonRequest(`/tour/${String(code).toUpperCase()}/access`, { headers: headers(token) }),
       manage: (code, token) => jsonRequest(`/tour/${String(code).toUpperCase()}/manage`, { headers: headers(token) }),
+      updateConditions: (code, token, payload) => jsonRequest(`/tour/${String(code).toUpperCase()}/conditions`, {
+        method: 'PATCH', headers: headers(token), body: JSON.stringify(payload),
+      }),
       rotateInvitation: (code, token) => jsonRequest(`/tour/${String(code).toUpperCase()}/rotate-invitation`, {
         method: 'POST', headers: headers(token), body: JSON.stringify({ protocolVersion: PROTOCOL_VERSION, schemaVersion: SCHEMA_VERSION }),
       }),
@@ -124,9 +127,10 @@
     return Object.freeze({ load, upsert, find, remove, queueSubmission, updateSubmission, completeSubmission });
   }
 
-  async function flushPending(store, client) {
+  async function flushPending(store, client, onlyCode) {
     const results = [];
     for (const record of store.load()) {
+      if (onlyCode && record.code !== String(onlyCode).toUpperCase()) continue;
       for (const queued of record.pendingSubmissions || []) {
         try {
           const response = await client.submitRound(record.code, record.token, queued.payload);

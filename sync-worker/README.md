@@ -13,9 +13,11 @@ stored as SHA-256 hashes, and compared in constant time. Rooms expire after
 24 hours through a Durable Object alarm.
 
 Shared tours use a separate Durable Object namespace. An organizer publishes
-the immutable roster/course configuration, invitation links are exchanged for
+an immutable roster and course snapshot with editable competition conditions, invitation links are exchanged for
 revocable per-device contributor tokens, and accepted rounds are recomputed
-server-side and deduplicated by their client round ID.
+server-side and deduplicated by their client round ID. Durable Object alarms
+complete tours after their end date and later remove them after retention;
+request-time reconciliation provides the same transition if an alarm is delayed.
 
 See `src/index.js` for the endpoints (`POST /room`, `GET /room/:code`,
 `PATCH /room/:code`, `POST /room/:code/claim`, `POST /room/:code/bets`,
@@ -24,7 +26,7 @@ See `src/index.js` for the endpoints (`POST /room`, `GET /room/:code`,
 Tour endpoints are `POST /tour`, `GET /tour/:code`, `POST /tour/:code/join`,
 `GET /tour/:code/access`, `POST /tour/:code/rounds`, and the organizer-only
 `GET /tour/:code/manage`, `POST /tour/:code/rotate-invitation`,
-`POST /tour/:code/complete`, and
+`PATCH /tour/:code/conditions`, `POST /tour/:code/complete`, and
 `POST /tour/:code/contributors/:id/revoke`.
 
 ## Authorization

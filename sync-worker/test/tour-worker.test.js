@@ -26,13 +26,23 @@ function configuration() {
   };
 }
 
-async function createTour() {
+async function createTour(config = configuration()) {
   const response = await SELF.fetch('https://worker.test/tour', {
     method: 'POST', headers: { 'Content-Type': 'application/json', 'CF-Connecting-IP': crypto.randomUUID() },
-    body: JSON.stringify(configuration()),
+    body: JSON.stringify(config),
   });
   expect(response.status).toBe(201);
   return response.json();
+}
+
+function updatePayload(tour, overrides = {}) {
+  return {
+    protocolVersion: PROTOCOL_VERSION, schemaVersion: TOUR_SCHEMA_VERSION, expectedRevision: tour.revision,
+    name: tour.name, startDate: tour.startDate, endDate: tour.endDate, bestOfN: tour.bestOfN,
+    duplicateCourseRule: tour.duplicateCourseRule,
+    courseLimits: tour.courses.map(course => ({ courseId: course.id, maxRounds: course.maxRounds })),
+    ...overrides,
+  };
 }
 
 async function joinTour(created, invitationToken = created.invitationToken) {
@@ -171,6 +181,54 @@ describe('shared tour authorization', () => {
       method: 'POST', headers: headers(joined.body.contributorToken), body: JSON.stringify(submission(created)),
     });
     expect(rejectedRound.status).toBe(400);
+  });
+
+  it('automatically completes a tour after its end date', async () => {
+    const created = await createTour({ ...configuration(), startDate: '2025-06-01', endDate: '2025-08-31' });
+    const response = await SELF.fetch(`https://worker.test/tour/${created.code}`);
+    expect(response.status).toBe(200);
+    const tour = await response.json();
+    expect(tour.status).toBe('completed');
+    expect(tour.completedReason).toBe('expired');
+    expect(tour.revision).toBe(created.tour.revision + 1);
+  });
+
+  it('lets only the organizer edit published conditions with revision protection', async () => {
+    const created = await createTour();
+    const joined = await joinTour(created);
+    const payload = updatePayload(joined.body.tour, {
+      name: 'Uppdaterad tour', endDate: '2026-09-30', bestOfN: null,
+      duplicateCourseRule: 'first',
+      courseLimits: joined.body.tour.courses.map(course => ({ courseId: course.id, maxRounds: 4 })),
+    });
+    const denied = await SELF.fetch(`https://worker.test/tour/${created.code}/conditions`, {
+      method: 'PATCH', headers: headers(joined.body.contributorToken), body: JSON.stringify(payload),
+    });
+    expect(denied.status).toBe(403);
+
+    const updated = await SELF.fetch(`https://worker.test/tour/${created.code}/conditions`, {
+      method: 'PATCH', headers: headers(created.organizerToken), body: JSON.stringify(payload),
+    });
+    expect(updated.status).toBe(200);
+    const tour = await updated.json();
+    expect(tour).toMatchObject({ name: 'Uppdaterad tour', endDate: '2026-09-30', bestOfN: null, duplicateCourseRule: 'first' });
+    expect(tour.courses[0].maxRounds).toBe(4);
+
+    const conflict = await SELF.fetch(`https://worker.test/tour/${created.code}/conditions`, {
+      method: 'PATCH', headers: headers(created.organizerToken), body: JSON.stringify(payload),
+    });
+    expect(conflict.status).toBe(409);
+  });
+
+  it('reopens an automatically expired tour when the organizer extends its dates', async () => {
+    const created = await createTour({ ...configuration(), startDate: '2025-06-01', endDate: '2025-08-31' });
+    const expired = await (await SELF.fetch(`https://worker.test/tour/${created.code}`)).json();
+    const response = await SELF.fetch(`https://worker.test/tour/${created.code}/conditions`, {
+      method: 'PATCH', headers: headers(created.organizerToken),
+      body: JSON.stringify(updatePayload(expired, { endDate: '2027-08-31' })),
+    });
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ status: 'open', completedReason: null, endDate: '2027-08-31' });
   });
 
   it('allows contributors to submit validated rounds idempotently', async () => {

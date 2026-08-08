@@ -107,8 +107,11 @@ En lokal tour kan publiceras med **Dela tour online**. Det skapar en fristående
 - Sparade resultat köas lokalt om nätet saknas och skickas igen automatiskt. Samma runda kan därför inte råka registreras två gånger vid återförsök.
 - Den delade tourvyn visar tourens **villkor**, inkluderade banor, hålantal, tee, gräns för räknade rundor, startfält, ställning och rapporterade rundor.
 - Ställningen uppdateras automatiskt var tionde sekund medan tourvyn är öppen, samt direkt när appen återgår till förgrunden eller nätverket kommer tillbaka. Uppdateringen stoppas när användaren lämnar tourvyn eller startar en runda.
+- Servern avslutar automatiskt en delad tour när slutdatumet har passerat, även om ingen har appen öppen. Organisatören kan förlänga en automatiskt avslutad tour och öppna den igen.
 - På startsidan visas **Pågående tourer** med aktiva lokala och delade tourer. En publicerad lokal tour visas inte en extra gång bredvid sin delade kopia.
-- Organisatören kan kopiera eller byta inbjudningslänk, se behöriga enheter med anslutningstid, återkalla enskilda enheter samt avsluta touren. Efter avslut kan inga fler resultat läggas till.
+- Organisatören kan redigera namn, datum, antal bästa rundor, regel för flera rundor per bana och banornas rundgränser efter publicering. Startfält och bansnapshots förblir låsta, och datum får inte utesluta redan registrerade rundor.
+- Organisatören kan också kopiera eller byta inbjudningslänk, se behöriga enheter med anslutningstid, återkalla enskilda enheter samt avsluta touren. Efter ett manuellt avslut kan inga fler resultat läggas till.
+- Om en tourrunda inte kan skickas visas en tydlig panel med antal försök och senaste fel. Rundan ligger kvar säkert på enheten, synkas automatiskt när nätverket återkommer och kan även skickas igen med **Försök synka igen**.
 - Vanliga säkerhetskopior innehåller inte tourens hemliga organisations- eller enhetsnycklar; de ligger bara på den enhet där länken öppnades eller touren publicerades.
 
 ## Live-poäng och ledartavla
