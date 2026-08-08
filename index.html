@@ -4746,8 +4746,30 @@ function closeCourseRecordsView() {
 let _tourViewMode = 'list'; // 'list' | 'create' | 'detail'
 let _tourViewActiveId = null;
 let _tourOpenedFromStart = false;
+const SHARED_TOUR_REFRESH_MS = 10000;
+let _sharedTourRefreshTimer = null;
+let _sharedTourRefreshGeneration = 0;
+
+function stopSharedTourRefresh() {
+  _sharedTourRefreshGeneration++;
+  if (_sharedTourRefreshTimer) clearTimeout(_sharedTourRefreshTimer);
+  _sharedTourRefreshTimer = null;
+}
+
+function startSharedTourRefresh(code, intervalMs = SHARED_TOUR_REFRESH_MS) {
+  stopSharedTourRefresh();
+  const normalizedCode = String(code).toUpperCase();
+  const generation = _sharedTourRefreshGeneration;
+  const poll = async () => {
+    if (generation !== _sharedTourRefreshGeneration || _tourViewMode !== 'shared' || _tourViewActiveId !== normalizedCode) return;
+    if (!document.hidden) await refreshSharedTour(normalizedCode);
+    if (generation === _sharedTourRefreshGeneration) _sharedTourRefreshTimer = setTimeout(poll, intervalMs);
+  };
+  poll();
+}
 
 function openTourView() {
+  stopSharedTourRefresh();
   _tourOpenedFromStart = false;
   _tourViewMode = 'list';
   renderTourView();
@@ -4756,6 +4778,7 @@ function openTourView() {
 }
 
 function closeTourView() {
+  stopSharedTourRefresh();
   document.getElementById('tourView').classList.add('hidden');
   if (_tourOpenedFromStart) {
     _tourOpenedFromStart = false;
@@ -4766,6 +4789,7 @@ function closeTourView() {
 }
 
 function openActiveLocalTour(id) {
+  stopSharedTourRefresh();
   _tourOpenedFromStart = true;
   _tourViewMode = 'detail';
   _tourViewActiveId = id;
@@ -4781,7 +4805,7 @@ function openActiveSharedTour(code) {
   renderTourView();
   document.getElementById('step1').classList.add('hidden');
   document.getElementById('tourView').classList.remove('hidden');
-  refreshSharedTour(code);
+  startSharedTourRefresh(code);
 }
 
 function renderActiveToursCard() {
@@ -4898,7 +4922,13 @@ function openSharedTourDetail(code) {
   renderTourView();
   document.getElementById('playersView').classList.add('hidden');
   document.getElementById('tourView').classList.remove('hidden');
-  refreshSharedTour(code);
+  startSharedTourRefresh(code);
+}
+
+function backToSharedTourList() {
+  stopSharedTourRefresh();
+  _tourViewMode = 'list';
+  renderTourView();
 }
 
 async function refreshSharedTour(code) {
@@ -4988,9 +5018,9 @@ function renderSharedTourDetail(code) {
       ${tour.status === 'open' ? `<button class="btn tour-admin-complete" onclick="completeSharedTour('${escapeHtml(record.code)}')">✓ Avsluta touren</button>` : ''}
     </div>` : '';
   el.innerHTML = `
-    <button class="btn secondary" style="margin-bottom:12px;" onclick="_tourViewMode='list';renderTourView();">← Alla tourer</button>
+    <button class="btn secondary" style="margin-bottom:12px;" onclick="backToSharedTourList()">← Alla tourer</button>
     <strong style="font-size:1.1rem;">🌐 ${escapeHtml(tour.name)}</strong><br>
-    <span style="font-size:0.8rem;color:var(--muted);">${tour.startDate} – ${tour.endDate} · kod ${escapeHtml(record.code)}</span>
+    <span style="font-size:0.8rem;color:var(--muted);">${tour.startDate} – ${tour.endDate} · kod ${escapeHtml(record.code)} · uppdateras automatiskt</span>
     <div style="display:flex;gap:8px;margin-top:12px;">
       ${tour.status === 'open' ? `<button class="btn" style="flex:1;" onclick="startSharedTourRound('${escapeHtml(record.code)}')">+ Ny tourrunda</button>` : '<span style="color:var(--muted);">Touren är avslutad</span>'}
       ${record.role === 'organizer' ? `<button class="btn secondary" style="flex:1;" onclick="shareSharedTourInvitation('${escapeHtml(record.code)}')">🔗 Bjud in</button>` : ''}
@@ -5013,6 +5043,7 @@ function startSharedTourRound(code) {
     name: course.name, tee: tee.name, holes: course.holes,
     slope: tee.slope, cr: tee.cr, par: tee.par, hpar: tee.hpar, si: tee.si,
   })));
+  stopSharedTourRefresh();
   document.getElementById('tourView').classList.add('hidden');
   newRound();
   state.tourContext = { code: record.code, submissionOwner: true };
@@ -6219,7 +6250,13 @@ try { _updateLastBackupLabel(); } catch(e) {}
 try { _populateOriginLabelInput(); } catch(e) {}
 try { acceptSharedTourInvitationIfPresent(); } catch(e) {}
 try { syncSharedTourSubmissions(); } catch(e) {}
-window.addEventListener('online', () => syncSharedTourSubmissions());
+window.addEventListener('online', () => {
+  syncSharedTourSubmissions();
+  if (_tourViewMode === 'shared' && _tourViewActiveId) startSharedTourRefresh(_tourViewActiveId);
+});
+document.addEventListener('visibilitychange', () => {
+  if (!document.hidden && _tourViewMode === 'shared' && _tourViewActiveId) startSharedTourRefresh(_tourViewActiveId);
+});
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.addEventListener('controllerchange', () => {
     if (_applyingPwaUpdate) window.location.reload();

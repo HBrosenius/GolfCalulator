@@ -120,9 +120,18 @@ test('ongoing local and shared tours appear on the start page', async ({ page })
       code: 'ABCD2345', role: 'contributor', token: 'A'.repeat(43), tour: sharedTour, pendingSubmissions: [],
     }]));
   }, sharedTour);
-  await page.route('**/tour/ABCD2345', route => route.fulfill({
-    status: 200, contentType: 'application/json', body: JSON.stringify(sharedTour),
-  }));
+  let sharedFetches = 0;
+  await page.route('**/tour/ABCD2345', route => {
+    sharedFetches++;
+    const refreshed = sharedFetches >= 2 ? {
+      ...sharedTour,
+      rounds: [{
+        id: 'round-live', playedDate: '2026-08-08', courseName: 'Testbanan', holes: 9, gameMode: 'individual',
+        subjects: [{ memberId: 'member-1', name: 'Ada', totalPoints: 34 }],
+      }],
+    } : sharedTour;
+    return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(refreshed) });
+  });
 
   await page.goto('/index.html');
   await expect(page.locator('#activeToursCard')).toBeVisible();
@@ -135,9 +144,14 @@ test('ongoing local and shared tours appear on the start page', async ({ page })
   await page.getByRole('button', { name: /Aktiv delad tour/ }).click();
   await expect(page.locator('#tourView')).toBeVisible();
   await expect(page.locator('#tourContent')).toContainText('Villkor');
+  await page.evaluate(() => startSharedTourRefresh('ABCD2345', 50));
+  await expect(page.locator('#tourContent')).toContainText('Ada 34p');
   await page.locator('#tourView > .card > div').first().locator('button').click();
+  const fetchesAfterClose = sharedFetches;
   await expect(page.locator('#step1')).toBeVisible();
   await expect(page.locator('#activeToursCard')).toBeVisible();
+  await page.waitForTimeout(160);
+  expect(sharedFetches).toBe(fetchesAfterClose);
 });
 
 test('a shared tour invitation lets the contributor select any tour player', async ({ page }) => {
