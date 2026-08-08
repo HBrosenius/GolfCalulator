@@ -7,11 +7,13 @@
   "durable_objects": {
     "bindings": [
       { "name": "GOLF_ROOMS", "class_name": "GolfRoom" },
+      { "name": "GOLF_TOURS", "class_name": "Tour" },
       { "name": "CREATE_LIMITER", "class_name": "CreateRateLimiter" }
     ]
   },
   "exports": {
     "GolfRoom": { "type": "durable-object", "storage": "sqlite" },
+    "Tour": { "type": "durable-object", "storage": "sqlite" },
     "CreateRateLimiter": { "type": "durable-object", "storage": "sqlite" }
   },
   "observability": {
@@ -25,6 +27,7 @@
       "durable_objects": {
         "bindings": [
           { "name": "GOLF_ROOMS", "class_name": "GolfRoom" },
+          { "name": "GOLF_TOURS", "class_name": "Tour" },
           { "name": "CREATE_LIMITER", "class_name": "CreateRateLimiter" }
         ]
       }
@@ -34,6 +37,7 @@
       "durable_objects": {
         "bindings": [
           { "name": "GOLF_ROOMS", "class_name": "GolfRoom" },
+          { "name": "GOLF_TOURS", "class_name": "Tour" },
           { "name": "CREATE_LIMITER", "class_name": "CreateRateLimiter" }
         ]
       }

@@ -1,8 +1,10 @@
 import { bearerToken, generateToken, hashToken } from './auth.js';
 import { GolfRoom, CreateRateLimiter } from './room.js';
+import { Tour } from './tour.js';
 import { PROTOCOL_VERSION, readJson, validateCreate } from './validation.js';
+import { TOUR_SCHEMA_VERSION, validateTourCreate } from './tour-validation.js';
 
-export { GolfRoom, CreateRateLimiter };
+export { GolfRoom, CreateRateLimiter, Tour };
 
 const CODE_CHARS = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
 const ALLOWED_ORIGINS = new Set([
@@ -38,6 +40,11 @@ function fromRoomResult(roomResult) {
   return json(data.room && Object.keys(data).length === 1 ? data.room : data, status);
 }
 
+function fromTourResult(tourResult) {
+  const { status, ...data } = tourResult;
+  return json(data.tour && Object.keys(data).length === 1 ? data.tour : data, status);
+}
+
 async function bodyOrResponse(request) {
   const parsed = await readJson(request);
   return parsed.error ? { response: json({ error: parsed.error }, parsed.status) } : { body: parsed.value };
@@ -70,12 +77,54 @@ async function createRoom(request, env) {
   return json({ error: 'Room unavailable' }, 503);
 }
 
+async function createTour(request, env) {
+  const parsed = await bodyOrResponse(request);
+  if (parsed.response) return parsed.response;
+  const invalid = validateTourCreate(parsed.body);
+  if (invalid) return json({ error: invalid }, invalid.startsWith('Unsupported') ? 426 : 400);
+  const clientKey = `tour:${request.headers.get('CF-Connecting-IP') || 'local'}`;
+  if (!await env.CREATE_LIMITER.getByName(clientKey).check()) return json({ error: 'Too many attempts' }, 429);
+
+  const organizerToken = generateToken();
+  const invitationToken = generateToken();
+  const organizerTokenHash = await hashToken(organizerToken);
+  const invitationTokenHash = await hashToken(invitationToken);
+  for (let attempt = 0; attempt < 8; attempt++) {
+    const code = randomCode(8);
+    const created = await env.GOLF_TOURS.getByName(code).create(parsed.body, organizerTokenHash, invitationTokenHash);
+    if (created.status === 201) {
+      return json({
+        code, tour: created.tour, organizerToken, invitationToken,
+        protocolVersion: PROTOCOL_VERSION, schemaVersion: TOUR_SCHEMA_VERSION,
+      }, 201);
+    }
+  }
+  return json({ error: 'Tour unavailable' }, 503);
+}
+
 async function route(request, env) {
   const url = new URL(request.url);
   if (url.pathname === '/health' && request.method === 'GET') {
     return json({ ok: true, protocolVersion: PROTOCOL_VERSION });
   }
   const parts = url.pathname.split('/').filter(Boolean);
+  if (parts[0] === 'tour') {
+    if (parts.length === 1 && request.method === 'POST') return createTour(request, env);
+    if (parts.length < 2 || !/^[A-HJ-KM-NP-Z2-9]{8}$/.test(parts[1].toUpperCase())) return json({ error: 'Tour not found' }, 404);
+    const code = parts[1].toUpperCase();
+    const tour = env.GOLF_TOURS.getByName(code);
+    if (parts.length === 2 && request.method === 'GET') return fromTourResult(await tour.getPublicState());
+    if (!protocolHeaderValid(request)) return json({ error: 'Unsupported protocol version' }, 426);
+    const token = bearerToken(request);
+    if (parts.length === 3 && parts[2] === 'access' && request.method === 'GET') return fromTourResult(await tour.access(token));
+    const parsed = await bodyOrResponse(request);
+    if (parsed.response) return parsed.response;
+    if (parts.length === 3 && parts[2] === 'join' && request.method === 'POST') return fromTourResult(await tour.join(parsed.body));
+    if (parts.length === 5 && parts[2] === 'contributors' && parts[4] === 'revoke' && request.method === 'POST') {
+      return fromTourResult(await tour.revokeContributor(parts[3], token, parsed.body));
+    }
+    return json({ error: 'Not found' }, 404);
+  }
   if (parts[0] !== 'room') return json({ error: 'Not found' }, 404);
 
   if (parts.length === 1 && request.method === 'POST') return createRoom(request, env);
