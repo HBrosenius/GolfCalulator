@@ -3263,36 +3263,34 @@ function liveMutationHeaders(token) {
   return liveSyncClient.headers(token);
 }
 
-function liveTokenForSeat(seat) {
-  return seat === state.liveSeat ? state.liveSeatToken : state.liveHostToken;
-}
-
-let _livePushTimer = null;
 let _livePollTimer = null;
 
-let _liveDirtySeats = new Set();
-
-function liveSyncPushNow() {
-  if (!state.liveRoomCode || state.liveSeat == null) return;
-  const seats = _liveDirtySeats.size ? [..._liveDirtySeats] : [state.liveSeat];
-  _liveDirtySeats.clear();
-  seats.forEach(seat => {
-    liveSyncClient.request(`/room/${state.liveRoomCode}`, {
-      method: 'PATCH',
-      headers: liveMutationHeaders(liveTokenForSeat(seat)),
-      body: JSON.stringify({ protocolVersion: LIVE_PROTOCOL_VERSION, seat, scores: state.scores[seat] || [] }),
-    }).catch(() => {}); // network failure must never block local scoring
-  });
-}
+const liveScorePushController = GolfLiveSync.createScorePushController({
+  debounceMs: LIVE_SYNC_PUSH_DEBOUNCE_MS,
+  getRound: () => ({
+    code: state.liveRoomCode,
+    localSeat: state.liveSeat,
+    seatToken: state.liveSeatToken,
+    hostToken: state.liveHostToken,
+    scores: state.scores,
+  }),
+  send: ({ code, seat, token, scores }) => liveSyncClient.request(`/room/${code}`, {
+    method: 'PATCH',
+    headers: liveMutationHeaders(token),
+    body: JSON.stringify({ protocolVersion: LIVE_PROTOCOL_VERSION, seat, scores }),
+  }).then(response => response.ok),
+});
 
 // `seat` defaults to this device's own seat; the host also passes the seat number
 // when filling in scores for a player whose seat nobody has claimed yet.
 function liveSyncPush(seat) {
-  if (!state.liveRoomCode || state.liveSeat == null) return;
-  _liveDirtySeats.add(seat == null ? state.liveSeat : seat);
-  clearTimeout(_livePushTimer);
-  _livePushTimer = setTimeout(liveSyncPushNow, LIVE_SYNC_PUSH_DEBOUNCE_MS);
+  liveScorePushController.mark(seat);
 }
+
+window.addEventListener('online', () => {
+  liveScorePushController.flush();
+  liveSyncPollNow();
+});
 
 function liveSyncApplyRoom(room) {
   const merged = GolfLiveRound.mergeRoomSnapshot(state, room);
@@ -3365,9 +3363,10 @@ function renderLiveSeatCells(room) {
 
 function liveSyncPollNow() {
   if (!state.liveRoomCode) return;
-  liveSyncClient.request(`/room/${state.liveRoomCode}`)
+  const requestedCode = state.liveRoomCode;
+  liveSyncClient.request(`/room/${requestedCode}`)
     .then(r => r.ok ? r.json() : null)
-    .then(room => { if (room) liveSyncApplyRoom(room); })
+    .then(room => { if (room && state.liveRoomCode === requestedCode) liveSyncApplyRoom(room); })
     .catch(() => {}); // offline: keep last-known scores, retry next tick
 }
 
@@ -3382,8 +3381,7 @@ function liveSyncStart() {
 function liveSyncStop() {
   clearInterval(_livePollTimer);
   _livePollTimer = null;
-  clearTimeout(_livePushTimer);
-  _livePushTimer = null;
+  liveScorePushController.stop();
 }
 
 // ============================================================

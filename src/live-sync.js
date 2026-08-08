@@ -38,5 +38,73 @@
     return Object.freeze({ baseUrl, headers, mutation, request });
   }
 
-  return Object.freeze({ DEFAULT_BASE_URL, PROTOCOL_VERSION, createClient });
+  function createScorePushController(options) {
+    const settings = options || {};
+    if (typeof settings.getRound !== 'function' || typeof settings.send !== 'function') {
+      throw new TypeError('getRound and send are required');
+    }
+    const delay = settings.debounceMs == null ? 600 : settings.debounceMs;
+    const schedule = settings.setTimeout || setTimeout;
+    const cancel = settings.clearTimeout || clearTimeout;
+    const dirty = new Map();
+    let timer = null;
+    let version = 0;
+    let activeRoom = null;
+
+    function syncRoom(code) {
+      if (activeRoom === null) activeRoom = code;
+      if (code !== activeRoom) {
+        dirty.clear();
+        activeRoom = code;
+      }
+    }
+
+    function mark(seat) {
+      const round = settings.getRound();
+      if (!round || !round.code || round.localSeat == null) return;
+      syncRoom(round.code);
+      dirty.set(seat == null ? round.localSeat : seat, ++version);
+      if (timer !== null) cancel(timer);
+      timer = schedule(() => { timer = null; flush(); }, delay);
+    }
+
+    async function flush() {
+      if (timer !== null) { cancel(timer); timer = null; }
+      const round = settings.getRound();
+      if (!round || !round.code || round.localSeat == null) return false;
+      syncRoom(round.code);
+      const roomCode = round.code;
+      const work = [...dirty.entries()];
+      if (!work.length) return true;
+      const results = await Promise.all(work.map(async ([seat, queuedVersion]) => {
+        try {
+          const response = await settings.send({
+            code: roomCode, seat,
+            token: seat === round.localSeat ? round.seatToken : round.hostToken,
+            scores: Array.isArray(round.scores?.[seat]) ? [...round.scores[seat]] : [],
+          });
+          const latest = settings.getRound();
+          if (response !== false && latest?.code === roomCode && dirty.get(seat) === queuedVersion) dirty.delete(seat);
+          return response !== false;
+        } catch (_) {
+          return false;
+        }
+      }));
+      return results.every(Boolean);
+    }
+
+    function stop(options) {
+      if (timer !== null) cancel(timer);
+      timer = null;
+      if (options?.clear) dirty.clear();
+    }
+
+    function pendingSeats() {
+      return [...dirty.keys()];
+    }
+
+    return Object.freeze({ mark, flush, stop, pendingSeats });
+  }
+
+  return Object.freeze({ DEFAULT_BASE_URL, PROTOCOL_VERSION, createClient, createScorePushController });
 }));
