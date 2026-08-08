@@ -101,10 +101,15 @@ Under Spelarregister → **🚌 Tour** kan du sätta upp en tour för ett fast s
 
 En lokal tour kan publiceras med **Dela tour online**. Det skapar en fristående delad kopia och en inbjudningslänk. Befintliga lokala tourer ändras inte automatiskt; publiceringen är den uttryckliga migreringen och de gamla lokala rundorna ligger kvar orörda.
 
-- Alla som öppnar inbjudningslänken får en egen enhetsbehörighet och kan starta, spela och spara rundor kopplade till touren. Resultaten valideras av servern och visas i samma ställning för alla.
+- Alla som öppnar inbjudningslänken får en egen enhetsbehörighet och kan starta, spela och spara rundor kopplade till touren. Om samma enhet öppnar länken igen återanvänds dess befintliga behörighet i stället för att skapa en dubblett.
+- Enhetsbehörigheten avgör bara vem som får rapportera. När en ny tourrunda startas kan varje behörig användare välja **vilken eller vilka spelare som helst ur hela tourens startfält**. Tourspelarna hämtas direkt från den delade touren och behöver inte kopplas till lokala spelarprofiler på enheten.
+- Resultaten valideras och räknas om av servern. Varje spelare identifieras med sitt beständiga tourmedlems-ID, så en runda hamnar på rätt spelare oavsett vilken enhet som rapporterar den.
 - Sparade resultat köas lokalt om nätet saknas och skickas igen automatiskt. Samma runda kan därför inte råka registreras två gånger vid återförsök.
-- Organisatören kan kopiera eller byta inbjudningslänk, se och återkalla inbjudna enheter samt avsluta touren. Efter avslut kan inga fler resultat läggas till.
-- Spelarkopplingen mellan tourdeltagare och lokala spelarprofiler görs per enhet. Vanliga säkerhetskopior innehåller inte tourens hemliga organisations- eller enhetsnycklar; de ligger bara på den enhet där länken öppnades eller touren publicerades.
+- Den delade tourvyn visar tourens **villkor**, inkluderade banor, hålantal, tee, gräns för räknade rundor, startfält, ställning och rapporterade rundor.
+- Ställningen uppdateras automatiskt var tionde sekund medan tourvyn är öppen, samt direkt när appen återgår till förgrunden eller nätverket kommer tillbaka. Uppdateringen stoppas när användaren lämnar tourvyn eller startar en runda.
+- På startsidan visas **Pågående tourer** med aktiva lokala och delade tourer. En publicerad lokal tour visas inte en extra gång bredvid sin delade kopia.
+- Organisatören kan kopiera eller byta inbjudningslänk, se behöriga enheter med anslutningstid, återkalla enskilda enheter samt avsluta touren. Efter avslut kan inga fler resultat läggas till.
+- Vanliga säkerhetskopior innehåller inte tourens hemliga organisations- eller enhetsnycklar; de ligger bara på den enhet där länken öppnades eller touren publicerades.
 
 ## Live-poäng och ledartavla
 
@@ -228,7 +233,7 @@ När en uppdatering är redo visas **En ny version finns** med knappen **Uppdate
 
 Kärnlogiken ligger i fristående moduler under `src/`: poängberäkning, lokal lagring och migrering, live-API samt klientvalidering. Modulerna fungerar både direkt i webbläsaren och från Node-tester utan byggsteg. Rendering och vyhantering ligger fortfarande i `index.html`.
 
-Kör hela testsviten med `npm test`. Den omfattar regel- och lagringstester, Worker-tester, återanslutning till live-rundor, export/import och migrering samt webbläsartester av en komplett sparad runda, offline-återladdning och säkra PWA-uppgraderingar.
+Kör hela testsviten med `npm test`. Den omfattar regel- och lagringstester, Worker-tester, återanslutning till live-rundor, export/import och migrering samt webbläsartester av en komplett sparad runda, delade tourinbjudningar, val av valfri tourspelare, offlinekö och synk, automatisk ställningsuppdatering, startsidevisning av pågående tourer, mobil/dark-mode-layout, offline-återladdning och säkra PWA-uppgraderingar.
 
 Inför en release körs `npm run verify:release`. Kommandot kör hela testsviten, validerar Worker-konfigurationen med en torrkörning och kontrollerar båda beroendeträden efter kända sårbarheter. Första gången behövs `npm ci`, `npm ci --prefix sync-worker` och `npx playwright install chromium`.
 
@@ -239,6 +244,7 @@ Inför en release körs `npm run verify:release`. Kommandot kör hela testsviten
 3. Skapa en live-runda och anslut från en andra enhet; registrera resultat och kontrollera att score, markör och anteckning synkas åt båda håll.
 4. Avsluta rundan och kontrollera att den finns i historiken på värdens enhet.
 5. Exportera och återimportera en säkerhetskopia samt kontrollera att spelarkopplingar och historik finns kvar efter ett namnbyte.
+6. Publicera en tour, öppna inbjudan på en andra enhet, välj en annan spelare ur tourens startfält och spara en runda; kontrollera att ställningen uppdateras automatiskt på båda enheterna.
 
 ## Kom igång
 
