@@ -238,6 +238,16 @@
     font-size: 0.84rem; line-height: 1.35;
   }
   .tour-condition-row strong { color: var(--heading); }
+  .active-tour-list { display: grid; gap: 8px; }
+  .active-tour-btn {
+    width: 100%; display: flex; align-items: center; justify-content: space-between; gap: 10px;
+    padding: 11px 12px; border: 1.5px solid var(--green); border-radius: 9px;
+    background: var(--card); color: var(--text); cursor: pointer; text-align: left;
+  }
+  .active-tour-btn:hover { background: var(--bg); }
+  .active-tour-name { display: block; color: var(--heading); font-weight: 700; }
+  .active-tour-meta { display: block; margin-top: 2px; color: var(--muted); font-size: 0.76rem; }
+  .active-tour-arrow { flex: 0 0 auto; color: var(--green); font-size: 1.1rem; }
 
   /* Score table */
   .score-table-wrap {
@@ -942,6 +952,12 @@
         <button class="btn" style="flex:1;width:auto;margin-top:0;" onclick="resumeRound()">Fortsätt rundan ▶</button>
         <button class="btn secondary" style="flex:0 0 auto;width:auto;margin-top:0;" onclick="discardInprogress()">Släng</button>
       </div>
+    </div>
+
+    <!-- Pågående tourer -->
+    <div id="activeToursCard" class="card hidden" style="margin-bottom:10px;">
+      <div class="card-title" style="margin-bottom:10px;"><span class="icon">🚌</span> Pågående tourer</div>
+      <div id="activeToursList" class="active-tour-list"></div>
     </div>
 
     <!-- Senaste banor (snabbval) -->
@@ -3289,6 +3305,7 @@ function goToStep(n) {
   });
   window.scrollTo({ top: 0, behavior: 'smooth' });
   if (n === 4) liveSyncStart(); else liveSyncStop();
+  if (n === 1) renderActiveToursCard();
 }
 
 // ============================================================
@@ -4728,8 +4745,10 @@ function closeCourseRecordsView() {
 // ============================================================
 let _tourViewMode = 'list'; // 'list' | 'create' | 'detail'
 let _tourViewActiveId = null;
+let _tourOpenedFromStart = false;
 
 function openTourView() {
+  _tourOpenedFromStart = false;
   _tourViewMode = 'list';
   renderTourView();
   document.getElementById('playersView').classList.add('hidden');
@@ -4738,7 +4757,51 @@ function openTourView() {
 
 function closeTourView() {
   document.getElementById('tourView').classList.add('hidden');
-  document.getElementById('playersView').classList.remove('hidden');
+  if (_tourOpenedFromStart) {
+    _tourOpenedFromStart = false;
+    goToStep(1);
+  } else {
+    document.getElementById('playersView').classList.remove('hidden');
+  }
+}
+
+function openActiveLocalTour(id) {
+  _tourOpenedFromStart = true;
+  _tourViewMode = 'detail';
+  _tourViewActiveId = id;
+  renderTourView();
+  document.getElementById('step1').classList.add('hidden');
+  document.getElementById('tourView').classList.remove('hidden');
+}
+
+function openActiveSharedTour(code) {
+  _tourOpenedFromStart = true;
+  _tourViewMode = 'shared';
+  _tourViewActiveId = String(code).toUpperCase();
+  renderTourView();
+  document.getElementById('step1').classList.add('hidden');
+  document.getElementById('tourView').classList.remove('hidden');
+  refreshSharedTour(code);
+}
+
+function renderActiveToursCard() {
+  const card = document.getElementById('activeToursCard');
+  const list = document.getElementById('activeToursList');
+  if (!card || !list) return;
+  const today = new Date().toLocaleDateString('sv-SE');
+  const shared = sharedTourStore.load().filter(record => record.tour?.status === 'open' &&
+    record.tour.startDate <= today && record.tour.endDate >= today);
+  const sharedCodes = new Set(shared.map(record => record.code));
+  const local = toursLoad().map(tourAutoCloseIfExpired).filter(tour => tour.status === 'open' &&
+    tour.startDate <= today && tour.endDate >= today && (!tour.sharedCode || !sharedCodes.has(tour.sharedCode)));
+  const localRows = local.map(tour => `<button class="active-tour-btn" onclick="openActiveLocalTour(${tour.id})">
+    <span><span class="active-tour-name">${escapeHtml(tour.name)}</span><span class="active-tour-meta">Lokal · till ${tour.endDate}</span></span><span class="active-tour-arrow">›</span>
+  </button>`).join('');
+  const sharedRows = shared.map(record => `<button class="active-tour-btn" onclick="openActiveSharedTour('${escapeHtml(record.code)}')">
+    <span><span class="active-tour-name">🌐 ${escapeHtml(record.tour.name)}</span><span class="active-tour-meta">Delad · till ${record.tour.endDate}${(record.pendingSubmissions || []).length ? ` · ${(record.pendingSubmissions || []).length} väntar på synk` : ''}</span></span><span class="active-tour-arrow">›</span>
+  </button>`).join('');
+  list.innerHTML = sharedRows + localRows;
+  card.classList.toggle('hidden', !list.innerHTML);
 }
 
 function renderTourView() {
@@ -4932,6 +4995,7 @@ function renderSharedTourDetail(code) {
       ${tour.status === 'open' ? `<button class="btn" style="flex:1;" onclick="startSharedTourRound('${escapeHtml(record.code)}')">+ Ny tourrunda</button>` : '<span style="color:var(--muted);">Touren är avslutad</span>'}
       ${record.role === 'organizer' ? `<button class="btn secondary" style="flex:1;" onclick="shareSharedTourInvitation('${escapeHtml(record.code)}')">🔗 Bjud in</button>` : ''}
     </div>
+
     <div class="card-title" style="margin-top:16px;">Villkor</div><div class="tour-condition-list">${conditionRows}</div>
     <div class="card-title" style="margin-top:16px;">Inkluderade banor</div>${courseRows || '<p style="color:var(--muted);font-size:0.85rem;">Inga banor har lagts till.</p>'}
     <div class="card-title" style="margin-top:16px;">Tourspelare</div>

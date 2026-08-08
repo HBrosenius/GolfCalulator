@@ -102,6 +102,44 @@ test('a live joiner can link their seat to a local saved player', async ({ page 
   expect(linked).toEqual({ playerId: 42, slotId: 42, selectorVisible: true });
 });
 
+test('ongoing local and shared tours appear on the start page', async ({ page }) => {
+  const sharedTour = {
+    name: 'Aktiv delad tour', startDate: '2026-01-01', endDate: '2026-12-31', status: 'open',
+    bestOfN: 2, duplicateCourseRule: 'best', rounds: [],
+    members: [{ id: 'member-1', name: 'Ada', hi: 18 }],
+    courses: [{ id: 'course-1', name: 'Testbanan', holes: 9, maxRounds: 1, tees: [{ name: 'Gul' }] }],
+  };
+  await page.addInitScript(sharedTour => {
+    localStorage.clear();
+    localStorage.setItem('golf_tours_db', JSON.stringify([
+      { id: 1, name: 'Aktiv lokal tour', startDate: '2026-01-01', endDate: '2026-12-31', status: 'open', bestOfN: null, duplicateCourseRule: 'best', roster: [], courses: [] },
+      { id: 2, name: 'Avslutad tour', startDate: '2025-01-01', endDate: '2025-12-31', status: 'completed', bestOfN: null, duplicateCourseRule: 'best', roster: [], courses: [] },
+      { id: 3, name: 'Publicerad lokal kopia', sharedCode: 'ABCD2345', startDate: '2026-01-01', endDate: '2026-12-31', status: 'open', bestOfN: null, duplicateCourseRule: 'best', roster: [], courses: [] },
+    ]));
+    localStorage.setItem('golf_shared_tours_db', JSON.stringify([{
+      code: 'ABCD2345', role: 'contributor', token: 'A'.repeat(43), tour: sharedTour, pendingSubmissions: [],
+    }]));
+  }, sharedTour);
+  await page.route('**/tour/ABCD2345', route => route.fulfill({
+    status: 200, contentType: 'application/json', body: JSON.stringify(sharedTour),
+  }));
+
+  await page.goto('/index.html');
+  await expect(page.locator('#activeToursCard')).toBeVisible();
+  await expect(page.locator('.active-tour-btn')).toHaveCount(2);
+  await expect(page.locator('#activeToursCard')).toContainText('Aktiv delad tour');
+  await expect(page.locator('#activeToursCard')).toContainText('Aktiv lokal tour');
+  await expect(page.locator('#activeToursCard')).not.toContainText('Avslutad tour');
+  await expect(page.locator('#activeToursCard')).not.toContainText('Publicerad lokal kopia');
+
+  await page.getByRole('button', { name: /Aktiv delad tour/ }).click();
+  await expect(page.locator('#tourView')).toBeVisible();
+  await expect(page.locator('#tourContent')).toContainText('Villkor');
+  await page.locator('#tourView > .card > div').first().locator('button').click();
+  await expect(page.locator('#step1')).toBeVisible();
+  await expect(page.locator('#activeToursCard')).toBeVisible();
+});
+
 test('a shared tour invitation lets the contributor select any tour player', async ({ page }) => {
   const code = 'ABCD2345';
   const invitationToken = 'A'.repeat(43);
