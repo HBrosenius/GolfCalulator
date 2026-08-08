@@ -47,26 +47,59 @@ test('renaming a saved player keeps ID-linked history and statistics', async ({ 
       h: i + 1, par: 4, si: i + 1, strokes: 1,
       score: 5, netto: 4, pts: 2, skipped: false,
     }));
-    localStorage.setItem('golf_players_db', JSON.stringify([
-      { id: 42, name: 'Henrik', nick: 'Henk', hi: 12.3 },
-    ]));
+    const player = { id: 42, name: 'Henrik', nick: 'Henk', hi: 12.3 };
+    localStorage.setItem('golf_players_db', JSON.stringify([player]));
     localStorage.setItem('golf_rounds_db', JSON.stringify([{
       id: 1001, date: '2026-08-01', courseName: 'Testbanan', tee: 'Gul',
       holes: 9, gameMode: 'individual',
       subjects: [{
-        playerId: 42, name: 'Gamla smeknamnet', hi: 12.3, ph: 6,
+        name: 'Henk', hi: 12.3, ph: 6,
         totalPoints: 18, totalBrutto: 45, rows,
       }],
     }]));
+    roundsLoad(); // migrates the unambiguous legacy name to playerId 42
+    localStorage.setItem('golf_players_db', JSON.stringify([
+      { ...player, nick: 'Nya smeknamnet' },
+    ]));
     openPlayerHistory(42);
   });
 
   await expect(page.locator('#playerHistoryView')).toBeVisible();
   await expect(page.locator('#playerHistoryHeader')).toContainText('Henrik');
-  await expect(page.locator('#playerHistoryHeader')).toContainText('Henk');
+  await expect(page.locator('#playerHistoryHeader')).toContainText('Nya smeknamnet');
   await expect(page.locator('#playerHistoryHeader')).toContainText('1 rundor');
   await expect(page.locator('#playerHistoryList')).toContainText('Testbanan');
   await expect(page.locator('#playerHistoryList .player-history-pts').last()).toHaveText('18p');
+});
+
+test('a live joiner can link their seat to a local saved player', async ({ page }) => {
+  await page.goto('/index.html');
+  const linked = await page.evaluate(() => {
+    localStorage.clear();
+    localStorage.setItem('golf_players_db', JSON.stringify([
+      { id: 42, name: 'Lokala Ada', nick: 'Ace', hi: 18 },
+    ]));
+    const room = {
+      courseName: 'Livebanan', teeColor: 'Gul', holes: 9,
+      slope: 113, cr: 36, par: 36,
+      hpar: Array(9).fill(4), si: [1,2,3,4,5,6,7,8,9],
+      gameMode: 'individual', teams: null,
+      players: [{ name: 'Ada på värdens mobil', hi: 18, tee: 'Gul' }],
+      seats: [{ scores: Array(9).fill(''), claimed: false }],
+      markers: { ctp: { hole: null, player: '' }, ld: { hole: null, player: '' } },
+      note: '', weather: null, bets: [],
+    };
+    renderJoinLiveSeatList(room, 'ABCD');
+    document.getElementById('joinLivePlayerSelect').value = '42';
+    buildStateFromRoom(room, 'ABCD', 0, 'seat-token', 42);
+    return {
+      playerId: state.players[0].playerId,
+      slotId: state.playerIds[0],
+      selectorVisible: !document.getElementById('joinLivePlayerLink').classList.contains('hidden'),
+    };
+  });
+
+  expect(linked).toEqual({ playerId: 42, slotId: 42, selectorVisible: true });
 });
 
 test('installed PWA reloads offline and defers an upgrade during an active round', async ({ page, context }) => {

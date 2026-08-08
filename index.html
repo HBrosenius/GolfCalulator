@@ -1181,6 +1181,11 @@
       <p style="font-size:0.85rem;color:var(--muted);text-align:center;margin:0 0 10px;">
         Vem är du? Grå platser är redan upptagna.
       </p>
+      <div id="joinLivePlayerLink" class="hidden" style="margin-bottom:10px;">
+        <label style="margin-top:0;">Koppla resultatet till spelare</label>
+        <select id="joinLivePlayerSelect"></select>
+        <p style="font-size:0.75rem;color:var(--muted);margin:4px 0 0;">Gör att historiken följer spelaren även efter namnbyte.</p>
+      </div>
       <div id="joinLiveSeatList" style="display:flex;flex-direction:column;gap:8px;"></div>
       <button class="btn secondary" style="margin-top:12px;" onclick="backToJoinLiveCodeStep()">← Ändra kod</button>
     </div>
@@ -3725,6 +3730,14 @@ function renderJoinLiveSeatList(room, code) {
     : (room.players || []).map(p => p.name);
 
   const list = document.getElementById('joinLiveSeatList');
+  const link = document.getElementById('joinLivePlayerLink');
+  const playerSelect = document.getElementById('joinLivePlayerSelect');
+  const savedPlayers = playersLoad();
+  if (link && playerSelect) {
+    link.classList.toggle('hidden', shared || savedPlayers.length === 0);
+    playerSelect.innerHTML = '<option value="">Matcha automatiskt</option>' + savedPlayers.map(player =>
+      `<option value="${player.id}">${escapeHtml(player.nick || player.name)}</option>`).join('');
+  }
   list.innerHTML = seatNames.map((name, i) => {
     const seatData = room.seats && room.seats[i];
     const taken = !!(seatData && seatData.claimed);
@@ -3736,6 +3749,7 @@ function renderJoinLiveSeatList(room, code) {
 }
 
 function claimLiveSeat(code, seat) {
+  const selectedPlayerId = parseInt(document.getElementById('joinLivePlayerSelect')?.value || '');
   liveSyncClient.request(`/room/${code}/claim`, {
     method: 'POST',
     headers: liveMutationHeaders(),
@@ -3744,7 +3758,8 @@ function claimLiveSeat(code, seat) {
     .then(r => r.json().then(body => ({ ok: r.ok, body })))
     .then(({ ok, body }) => {
       if (!ok) { renderJoinLiveSeatList(body.room || _joinLiveRoom, code); showJoinLiveError('Platsen är redan tagen — välj en annan.'); return; }
-      buildStateFromRoom(body.room, code, seat, body.seatToken);
+      buildStateFromRoom(body.room, code, seat, body.seatToken,
+        Number.isNaN(selectedPlayerId) ? null : selectedPlayerId);
       closeJoinLiveModal();
       goToStep(4);
     })
@@ -3754,7 +3769,7 @@ function claimLiveSeat(code, seat) {
 // Builds local `state` from a fetched room, the same way editRound() builds
 // state from a saved round — but seeded from the worker's room JSON instead
 // of localStorage, and tagged with the live room/seat so sync can resume.
-function buildStateFromRoom(room, code, seat, seatToken) {
+function buildStateFromRoom(room, code, seat, seatToken, selectedPlayerId = null) {
   const shared = isSharedScoreMode(room.gameMode);
   state = {
     courseName: room.courseName, teeColor: room.teeColor, holes: room.holes,
@@ -3776,7 +3791,10 @@ function buildStateFromRoom(room, code, seat, seatToken) {
   if (shared) {
     state.teams = (room.teams || []).map(t => ({
       name: t.name,
-      members: (t.members || []).map(m => ({ name: m.name })),
+      members: (t.members || []).map(m => ({
+        name: m.name,
+        playerId: GolfStorage.uniquePlayerIdForName(m.name, playersLoad()),
+      })),
       playingHandicap: t.playingHandicap
     }));
   } else {
@@ -3786,6 +3804,15 @@ function buildStateFromRoom(room, code, seat, seatToken) {
       return { name: p.name, hi: p.hi, playingHandicap: ph, tee: p.tee || room.teeColor, slope: td.slope, cr: td.cr, par: td.par };
     });
     state.playerTees = state.players.map(pl => pl.tee);
+    const seatPlayer = state.players[seat];
+    const automaticId = seatPlayer
+      ? GolfStorage.uniquePlayerIdForName(seatPlayer.name, playersLoad())
+      : null;
+    const localPlayerId = selectedPlayerId || automaticId;
+    if (seatPlayer && localPlayerId != null) {
+      seatPlayer.playerId = localPlayerId;
+      state.playerIds[seat] = localPlayerId;
+    }
   }
 
   const seatCount = shared ? state.teams.length : state.players.length;
@@ -3885,10 +3912,14 @@ function discardInprogress() {
 // ROUND HISTORY
 // ============================================================
 const ROUNDS_KEY = 'golf_rounds_db';
+const ROUND_SCHEMA_VERSION = 2;
 
 function roundsLoad() {
-  const rounds = storageDb.load(ROUNDS_KEY, []);
-  return Array.isArray(rounds) ? rounds : [];
+  const stored = storageDb.load(ROUNDS_KEY, []);
+  if (!Array.isArray(stored)) return [];
+  const rounds = GolfStorage.migrateRounds(stored, playersLoad());
+  if (JSON.stringify(rounds) !== JSON.stringify(stored)) storageDb.save(ROUNDS_KEY, rounds);
+  return rounds;
 }
 
 function roundsSave(rounds) {
@@ -4301,6 +4332,7 @@ function saveCurrentRound(playerResults) {
   const mixedTees = hasMixedTees(subjects);
   const isEditing = !!state.editingId;
   const roundData = {
+    schemaVersion: ROUND_SCHEMA_VERSION,
     id: isEditing ? state.editingId : now.getTime(),
     date: isEditing ? state.editingDate : dateStr,
     courseName: state.courseName,

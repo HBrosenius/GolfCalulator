@@ -78,8 +78,29 @@
     );
   }
 
+  function uniquePlayerIdForName(name, players) {
+    if (typeof name !== 'string' || !Array.isArray(players)) return null;
+    const matches = players.filter(player =>
+      name === player.name || name === (player.nick || player.name));
+    return matches.length === 1 ? matches[0].id : null;
+  }
+
+  function migrateRounds(value, players) {
+    if (!Array.isArray(value)) return [];
+    return value.map(round => {
+      const subjects = Array.isArray(round.subjects) ? round.subjects.map(subject => {
+        const playerId = subject.playerId ?? uniquePlayerIdForName(subject.name, players);
+        const memberIds = Array.isArray(subject.members)
+          ? subject.members.map((name, index) => subject.memberIds?.[index] ?? uniquePlayerIdForName(name, players))
+          : subject.memberIds;
+        return { ...subject, playerId, ...(Array.isArray(subject.members) ? { memberIds } : {}) };
+      }) : [];
+      return { ...round, schemaVersion: 2, subjects };
+    });
+  }
+
   return Object.freeze({
     createBackupPayload, createJsonStore, isAvailable, migrateTours,
-    roundIncludesPlayer, subjectMatchesPlayer,
+    migrateRounds, roundIncludesPlayer, subjectMatchesPlayer, uniquePlayerIdForName,
   });
 }));

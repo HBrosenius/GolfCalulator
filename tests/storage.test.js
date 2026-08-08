@@ -63,3 +63,24 @@ test('round identity uses stable player IDs while preserving legacy name matchin
     { name: 'Lag A', members: ['Old nickname', 'Other'], memberIds: [42, 9] },
   ] }, renamed), true);
 });
+
+test('legacy rounds gain IDs only from unambiguous player names', () => {
+  const players = [
+    { id: 1, name: 'Ada', nick: 'Ace' },
+    { id: 2, name: 'Bo', nick: 'B' },
+    { id: 3, name: 'Bertil', nick: 'B' },
+  ];
+  const [round] = storage.migrateRounds([{
+    id: 10,
+    subjects: [
+      { name: 'Ace' },
+      { name: 'B' },
+      { name: 'Lag A', members: ['Ada', 'B'] },
+    ],
+  }], players);
+
+  assert.equal(round.schemaVersion, 2);
+  assert.equal(round.subjects[0].playerId, 1);
+  assert.equal(round.subjects[1].playerId, null);
+  assert.deepEqual(round.subjects[2].memberIds, [1, null]);
+});
