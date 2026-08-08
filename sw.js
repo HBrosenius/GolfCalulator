@@ -8,6 +8,7 @@ const SHELL = [
   './src/storage.js',
   './src/live-sync.js',
   './src/validation.js',
+  './src/round-extras.js',
   './manifest.json',
   './icon-192.png',
   './icon-512.png',
