@@ -4950,8 +4950,11 @@ async function refreshSharedTour(code) {
     const response = record.role === 'organizer'
       ? await sharedTourClient.manage(code, record.token)
       : { tour: await sharedTourClient.get(code) };
-    sharedTourStore.upsert({ ...record, tour: response.tour, contributors: response.contributors || record.contributors || [] });
-    if (_tourViewMode === 'shared' && _tourViewActiveId === String(code).toUpperCase()) renderSharedTourDetail(code);
+    const latest = sharedTourStore.find(code);
+    if (!latest || (response.tour?.revision || 0) < (latest.tour?.revision || 0)) return;
+    sharedTourStore.upsert({ ...latest, tour: response.tour, contributors: response.contributors || latest.contributors || [] });
+    if (_tourViewMode === 'shared' && _tourViewActiveId === String(code).toUpperCase() &&
+      _editingSharedTourCode !== String(code).toUpperCase()) renderSharedTourDetail(code);
   } catch (_) {}
 }
 
