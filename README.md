@@ -202,6 +202,7 @@ All lokal data kan säkerhetskopieras och återställas via **📅 Sparade rundo
 - Välj vad som ska exporteras: **Rundor**, **Banor** och/eller **Spelare**
 - Exporten sparas som en JSON-fil med dagens datum
 - Import sammanfogar data utan att skriva över befintliga poster (deduplicering via ID)
+- Importerade säkerhetskopior valideras strikt, inklusive alla banor, spelare, rundor, hålrader och metadata; okända eller manipulerade fält avvisas innan något sparas
 
 ## Cloud-backup (Google Drive)
 

@@ -1546,7 +1546,7 @@ function renderRecentCourses() {
       <span class="recent-course-icon">${teeIcon}</span>
       <span class="recent-course-info">
         <span class="recent-course-name">${escapeHtml(c.name)}</span>
-        <span class="recent-course-sub">${c.tee} · ${c.holes} hål</span>
+        <span class="recent-course-sub">${escapeHtml(c.tee)} · ${c.holes} hål</span>
       </span>
       <span class="recent-course-arrow">→</span>
     </button>`;
@@ -1697,9 +1697,12 @@ function renderTeePresets() {
     ? dbLoad().filter(e => e.name === state.courseName).map(e => e.tee)
     : [];
   const names = sortTees([...new Set([...TEE_PRESETS, ...saved])]);
-  row.innerHTML = names.map(t => `
-    <button type="button" class="toggle-btn${t === state.teeColor ? ' active' : ''}" onclick="selectTee('${t.replace(/'/g,"\\'")}')">${teeIconFor(t)} ${escapeHtml(t)}</button>
+  row.innerHTML = names.map((t, index) => `
+    <button type="button" class="toggle-btn${t === state.teeColor ? ' active' : ''}" data-tee-index="${index}">${teeIconFor(t)} ${escapeHtml(t)}</button>
   `).join('');
+  row.querySelectorAll('[data-tee-index]').forEach(button => {
+    button.addEventListener('click', () => selectTee(names[Number(button.dataset.teeIndex)]));
+  });
 }
 
 // Tee-name field inside the hole-data editor (step 2) — lets an existing
@@ -5927,7 +5930,7 @@ function renderHistoryList() {
       rankRows = sorted.map((s, i) => `
         <div class="hi-rank-row">
           <span>${medals[i]||''}</span>
-          <span class="hi-rank-name">${escapeHtml(s.name)}${s.members ? ` <span style="font-weight:400;color:var(--muted)">(${s.members.map(escapeHtml).join(' & ')})</span>` : ''}${s.teamId ? ` <span style="font-weight:400;color:var(--muted)">(Lag ${s.teamId}${s.teammate ? ' · med ' + escapeHtml(s.teammate) : ''})</span>` : ''}</span>
+          <span class="hi-rank-name">${escapeHtml(s.name)}${s.members ? ` <span style="font-weight:400;color:var(--muted)">(${s.members.map(escapeHtml).join(' & ')})</span>` : ''}${s.teamId ? ` <span style="font-weight:400;color:var(--muted)">(Lag ${escapeHtml(s.teamId)}${s.teammate ? ' · med ' + escapeHtml(s.teammate) : ''})</span>` : ''}</span>
           <span style="color:var(--muted);font-size:0.75rem;margin-right:6px;">HCP +${s.ph}${hasMixedTees(r.subjects) && s.tee ? ` · ${teeIconFor(s.tee)}` : ''}</span>
           <span class="hi-rank-pts">${s.totalPoints} p</span>
         </div>`).join('');

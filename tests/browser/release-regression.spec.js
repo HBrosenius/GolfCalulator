@@ -6,9 +6,24 @@ test('legacy data loads and export/import preserves all collections', async ({ p
   await page.reload();
 
   const result = await page.evaluate(() => {
-    const course = { name: 'Testbanan', tee: 'Gul', holes: 9, slope: 113, cr: 36, par: 36 };
-    const round = { id: 'round-1', courseName: 'Testbanan', holes: 9, subjects: [] };
-    const player = { id: 'player-1', name: 'Ada', photo: null };
+    const rows = Array.from({ length: 9 }, (_, i) => ({
+      h: i + 1, par: 4, si: i + 1, strokes: 1, score: 5, netto: 4, pts: 2, skipped: false,
+    }));
+    const course = {
+      name: 'Testbanan', tee: 'Gul', holes: 9, slope: 113, cr: 36, par: 36,
+      hpar: Array(9).fill(4), si: [1,2,3,4,5,6,7,8,9],
+    };
+    const round = {
+      schemaVersion: 2, id: 1001, date: '2026-08-09', courseName: 'Testbanan', tee: 'Gul', mixedTees: false,
+      holes: 9, slope: 113, cr: 36, par: 36, gameMode: 'individual', note: '', weather: null,
+      markers: { ctp: { hole: null, player: '' }, ld: { hole: null, player: '' } }, bets: [],
+      liveRoomCode: null, tourRef: null,
+      subjects: [{
+        playerId: 42, memberId: null, name: 'Ada', hi: 18, ph: 9, tee: 'Gul', slope: 113, cr: 36, par: 36,
+        totalPoints: 18, totalBrutto: 45, members: null, memberIds: null, teamId: null, teammate: null, rows,
+      }],
+    };
+    const player = { id: 42, name: 'Ada', hi: 18, photo: null };
     localStorage.setItem('golf_courses_db', JSON.stringify([course]));
     localStorage.setItem('golf_rounds_db', JSON.stringify([round]));
     localStorage.setItem('golf_players_db', JSON.stringify([player]));
@@ -37,6 +52,43 @@ test('legacy data loads and export/import preserves all collections', async ({ p
   expect(result.courses).toEqual(result.payload.courses);
   expect(result.rounds).toEqual(result.payload.rounds);
   expect(result.players).toEqual(result.payload.players);
+});
+
+test('hostile backup values cannot create executable DOM', async ({ page }) => {
+  await page.goto('/index.html');
+  const result = await page.evaluate(() => {
+    localStorage.clear();
+    const hostileTee = '\"><img data-x>';
+    const payload = {
+      version: 1, exportedAt: '2026-08-09T08:00:00.000Z', rounds: [], players: [],
+      courses: [{
+        name: 'Säker bana', tee: hostileTee, holes: 9, slope: 113, cr: 36, par: 36,
+        hpar: Array(9).fill(4), si: [1,2,3,4,5,6,7,8,9],
+      }],
+    };
+    const imported = _applyImportPayload(payload);
+    state.courseName = 'Säker bana';
+    state.teeColor = null;
+    renderTeePresets();
+    const button = [...document.querySelectorAll('#teePresetRow [data-tee-index]')]
+      .find(element => element.textContent.includes(hostileTee));
+    let rejectedExecutableId = false;
+    try {
+      _applyImportPayload({ ...payload, courses: [], rounds: [{ id: '1);alert(1)//' }] });
+    } catch (_) { rejectedExecutableId = true; }
+    return {
+      imported,
+      injectedElement: !!document.querySelector('[data-x]'),
+      inlineHandler: button?.getAttribute('onclick') || null,
+      renderedText: button?.textContent || '',
+      rejectedExecutableId,
+    };
+  });
+  expect(result.imported.addedCourses).toBe(1);
+  expect(result.injectedElement).toBe(false);
+  expect(result.inlineHandler).toBeNull();
+  expect(result.renderedText).toContain('><img data-x>');
+  expect(result.rejectedExecutableId).toBe(true);
 });
 
 test('renaming a saved player keeps ID-linked history and statistics', async ({ page }) => {
