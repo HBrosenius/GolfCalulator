@@ -10,6 +10,7 @@ const SHELL = [
   './src/validation.js',
   './src/round-extras.js',
   './src/live-round.js',
+  './src/tour-rules.js',
   './manifest.json',
   './icon-192.png',
   './icon-512.png',

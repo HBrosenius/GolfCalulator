@@ -17,6 +17,7 @@
 <script src="src/validation.js"></script>
 <script src="src/round-extras.js"></script>
 <script src="src/live-round.js"></script>
+<script src="src/tour-rules.js"></script>
 <script>
 // Apply saved/system theme before first paint to avoid a flash of the wrong theme.
 (function() {
@@ -4175,72 +4176,11 @@ function tourDelete(id) {
 // within the date window, isn't a shared-score team mode, and at least one
 // tour roster player is among its subjects.
 function tourMatchingRounds(tour) {
-  const roster = playersLoad().filter(p => tour.roster.includes(p.id));
-  return roundsLoad().filter(r =>
-    tour.courses.some(c => c.name === r.courseName && (c.holes == null || c.holes === r.holes)) &&
-    r.date >= tour.startDate && r.date <= tour.endDate &&
-    r.gameMode !== 'scramble' && r.gameMode !== 'foursome' &&
-    roster.some(player => roundIncludesPlayer(r, player))
-  );
+  return GolfTourRules.matchingRounds(tour, roundsLoad(), playersLoad());
 }
 
 function computeTourStandings(tour) {
-  const players = playersLoad();
-  const roster = tour.roster.map(id => players.find(p => p.id === id)).filter(Boolean);
-  const rounds = tourMatchingRounds(tour);
-
-  // Per player: array of { points, date, courseName } across matching rounds they played
-  const perPlayer = new Map(roster.map(p => [p.id, []]));
-  rounds.forEach(round => {
-    round.subjects.forEach(subj => {
-      const player = roster.find(p => subjectMatchesPlayer(subj, p));
-      if (player) perPlayer.get(player.id).push({ points: subj.totalPoints, date: round.date, courseName: round.courseName });
-    });
-  });
-
-  // Each course has its own maxRounds cap — if a player plays that course
-  // more times than the cap in the window, only maxRounds of those rounds
-  // should count, otherwise repeat plays inflate their total. Which ones are
-  // kept follows tour.duplicateCourseRule: the chronologically first N, or
-  // the N with the highest points.
-  const dedupRule = tour.duplicateCourseRule || 'best';
-  const maxRoundsForCourse = courseName => {
-    const c = tour.courses.find(c => c.name === courseName);
-    return (c && c.maxRounds > 0) ? c.maxRounds : 1;
-  };
-  const dedupeByCourse = results => {
-    const byCourse = new Map();
-    results.forEach(r => {
-      if (!byCourse.has(r.courseName)) byCourse.set(r.courseName, []);
-      byCourse.get(r.courseName).push(r);
-    });
-    const kept = [];
-    byCourse.forEach((list, courseName) => {
-      const n = maxRoundsForCourse(courseName);
-      const sorted = list.slice().sort((a, b) =>
-        dedupRule === 'first' ? a.date.localeCompare(b.date) : b.points - a.points);
-      kept.push(...sorted.slice(0, n));
-    });
-    return kept;
-  };
-
-  const rows = roster.map(p => {
-    const results = perPlayer.get(p.id);
-    const deduped = dedupeByCourse(results);
-    const kept = deduped.slice().sort((a, b) => b.points - a.points);
-    const bestOfN = tour.bestOfN ? Math.min(tour.bestOfN, kept.length) : kept.length;
-    const counted = kept.slice(0, bestOfN);
-    const total = counted.reduce((sum, r) => sum + r.points, 0);
-    return { player: p, total, roundsPlayed: results.length, roundsCounted: counted.length };
-  }).filter(row => row.roundsPlayed > 0);
-
-  rows.sort((a, b) => {
-    if (b.total !== a.total) return b.total - a.total;
-    // Tiebreak: lower handicap wins (harder to rack up the same points on).
-    return (a.player.hi || 0) - (b.player.hi || 0);
-  });
-
-  return rows;
+  return GolfTourRules.computeStandings(tour, roundsLoad(), playersLoad());
 }
 
 // A subject "wins" a round if its points beat every subject NOT on its own
