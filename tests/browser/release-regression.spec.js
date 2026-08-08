@@ -39,6 +39,36 @@ test('legacy data loads and export/import preserves all collections', async ({ p
   expect(result.players).toEqual(result.payload.players);
 });
 
+test('renaming a saved player keeps ID-linked history and statistics', async ({ page }) => {
+  await page.goto('/index.html');
+  await page.evaluate(() => {
+    localStorage.clear();
+    const rows = Array.from({ length: 9 }, (_, i) => ({
+      h: i + 1, par: 4, si: i + 1, strokes: 1,
+      score: 5, netto: 4, pts: 2, skipped: false,
+    }));
+    localStorage.setItem('golf_players_db', JSON.stringify([
+      { id: 42, name: 'Henrik', nick: 'Henk', hi: 12.3 },
+    ]));
+    localStorage.setItem('golf_rounds_db', JSON.stringify([{
+      id: 1001, date: '2026-08-01', courseName: 'Testbanan', tee: 'Gul',
+      holes: 9, gameMode: 'individual',
+      subjects: [{
+        playerId: 42, name: 'Gamla smeknamnet', hi: 12.3, ph: 6,
+        totalPoints: 18, totalBrutto: 45, rows,
+      }],
+    }]));
+    openPlayerHistory(42);
+  });
+
+  await expect(page.locator('#playerHistoryView')).toBeVisible();
+  await expect(page.locator('#playerHistoryHeader')).toContainText('Henrik');
+  await expect(page.locator('#playerHistoryHeader')).toContainText('Henk');
+  await expect(page.locator('#playerHistoryHeader')).toContainText('1 rundor');
+  await expect(page.locator('#playerHistoryList')).toContainText('Testbanan');
+  await expect(page.locator('#playerHistoryList .player-history-pts').last()).toHaveText('18p');
+});
+
 test('installed PWA reloads offline and defers an upgrade during an active round', async ({ page, context }) => {
   await page.goto('/index.html');
   await page.evaluate(() => localStorage.clear());

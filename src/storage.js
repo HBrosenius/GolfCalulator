@@ -63,5 +63,23 @@
     };
   }
 
-  return Object.freeze({ createBackupPayload, createJsonStore, isAvailable, migrateTours });
+  function subjectMatchesPlayer(subject, player) {
+    if (!subject || !player) return false;
+    if (subject.playerId != null) return subject.playerId === player.id;
+    return subject.name === (player.nick || player.name) || subject.name === player.name;
+  }
+
+  function roundIncludesPlayer(round, player) {
+    return !!round && Array.isArray(round.subjects) && round.subjects.some(subject =>
+      subjectMatchesPlayer(subject, player) ||
+      (Array.isArray(subject.memberIds) && subject.memberIds.includes(player.id)) ||
+      (subject.playerId == null && Array.isArray(subject.members) && subject.members.some(name =>
+        name === (player.nick || player.name) || name === player.name))
+    );
+  }
+
+  return Object.freeze({
+    createBackupPayload, createJsonStore, isAvailable, migrateTours,
+    roundIncludesPlayer, subjectMatchesPlayer,
+  });
 }));

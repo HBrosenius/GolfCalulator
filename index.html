@@ -1276,7 +1276,7 @@ let state = {
   courseName: null, teeColor: null, holes: 18,
   slope: null, cr: null, par: null,
   hpar: [], si: [],
-  numPlayers: 1, players: [], scores: [],
+  numPlayers: 1, players: [], playerIds: [], scores: [],
   gameMode: 'individual', teamAssign: ['A','A','B','B'], teams: null,
   playerTees: [],
   note: '', weather: null,
@@ -2065,8 +2065,8 @@ function buildPlayerCards() {
       ? `<select id="ppicker_${p}" class="player-picker-select" onchange="pickSavedPlayer(${p}, this)">${pickerOptions}</select>`
       : '';
 
-    const existingPlayer = savedPlayers.find(sp =>
-      sp.name && existing.name && sp.name === existing.name);
+    const existingPlayer = savedPlayers.find(sp => sp.id === state.playerIds?.[p]) ||
+      savedPlayers.find(sp => sp.name && existing.name && sp.name === existing.name);
     const cardPhoto = existingPlayer?.photo || null;
 
     // Per-player tee — only when each player plays their own ball and the
@@ -2164,7 +2164,8 @@ function buildTeamInfo() {
   el.classList.remove('hidden');
 }
 
-function onPlayerInput(p) {
+function onPlayerInput(p, preservePlayerId = false) {
+  if (!preservePlayerId && state.playerIds) state.playerIds[p] = null;
   updatePlayerPH(p);
   if (isTeamMode(state.gameMode)) buildTeamInfo();
 }
@@ -2214,7 +2215,11 @@ function buildStep4State() {
     const name = (nameEl && nameEl.value.trim()) ? nameEl.value.trim() : `Spelare ${p+1}`;
     const td = teeData(playerTee(p));
     const ph = calcPlayingHandicap(hi, td.slope, td.cr, td.par, state.holes);
-    players.push({ name, hi, tee: td.tee, slope: td.slope, cr: td.cr, par: td.par, playingHandicap: ph });
+    players.push({
+      playerId: state.playerIds?.[p] || null,
+      name, hi, tee: td.tee, slope: td.slope, cr: td.cr, par: td.par,
+      playingHandicap: ph,
+    });
   }
 
   const seenNames = new Set();
@@ -3366,7 +3371,7 @@ function newRound() {
     courseName: null, teeColor: null, holes: 18,
     slope: null, cr: null, par: null,
     hpar: [], si: [],
-    numPlayers: 1, players: [], scores: [],
+    numPlayers: 1, players: [], playerIds: [], scores: [],
     gameMode: 'individual', teamAssign: ['A','A','B','B'], teams: null,
     playerTees: [],
     note: '', weather: null,
@@ -3757,7 +3762,7 @@ function buildStateFromRoom(room, code, seat, seatToken) {
     hpar: room.hpar || [], si: room.si || [],
     gameMode: room.gameMode,
     numPlayers: (room.players || []).length,
-    players: [], teams: null,
+    players: [], playerIds: [], teams: null,
     teamAssign: ['A','A','B','B'],
     playerTees: [],
     scores: [],
@@ -4277,6 +4282,7 @@ function saveCurrentRound(playerResults) {
   const isFoursome = state.gameMode === 'foursome';
   const hasSharedScore = isScramble || isFoursome;
   const subjects = playerResults.map(r => ({
+    playerId: hasSharedScore ? null : (r.subj.playerId || null),
     name: r.subj.name,
     hi: hasSharedScore ? null : r.subj.hi,
     ph: r.ph,
@@ -4287,6 +4293,7 @@ function saveCurrentRound(playerResults) {
     totalPoints: r.totalPoints,
     totalBrutto: r.totalBrutto,
     members: hasSharedScore ? r.subj.members.map(m => m.name) : null,
+    memberIds: hasSharedScore ? r.subj.members.map(m => m.playerId || null) : null,
     teamId: isFourball ? r.teamId : null,
     teammate: isFourball ? r.teammateName : null,
     rows: r.rows
@@ -4329,6 +4336,16 @@ function playersSave(list) {
   if (!storageDb.save(PLAYERS_KEY, list)) {
     alert('Lagringsutrymmet är fullt — ta bort några rundor eller spelarbilder för att göra plats.');
   }
+}
+
+// New rounds use immutable player IDs. Name matching remains as a migration
+// fallback for rounds saved before IDs were added to the round schema.
+function subjectMatchesPlayer(subject, player) {
+  return GolfStorage.subjectMatchesPlayer(subject, player);
+}
+
+function roundIncludesPlayer(round, player) {
+  return GolfStorage.roundIncludesPlayer(round, player);
 }
 
 // ============================================================
@@ -4393,16 +4410,12 @@ function tourDelete(id) {
 // within the date window, isn't a shared-score team mode, and at least one
 // tour roster player is among its subjects.
 function tourMatchingRounds(tour) {
-  const rosterNames = new Set(
-    playersLoad()
-      .filter(p => tour.roster.includes(p.id))
-      .flatMap(p => [p.nick, p.name].filter(Boolean))
-  );
+  const roster = playersLoad().filter(p => tour.roster.includes(p.id));
   return roundsLoad().filter(r =>
     tour.courses.some(c => c.name === r.courseName && (c.holes == null || c.holes === r.holes)) &&
     r.date >= tour.startDate && r.date <= tour.endDate &&
     r.gameMode !== 'scramble' && r.gameMode !== 'foursome' &&
-    (r.subjects || []).some(s => rosterNames.has(s.name))
+    roster.some(player => roundIncludesPlayer(r, player))
   );
 }
 
@@ -4415,7 +4428,7 @@ function computeTourStandings(tour) {
   const perPlayer = new Map(roster.map(p => [p.id, []]));
   rounds.forEach(round => {
     round.subjects.forEach(subj => {
-      const player = roster.find(p => (p.nick || p.name) === subj.name);
+      const player = roster.find(p => subjectMatchesPlayer(subj, p));
       if (player) perPlayer.get(player.id).push({ points: subj.totalPoints, date: round.date, courseName: round.courseName });
     });
   });
@@ -4480,12 +4493,14 @@ function subjectWonRound(r, subj) {
 
 // Head-to-head record vs each opponent across individual/fourball/match rounds.
 // Fourball teammates share a teamId (not opponents); match uses computeMatchResult.
-function buildHeadToHead(rounds, isMe) {
+function buildHeadToHead(rounds, player) {
   const rec = {};
   const bump = (opp, res) => { const o = rec[opp] || (rec[opp] = { w: 0, l: 0, t: 0 }); o[res]++; };
   rounds.forEach(round => {
     const subs = round.subjects;
     if (!subs || subs.length < 2) return;
+    const mySubject = subs.find(subject => subjectMatchesPlayer(subject, player));
+    if (!mySubject) return;
     const unitKey = s => s.teamId || s.name;
     const peopleOf = s => (s.members && s.members.length) ? s.members : [s.name];
     const units = {};
@@ -4493,13 +4508,13 @@ function buildHeadToHead(rounds, isMe) {
       const u = units[unitKey(s)] || (units[unitKey(s)] = { points: s.totalPoints, people: [] });
       peopleOf(s).forEach(n => u.people.push(n));
     });
-    const myKey = Object.keys(units).find(k => units[k].people.some(isMe));
+    const myKey = unitKey(mySubject);
     if (myKey == null) return;
     const others = Object.keys(units).filter(k => k !== myKey);
     if (!others.length) return;
 
     if (round.gameMode === 'match' && subs.length === 2) {
-      const mySub = subs.find(s => isMe(s.name)), oppSub = subs.find(s => !isMe(s.name));
+      const mySub = mySubject, oppSub = subs.find(s => s !== mySubject);
       if (!mySub || !oppSub) return;
       const mr = computeMatchResult([mySub, oppSub]);
       const res = (!mr || mr.winnerIdx === null) ? 't' : (mr.winnerIdx === 0 ? 'w' : 'l');
@@ -4508,7 +4523,7 @@ function buildHeadToHead(rounds, isMe) {
       const myPts = units[myKey].points;
       others.forEach(k => {
         const res = myPts > units[k].points ? 'w' : (myPts < units[k].points ? 'l' : 't');
-        units[k].people.forEach(opp => { if (!isMe(opp)) bump(opp, res); });
+        units[k].people.forEach(opp => bump(opp, res));
       });
     }
   });
@@ -4542,9 +4557,8 @@ function openPlayerHistory(id) {
   const medals = ['🥇','🥈','🥉','🪙'];
 
   // Find all rounds this player participated in
-  const rounds = roundsLoad().filter(r =>
-    r.subjects.some(s => s.name === displayName || s.name === player.name)
-  ).sort((a, b) => b.id - a.id);
+  const rounds = roundsLoad().filter(r => roundIncludesPlayer(r, player))
+    .sort((a, b) => b.id - a.id);
 
   // Header with avatar + name
   const headerEl = document.getElementById('playerHistoryHeader');
@@ -4564,10 +4578,8 @@ function openPlayerHistory(id) {
     let totalPts = 0, best = 0, wins = 0, totalHoles = 0;
     let eagles = 0, birdies = 0, pars = 0, bogeys = 0, doubles = 0;
     let longDrives = 0, closestToPin = 0;
-    const isMe = name => name === displayName || name === player.name;
-
     rounds.forEach(r => {
-      const subj = r.subjects.find(s => s.name === displayName || s.name === player.name);
+      const subj = r.subjects.find(s => subjectMatchesPlayer(s, player));
       if (!subj) return;
       totalPts += subj.totalPoints;
       if (subj.totalPoints > best) best = subj.totalPoints;
@@ -4600,7 +4612,7 @@ function openPlayerHistory(id) {
     // Build bar chart for last 5 rounds (oldest → newest left to right)
     const chartRounds = rounds.slice(0, 5).reverse();
     const chartPts = chartRounds.map(r => {
-      const s = r.subjects.find(s => s.name === displayName || s.name === player.name);
+      const s = r.subjects.find(s => subjectMatchesPlayer(s, player));
       return s ? s.totalPoints : 0;
     });
     const chartMax = Math.max(...chartPts, 1);
@@ -4630,11 +4642,11 @@ function openPlayerHistory(id) {
 
     // HCP trend chart — uses each round's stored HI (null for Scramble subjects, so those rounds are skipped)
     const hiRounds = rounds.filter(r => {
-      const s = r.subjects.find(s => s.name === displayName || s.name === player.name);
+      const s = r.subjects.find(s => subjectMatchesPlayer(s, player));
       return s && s.hi != null;
     }).slice(0, 8).reverse();
     const hiVals = hiRounds.map(r => {
-      const s = r.subjects.find(s => s.name === displayName || s.name === player.name);
+      const s = r.subjects.find(s => subjectMatchesPlayer(s, player));
       return s.hi;
     });
     const hcpChart = hiVals.length >= 2 ? buildHcpTrendChart(hiRounds, hiVals) : '';
@@ -4642,11 +4654,11 @@ function openPlayerHistory(id) {
     // Form-vs-hcp trend — own Stableford points net of the "to handicap" baseline (2 pts/hole).
     // Use own row-pts (not team totalPoints) and skip shared-score rounds (hi null).
     const formRounds = rounds.filter(r => {
-      const s = r.subjects.find(s => s.name === displayName || s.name === player.name);
+      const s = r.subjects.find(s => subjectMatchesPlayer(s, player));
       return s && s.hi != null && s.rows && s.rows.some(row => !row.skipped);
     }).slice(0, 8).reverse();
     const formNets = formRounds.map(r => {
-      const s = r.subjects.find(s => s.name === displayName || s.name === player.name);
+      const s = r.subjects.find(s => subjectMatchesPlayer(s, player));
       const played = s.rows.filter(row => !row.skipped);
       const own = played.reduce((a, row) => a + row.pts, 0);
       return own - played.length * 2;
@@ -4687,13 +4699,13 @@ function openPlayerHistory(id) {
       ${formChart ? `<p class="player-stats-section-title">Form mot hcp</p>
       <div style="background:#f0faf4;border-radius:10px;padding:10px 8px 4px;margin-bottom:6px;">${formChart}</div>
       <p style="font-size:0.8rem;color:var(--muted);margin:0 0 16px;text-align:center;">${formVerdict}</p>` : ''}
-      ${buildHeadToHead(rounds, nm => nm === displayName || nm === player.name)}
+      ${buildHeadToHead(rounds, player)}
       <p class="player-stats-section-title" style="margin-top:${chartPts.length >= 2 || hcpChart || formChart ? '0' : '16px'};">Rundor</p>` +
       rounds.map(r => {
-        const subj = r.subjects.find(s => s.name === displayName || s.name === player.name);
+        const subj = r.subjects.find(s => subjectMatchesPlayer(s, player));
         const pts = subj ? subj.totalPoints : '–';
         const sorted = [...r.subjects].sort((a, b) => b.totalPoints - a.totalPoints);
-        const rank = sorted.findIndex(s => s.name === displayName || s.name === player.name);
+        const rank = sorted.findIndex(s => subjectMatchesPlayer(s, player));
         const myTee = (subj && subj.tee) || r.tee;
         const teeIcon = teeIconFor(myTee);
         return `
@@ -4801,7 +4813,7 @@ function openHallOfFame() {
 
     rounds.forEach(r => {
       r.subjects.forEach(subj => {
-        const p = players.find(p => (p.nick || p.name) === subj.name || p.name === subj.name);
+        const p = players.find(p => subjectMatchesPlayer(subj, p));
         if (!p) return;
         const s = stats[p.id];
         s.rounds++;
@@ -4909,7 +4921,7 @@ function computeSeasonStandings() {
 
   rounds.forEach(r => {
     r.subjects.forEach(subj => {
-      const p = players.find(p => (p.nick || p.name) === subj.name || p.name === subj.name);
+      const p = players.find(p => subjectMatchesPlayer(subj, p));
       if (!p) return;
       const s = stats[p.id];
       s.rounds++;
@@ -5230,7 +5242,7 @@ function computeCourseRecords() {
     const key = `${r.courseName}||${r.holes}`;
     const group = byCourse[key] || (byCourse[key] = { courseName: r.courseName, holes: r.holes, entries: [] });
     r.subjects.forEach(subj => {
-      const p = players.find(p => (p.nick || p.name) === subj.name || p.name === subj.name);
+      const p = players.find(p => subjectMatchesPlayer(subj, p));
       group.entries.push({
         display: subj.name,
         photo: p ? p.photo : null,
@@ -5568,6 +5580,8 @@ function pickSavedPlayer(slotIndex, selectEl) {
   if (isNaN(id)) return;
   const player = playersLoad().find(p => p.id === id);
   if (!player) return;
+  if (!state.playerIds) state.playerIds = [];
+  state.playerIds[slotIndex] = player.id;
   const displayName = player.nick || player.name;
 
   // A player can only take part once per round
@@ -5594,7 +5608,7 @@ function pickSavedPlayer(slotIndex, selectEl) {
       avatarEl.innerHTML = '<span class="avatar-placeholder">🏌️</span>';
     }
   }
-  onPlayerInput(slotIndex);
+  onPlayerInput(slotIndex, true);
 }
 
 function openHistory() {
@@ -5768,7 +5782,7 @@ function editRound(id) {
     hpar, si,
     gameMode: r.gameMode,
     numPlayers: shared ? r.subjects.reduce((n, s) => n + (s.members ? s.members.length : 1), 0) : r.subjects.length,
-    players: [], teams: null,
+    players: [], playerIds: shared ? [] : r.subjects.map(s => s.playerId || null), teams: null,
     teamAssign: ['A','A','B','B'],
     playerTees: [],
     scores: r.subjects.map(s => s.rows.map(row =>
@@ -5780,12 +5794,12 @@ function editRound(id) {
   if (shared) {
     state.teams = r.subjects.map(s => ({
       name: s.name,
-      members: (s.members || []).map(nm => ({ name: nm })),
+      members: (s.members || []).map((nm, i) => ({ name: nm, playerId: s.memberIds?.[i] || null })),
       playingHandicap: s.ph
     }));
   } else {
     state.players = r.subjects.map(s => ({
-      name: s.name, hi: s.hi, playingHandicap: s.ph,
+      playerId: s.playerId || null, name: s.name, hi: s.hi, playingHandicap: s.ph,
       tee: s.tee || r.tee,
       slope: s.slope != null ? s.slope : r.slope,
       cr: s.cr != null ? s.cr : r.cr,

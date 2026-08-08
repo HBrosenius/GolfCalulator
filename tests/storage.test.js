@@ -53,3 +53,13 @@ test('backup serialization is versioned and normalizes missing collections', () 
     players: [],
   });
 });
+
+test('round identity uses stable player IDs while preserving legacy name matching', () => {
+  const renamed = { id: 42, name: 'Henrik', nick: 'Henk' };
+  assert.equal(storage.subjectMatchesPlayer({ playerId: 42, name: 'Old nickname' }, renamed), true);
+  assert.equal(storage.subjectMatchesPlayer({ playerId: 7, name: 'Henk' }, renamed), false);
+  assert.equal(storage.subjectMatchesPlayer({ name: 'Henk' }, renamed), true);
+  assert.equal(storage.roundIncludesPlayer({ subjects: [
+    { name: 'Lag A', members: ['Old nickname', 'Other'], memberIds: [42, 9] },
+  ] }, renamed), true);
+});
