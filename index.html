@@ -16,6 +16,7 @@
 <script src="src/live-sync.js"></script>
 <script src="src/validation.js"></script>
 <script src="src/round-extras.js"></script>
+<script src="src/live-round.js"></script>
 <script>
 // Apply saved/system theme before first paint to avoid a flash of the wrong theme.
 (function() {
@@ -2293,10 +2294,7 @@ function numColumns() {
 // Whether this device may edit seat p's scores in a live round: its own seat,
 // or — if this device is the host (seat 0) — any seat nobody else has claimed.
 function isSeatEditableByMe(p) {
-  if (!state.liveRoomCode) return true;
-  if (state.liveSeat === p) return true;
-  const seatClaimedByOther = state.liveSeatsClaimed && state.liveSeatsClaimed[p];
-  return state.liveSeat === 0 && !seatClaimedByOther;
+  return GolfLiveRound.isSeatEditable(state, p);
 }
 
 // Foursome: teammates strictly alternate who tees off, holding for the whole
@@ -3590,64 +3588,21 @@ function claimLiveSeat(code, seat) {
 // state from a saved round — but seeded from the worker's room JSON instead
 // of localStorage, and tagged with the live room/seat so sync can resume.
 function buildStateFromRoom(room, code, seat, seatToken, selectedPlayerId = null) {
-  const shared = isSharedScoreMode(room.gameMode);
-  state = {
-    courseName: room.courseName, teeColor: room.teeColor, holes: room.holes,
-    slope: room.slope, cr: room.cr, par: room.par,
-    hpar: room.hpar || [], si: room.si || [],
-    gameMode: room.gameMode,
-    numPlayers: (room.players || []).length,
-    players: [], playerIds: [], teams: null,
-    teamAssign: ['A','A','B','B'],
-    playerTees: [],
-    scores: [],
-    note: room.note || '', weather: room.weather || null,
-    markers: room.markers || { ctp: { hole: null, player: '' }, ld: { hole: null, player: '' } },
-    liveRoomCode: code, liveSeat: seat, liveSeatsClaimed: null,
-    liveHostToken: null, liveSeatToken: seatToken,
-    bets: Array.isArray(room.bets) ? room.bets : []
-  };
-
-  if (shared) {
-    state.teams = (room.teams || []).map(t => ({
-      name: t.name,
-      members: (t.members || []).map(m => ({
-        name: m.name,
-        playerId: GolfStorage.uniquePlayerIdForName(m.name, playersLoad()),
-      })),
-      playingHandicap: t.playingHandicap
-    }));
-  } else {
-    state.players = (room.players || []).map(p => {
-      const td = teeData(p.tee || room.teeColor);
-      const ph = calcPlayingHandicap(p.hi, td.slope, td.cr, td.par, room.holes);
-      return { name: p.name, hi: p.hi, playingHandicap: ph, tee: p.tee || room.teeColor, slope: td.slope, cr: td.cr, par: td.par };
-    });
-    state.playerTees = state.players.map(pl => pl.tee);
-    const seatPlayer = state.players[seat];
-    const automaticId = seatPlayer
-      ? GolfStorage.uniquePlayerIdForName(seatPlayer.name, playersLoad())
-      : null;
-    const localPlayerId = selectedPlayerId || automaticId;
-    if (seatPlayer && localPlayerId != null) {
-      seatPlayer.playerId = localPlayerId;
-      state.playerIds[seat] = localPlayerId;
-    }
-  }
-
-  const seatCount = shared ? state.teams.length : state.players.length;
-  state.scores = Array.from({ length: seatCount }, (_, i) => {
-    const seatData = room.seats && room.seats[i];
-    return (seatData && Array.isArray(seatData.scores)) ? [...seatData.scores] : new Array(room.holes).fill('');
+  state = GolfLiveRound.buildStateFromRoom(room, {
+    code, seat, seatToken, selectedPlayerId,
+    savedPlayers: playersLoad(),
+    teeData: teeColor => {
+      const entry = teeColor ? dbFind(room.courseName, teeColor, room.holes) : null;
+      return entry || { tee: room.teeColor, slope: room.slope, cr: room.cr, par: room.par };
+    },
+    calculatePlayingHandicap: calcPlayingHandicap,
   });
-
   buildScoreTable();
   restoreScoresToTable();
   updateLiveLeader();
   updateHonorBanner();
   inprogressSave();
 }
-
 // ============================================================
 // IN-PROGRESS ROUND (resume after refresh)
 // ============================================================
