@@ -2,8 +2,8 @@ import webpush from 'web-push';
 import { bearerToken, hashToken } from './auth.js';
 import { userForSession } from './account.js';
 
-const CATEGORIES = ['rounds', 'membership', 'ownership', 'reminders'];
-const defaults = () => ({ rounds: true, membership: true, ownership: true, reminders: true });
+const CATEGORIES = ['rounds', 'membership', 'ownership', 'reminders', 'announcements'];
+const defaults = () => ({ rounds: true, membership: true, ownership: true, reminders: true, announcements: true });
 const json = (data, status = 200) => Response.json(data, { status, headers: { 'Cache-Control': 'no-store' } });
 
 function preferences(value) {

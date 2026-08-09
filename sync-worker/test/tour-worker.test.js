@@ -415,6 +415,60 @@ describe('shared tour authorization', () => {
     expect(retryBody.tour.rounds).toHaveLength(1);
   });
 
+  it('streams live state and lets an appointed administrator announce and audit a round correction', async () => {
+    const owner = await accountSession(`o${crypto.randomUUID()}`, 'Owner');
+    const member = await accountSession(`m${crypto.randomUUID()}`, 'Ada');
+    const createResponse = await SELF.fetch('https://worker.test/tour', {
+      method: 'POST', headers: { ...headers(owner.token), 'CF-Connecting-IP': crypto.randomUUID() }, body: JSON.stringify(configuration()),
+    });
+    expect(createResponse.status).toBe(201);
+    const created = await createResponse.json();
+    const joinResponse = await SELF.fetch(`https://worker.test/tour/${created.code}/join`, {
+      method: 'POST', headers: headers(member.token), body: JSON.stringify({
+        protocolVersion: PROTOCOL_VERSION, schemaVersion: TOUR_SCHEMA_VERSION,
+        invitationToken: created.invitationToken, deviceLabel: 'Adas dator', memberId: created.tour.members[0].id,
+      }),
+    });
+    const joined = await joinResponse.json();
+    const promoted = await SELF.fetch(`https://worker.test/tour/${created.code}/contributors/${joined.contributorId}/administrator`, {
+      method: 'PATCH', headers: headers(owner.token), body: JSON.stringify({ protocolVersion: PROTOCOL_VERSION, schemaVersion: TOUR_SCHEMA_VERSION, isAdmin: true }),
+    });
+    expect(promoted.status).toBe(200);
+    expect((await SELF.fetch(`https://worker.test/tour/${created.code}/access`, { headers: headers(member.token) }).then(response => response.json())).role).toBe('administrator');
+
+    const announcement = await SELF.fetch(`https://worker.test/tour/${created.code}/announcements`, {
+      method: 'POST', headers: headers(member.token), body: JSON.stringify({ protocolVersion: PROTOCOL_VERSION, schemaVersion: TOUR_SCHEMA_VERSION, message: 'Samling 09:00' }),
+    });
+    expect(announcement.status).toBe(201);
+    expect((await announcement.json()).tour.announcements[0].message).toBe('Samling 09:00');
+
+    const submitted = await SELF.fetch(`https://worker.test/tour/${created.code}/rounds`, {
+      method: 'POST', headers: headers(member.token), body: JSON.stringify(submission(created)),
+    });
+    const submittedBody = await submitted.json();
+    const corrected = await SELF.fetch(`https://worker.test/tour/${created.code}/rounds/${submittedBody.round.id}`, {
+      method: 'PATCH', headers: headers(member.token), body: JSON.stringify({
+        protocolVersion: PROTOCOL_VERSION, schemaVersion: TOUR_SCHEMA_VERSION, expectedRevision: submittedBody.tour.revision,
+        playedDate: '2026-07-11', reason: 'Fel datum vid registrering',
+      }),
+    });
+    expect(corrected.status).toBe(200);
+    expect((await corrected.json()).correction).toMatchObject({ before: { playedDate: '2026-07-10' }, after: { playedDate: '2026-07-11' } });
+
+    const spoofedSocket = await SELF.fetch(`https://worker.test/tour/${created.code}/live`, {
+      headers: { Upgrade: 'websocket', 'Sec-WebSocket-Protocol': `golf-v2, ${'z'.repeat(43)}`, 'X-Account-User': member.userId },
+    });
+    expect(spoofedSocket.status).toBe(401);
+    const socketResponse = await SELF.fetch(`https://worker.test/tour/${created.code}/live`, {
+      headers: { Upgrade: 'websocket', 'Sec-WebSocket-Protocol': `golf-v2, ${member.token}` },
+    });
+    expect(socketResponse.status).toBe(101);
+    socketResponse.webSocket.accept();
+    const firstMessage = await new Promise(resolve => socketResponse.webSocket.addEventListener('message', event => resolve(JSON.parse(event.data)), { once: true }));
+    expect(firstMessage.tour.announcements[0].message).toBe('Samling 09:00');
+    socketResponse.webSocket.close(1000, 'done');
+  });
+
   it('rejects unauthorized, ineligible, and internally inconsistent rounds', async () => {
     const created = await createTour();
     const payload = submission(created);

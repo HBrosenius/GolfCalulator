@@ -61,8 +61,10 @@ test('account dashboard endpoints use authenticated reads', async () => {
     return new Response(JSON.stringify({ sessions: [] }), { headers: { 'Content-Type': 'application/json' } });
   });
   await client.sessions('session-token');
+  await client.stats('session-token');
   assert.equal(calls[0].url, 'https://sync.test/account/sessions');
   assert.equal(calls[0].options.headers.Authorization, 'Bearer session-token');
+  assert.equal(calls[1].url, 'https://sync.test/account/stats');
 });
 
 test('account session controls address only public session IDs', async () => {

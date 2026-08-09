@@ -106,11 +106,20 @@ En lokal tour kan publiceras med **Dela tour online**. Det skapar en fristående
 - Resultaten valideras och räknas om av servern. Varje spelare identifieras med sitt beständiga tourmedlems-ID, så en runda hamnar på rätt spelare oavsett vilken enhet som rapporterar den.
 - Sparade resultat köas lokalt om nätet saknas och skickas igen automatiskt. Samma runda kan därför inte råka registreras två gånger vid återförsök.
 - Den delade tourvyn visar tourens **villkor**, inkluderade banor, hålantal, tee, gräns för räknade rundor, startfält, ställning och rapporterade rundor.
-- Ställningen uppdateras automatiskt var tionde sekund medan tourvyn är öppen, samt direkt när appen återgår till förgrunden eller nätverket kommer tillbaka. Uppdateringen stoppas när användaren lämnar tourvyn eller startar en runda.
+- Tourvyn använder en hibernationsbar WebSocket till tourens Durable Object för
+  omedelbara resultat, ställningar, meddelanden och närvaro. Om WebSocket inte
+  kan ansluta faller appen automatiskt tillbaka till periodisk HTTP-synk.
 - Servern avslutar automatiskt en delad tour när slutdatumet har passerat, även om ingen har appen öppen. Organisatören kan förlänga en automatiskt avslutad tour och öppna den igen.
 - På startsidan visas **Pågående tourer** med aktiva lokala och delade tourer. En publicerad lokal tour visas inte en extra gång bredvid sin delade kopia.
 - Organisatören kan redigera namn, datum, antal bästa rundor, regel för flera rundor per bana och banornas rundgränser efter publicering. Startfält och bansnapshots förblir låsta, och datum får inte utesluta redan registrerade rundor.
 - Organisatören kan också kopiera eller byta inbjudningslänk, se accepterade medlemmar och deras status, ändra kopplad tourspelare/roll, ta bort eller återställa medlemmar och överföra ägarskapet till en annan kontoinloggad medlem. Medlemmar kan själva byta spelarkoppling eller lämna touren. Efter ett manuellt avslut kan inga fler resultat läggas till.
+- Ägaren kan utse kontoinloggade medlemmar till administratörer. Administratörer
+  kan hantera medlemmar och villkor, korrigera en rundas speldatum med obligatorisk
+  orsak och publicera tourmeddelanden, men kan inte byta ägare, inbjudningslänk
+  eller radera touren.
+- Varje korrigering sparas i serverns revisionshistorik med gammalt och nytt
+  värde, orsak, tidpunkt och ansvarig person. Meddelanden visas direkt i touren
+  och kan skickas som pushnotiser till övriga medlemmar.
 - En pågående lokal eller delad tour kan **avbrytas** utan att resultaten raderas. Lokala tourer kan därefter tas bort från enheten; organisatören kan ta bort en delad tour permanent för alla, medan deltagare bara tar bort den från sin egen enhet.
 - Om en tourrunda inte kan skickas visas en tydlig panel med antal försök och senaste fel. Rundan ligger kvar säkert på enheten, synkas automatiskt när nätverket återkommer och kan även skickas igen med **Försök synka igen**.
 - Vanliga säkerhetskopior innehåller inte tourens hemliga organisations- eller enhetsnycklar; de ligger bara på den enhet där länken öppnades eller touren publicerades.
@@ -299,6 +308,9 @@ ihop banor, rundor, spelare och lokala tourer mellan enheter.
 - Kontovyn visar en samlad översikt över molnrundor, banor, delade tourer,
   spelarprofil och aktiva inloggningssessioner. Kontokopplade tourer kan öppnas
   direkt från översikten.
+- Den kopplade spelarprofilen får en serverberäknad karriäröversikt över antal
+  rundor och banor, snittpoäng, bästa poäng och senaste speldatum från den
+  synkroniserade historiken.
 - Varje ny session får ett begränsat enhetsnamn och enhetstyp. I kontovyn kan
   användaren logga ut en annan session individuellt eller logga ut alla andra
   sessioner på en gång; den aktuella sessionen kan inte råka återkallas med
@@ -308,10 +320,13 @@ ihop banor, rundor, spelare och lokala tourer mellan enheter.
   inloggning på ett befintligt konto skickas även ett transaktionsmejl med
   enhetsnamn och tidpunkt.
 - Inloggade användare kan aktivera Web Push per enhet och välja notiser för
-  nya tourrundor, medlemsändringar, ägarbyten och slutpåminnelser. Notiser
+  nya tourrundor, medlemsändringar, ägarbyten, tourmeddelanden och slutpåminnelser. Notiser
   öppnar rätt delad tour direkt. Prenumerationer kopplas till sessionen och
   raderas automatiskt när enheten loggas ut eller push-tjänsten meddelar att
   prenumerationen har upphört.
+- Första gången appen öppnas visas en kort guide till spelare, tourer och
+  molnsynk. När webbläsaren erbjuder PWA-installation kan appen installeras
+  direkt från guiden; guiden kan sedan stängas permanent på enheten.
 - De 50 senaste mottagna pushnotiserna sparas lokalt av service workern och kan
   läsas eller rensas under Notishistorik i kontovyn, även om appen inte var
   öppen när notisen kom.

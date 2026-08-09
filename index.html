@@ -18,8 +18,8 @@
 <script src="src/round-extras.js?v=20260809-2"></script>
 <script src="src/live-round.js?v=20260809-2"></script>
 <script src="src/tour-rules.js?v=20260809-2"></script>
-<script src="src/tour-sync.js?v=20260809-3"></script>
-<script src="src/account-sync.js?v=20260809-6"></script>
+<script src="src/tour-sync.js?v=20260809-4"></script>
+<script src="src/account-sync.js?v=20260809-7"></script>
 <script>
 // Apply saved/system theme before first paint to avoid a flash of the wrong theme.
 (function() {
@@ -1063,6 +1063,13 @@
 
   <!-- STEG 1: Välj bana -->
   <div id="step1">
+
+    <div id="firstRunCard" class="card hidden" style="margin-bottom:10px;border:1px solid var(--green-light);">
+      <div class="card-title">Välkommen till Poängbogey</div>
+      <p style="font-size:.85rem;color:var(--muted);">Tre saker för att komma igång:</p>
+      <div class="tour-condition-list"><div class="tour-condition-row"><span>1</span><div><strong>Skapa spelare</strong><br>Spara handicap och statistik.</div></div><div class="tour-condition-row"><span>2</span><div><strong>Spela eller gå med i en tour</strong><br>Allt fungerar även utan konto.</div></div><div class="tour-condition-row"><span>3</span><div><strong>Logga in för molnsynk</strong><br>Få data, live-tourer och notiser på alla enheter.</div></div></div>
+      <div style="display:flex;gap:8px;"><button id="installAppButton" class="btn secondary hidden" onclick="installPoangbogey()">Installera appen</button><button class="btn" onclick="finishFirstRun()">Jag är redo</button></div>
+    </div>
 
     <!-- Pågående runda (resume) -->
     <div id="resumeBanner" class="card" style="display:none;margin-bottom:10px;background:#e8f5e9;border:1px solid var(--green-light);">
@@ -3458,6 +3465,31 @@ function openStatisticsView() {
 }
 
 const ACCOUNT_SESSION_KEY = 'golf_account_session';
+const FIRST_RUN_KEY = 'golf_first_run_complete';
+let _installPrompt = null;
+
+window.addEventListener('beforeinstallprompt', event => {
+  event.preventDefault();
+  _installPrompt = event;
+  document.getElementById('installAppButton')?.classList.remove('hidden');
+});
+
+function renderFirstRun() {
+  document.getElementById('firstRunCard')?.classList.toggle('hidden', localStorage.getItem(FIRST_RUN_KEY) === '1');
+}
+
+function finishFirstRun() {
+  localStorage.setItem(FIRST_RUN_KEY, '1');
+  renderFirstRun();
+}
+
+async function installPoangbogey() {
+  if (!_installPrompt) return;
+  await _installPrompt.prompt();
+  await _installPrompt.userChoice;
+  _installPrompt = null;
+  document.getElementById('installAppButton')?.classList.add('hidden');
+}
 const ACCOUNT_SYNC_META_KEY = 'golf_account_sync_meta';
 const ACCOUNT_SYNC_DELAY_MS = 1800;
 let _accountSyncTimer = null;
@@ -3593,11 +3625,12 @@ async function loadAccountDashboard() {
   const dashboard = document.getElementById('accountDashboard');
   if (!session || !dashboard) return;
   const client = accountApi();
-  const [profileResult, toursResult, sessionsResult, snapshotResult, securityResult] = await Promise.allSettled([
+  const [profileResult, toursResult, sessionsResult, snapshotResult, securityResult, statsResult] = await Promise.allSettled([
     client.profile(session.token), client.tours(session.token),
     typeof client.sessions === 'function' ? client.sessions(session.token) : Promise.resolve({ sessions: [] }),
     client.snapshot(session.token),
     typeof client.securityEvents === 'function' ? client.securityEvents(session.token) : Promise.resolve({ events: [] }),
+    typeof client.stats === 'function' ? client.stats(session.token) : Promise.resolve({ stats: null }),
   ]);
   if (!document.getElementById('accountDashboard') || accountSessionLoad()?.token !== session.token) return;
   const profile = profileResult.status === 'fulfilled' ? profileResult.value.profile : session.profile;
@@ -3605,6 +3638,7 @@ async function loadAccountDashboard() {
   const sessions = sessionsResult.status === 'fulfilled' ? sessionsResult.value.sessions || [] : [];
   const snapshot = snapshotResult.status === 'fulfilled' ? snapshotResult.value : null;
   const securityEvents = securityResult.status === 'fulfilled' ? securityResult.value.events || [] : [];
+  const career = statsResult.status === 'fulfilled' ? statsResult.value?.stats : null;
   const data = snapshot?.data || {};
   const tourRows = memberships.map(item => {
     const local = sharedTourStore.find(item.code);
@@ -3618,6 +3652,7 @@ async function loadAccountDashboard() {
       <div class="account-metric"><strong>${memberships.length}</strong><span>delade tourer</span></div>
       <div class="account-metric"><strong>${sessions.length}</strong><span>aktiva sessioner</span></div>
     </div>
+    ${career ? `<div class="card-title">Karriär i molnet</div><div class="account-dashboard-grid"><div class="account-metric"><strong>${career.rounds}</strong><span>rundor</span></div><div class="account-metric"><strong>${career.bestPoints ?? '–'}</strong><span>bästa poäng</span></div><div class="account-metric"><strong>${career.averagePoints ?? '–'}</strong><span>snittpoäng</span></div><div class="account-metric"><strong>${career.courses}</strong><span>banor</span></div></div>` : ''}
     <div id="accountPushSettings" class="tour-condition-row"><span>🔔</span><div><strong>Pushnotiser</strong><br><span style="color:var(--muted);font-size:.8rem;">Hämtar inställningar…</span></div></div>
     <details style="margin:12px 0;"><summary style="cursor:pointer;font-size:.84rem;font-weight:600;">Notishistorik</summary><div id="accountNotificationHistory"><p style="color:var(--muted);font-size:.8rem;">Hämtar notiser…</p></div></details>
     <div style="font-size:.82rem;margin-bottom:12px;"><strong>Spelarprofil:</strong> ${profile ? `${escapeHtml(profile.displayName)} · HCP ${profile.handicap}` : 'Inte kopplad'}</div>
@@ -3667,7 +3702,7 @@ function clearAccountNotificationHistory() {
 }
 
 function pushPreferenceValues() {
-  return Object.fromEntries(['rounds', 'membership', 'ownership', 'reminders'].map(key => [key, document.getElementById(`push-${key}`)?.checked !== false]));
+  return Object.fromEntries(['rounds', 'membership', 'ownership', 'reminders', 'announcements'].map(key => [key, document.getElementById(`push-${key}`)?.checked !== false]));
 }
 
 async function renderAccountPushSettings() {
@@ -3678,9 +3713,9 @@ async function renderAccountPushSettings() {
     element.innerHTML = '<span>🔕</span><div><strong>Pushnotiser stöds inte</strong><br><span style="color:var(--muted);font-size:.8rem;">Den här webbläsaren kan inte ta emot pushnotiser.</span></div>';
     return;
   }
-  let settings = { enabled: false, preferences: { rounds: true, membership: true, ownership: true, reminders: true } };
+  let settings = { enabled: false, preferences: { rounds: true, membership: true, ownership: true, reminders: true, announcements: true } };
   try { settings = await accountApi().pushSettings(session.token); } catch (_) {}
-  if (!settings) settings = { enabled: false, preferences: { rounds: true, membership: true, ownership: true, reminders: true } };
+  if (!settings) settings = { enabled: false, preferences: { rounds: true, membership: true, ownership: true, reminders: true, announcements: true } };
   const pref = settings.preferences || {};
   element.innerHTML = `<span>${settings.enabled ? '🔔' : '🔕'}</span><div style="width:100%;"><strong>Pushnotiser ${settings.enabled ? 'är aktiva' : 'är avstängda'}</strong>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:5px;margin:8px 0;font-size:.8rem;">
@@ -3688,6 +3723,7 @@ async function renderAccountPushSettings() {
       <label><input id="push-membership" type="checkbox" ${pref.membership !== false ? 'checked' : ''}> Medlemmar</label>
       <label><input id="push-ownership" type="checkbox" ${pref.ownership !== false ? 'checked' : ''}> Ägarskap</label>
       <label><input id="push-reminders" type="checkbox" ${pref.reminders !== false ? 'checked' : ''}> Slutpåminnelser</label>
+      <label><input id="push-announcements" type="checkbox" ${pref.announcements !== false ? 'checked' : ''}> Meddelanden</label>
     </div>
     <button class="btn secondary" onclick="enableAccountPush()">${settings.enabled ? 'Spara notisinställningar' : 'Aktivera pushnotiser'}</button>
     ${settings.enabled ? '<button class="btn secondary" style="margin-top:6px;color:var(--danger);" onclick="disableAccountPush()">Stäng av på den här enheten</button>' : ''}</div>`;
@@ -3761,7 +3797,7 @@ async function saveAccountPlayerProfile() {
   try {
     const client = accountApi();
     if (typeof client.saveProfile !== 'function') throw new Error('Appuppdateringen är inte klar. Stäng och öppna appen igen.');
-    const saved = await client.saveProfile(session.token, player.nick || player.name, Number(player.hi));
+    const saved = await client.saveProfile(session.token, player.nick || player.name, Number(player.hi), player.id);
     accountSessionSave({ ...session, profile: { ...saved.profile, localPlayerId: player.id } });
     scheduleAccountSync('profile');
     setAccountStatus('Spelarprofilen är kopplad till kontot.');
@@ -5420,6 +5456,8 @@ let _tourOpenedFromStart = false;
 const SHARED_TOUR_REFRESH_MS = 10000;
 let _sharedTourRefreshTimer = null;
 let _sharedTourRefreshGeneration = 0;
+let _sharedTourSocket = null;
+let _sharedTourOnline = 0;
 let _editingSharedTourCode = null;
 let _retryingSharedTourCode = null;
 let _sharedTourSyncPromise = null;
@@ -5428,12 +5466,34 @@ function stopSharedTourRefresh() {
   _sharedTourRefreshGeneration++;
   if (_sharedTourRefreshTimer) clearTimeout(_sharedTourRefreshTimer);
   _sharedTourRefreshTimer = null;
+  if (_sharedTourSocket) { _sharedTourSocket.onclose = null; _sharedTourSocket.close(); _sharedTourSocket = null; }
 }
 
 function startSharedTourRefresh(code, intervalMs = SHARED_TOUR_REFRESH_MS) {
   stopSharedTourRefresh();
   const normalizedCode = String(code).toUpperCase();
   const generation = _sharedTourRefreshGeneration;
+  const record = sharedTourStore.find(normalizedCode);
+  if (record?.token && 'WebSocket' in window) {
+    try {
+      const socket = new WebSocket(sharedTourClient.liveUrl(normalizedCode), ['golf-v2', record.token]);
+      _sharedTourSocket = socket;
+      socket.onmessage = event => {
+        try {
+          const update = JSON.parse(event.data);
+          _sharedTourOnline = update.online || 0;
+          if (update.tour) {
+            const latest = sharedTourStore.find(normalizedCode);
+            if (latest && update.tour.revision >= (latest.tour?.revision || 0)) sharedTourStore.upsert({ ...latest, tour: update.tour, ...(update.access?.role ? { role: update.access.role } : {}) });
+          }
+          if (_tourViewMode === 'shared' && _tourViewActiveId === normalizedCode && !_editingSharedTourCode) renderSharedTourDetail(normalizedCode);
+        } catch (_) {}
+      };
+      socket.onclose = () => {
+        if (generation === _sharedTourRefreshGeneration) _sharedTourRefreshTimer = setTimeout(poll, 1000);
+      };
+    } catch (_) {}
+  }
   const poll = async () => {
     if (generation !== _sharedTourRefreshGeneration || _tourViewMode !== 'shared' || _tourViewActiveId !== normalizedCode) return;
     if (!document.hidden) await refreshSharedTour(normalizedCode);
@@ -5601,7 +5661,7 @@ async function refreshSharedTour(code) {
   const record = sharedTourStore.find(code);
   if (!record) return;
   try {
-    const response = record.role === 'organizer'
+    const response = ['organizer', 'administrator'].includes(record.role)
       ? await sharedTourClient.manage(code, record.token)
       : { tour: await sharedTourClient.get(code),
         ...(record.accountBound ? { access: await sharedTourClient.access(code, record.token) } : {}) };
@@ -5652,6 +5712,39 @@ async function updateSharedTourContributor(code, contributorId) {
     await sharedTourClient.updateContributor(code, record.token, contributorId, player ? 'player' : 'scorekeeper', player ? selection.slice(7) : null);
     await refreshSharedTour(code);
   } catch (error) { alert('Kunde inte uppdatera medlemskapet: ' + error.message); }
+}
+
+async function toggleSharedTourAdministrator(code, contributorId, isAdmin) {
+  const record = sharedTourStore.find(code);
+  try {
+    await sharedTourClient.setAdministrator(code, record.token, contributorId, isAdmin);
+    await refreshSharedTour(code);
+  } catch (error) { alert('Kunde inte ändra administratörsrollen: ' + error.message); }
+}
+
+async function correctSharedTourRound(code, roundId, currentDate) {
+  const record = sharedTourStore.find(code);
+  const playedDate = prompt('Korrigera speldatum (ÅÅÅÅ-MM-DD):', currentDate);
+  if (!playedDate) return;
+  const reason = prompt('Ange varför rundan korrigeras:');
+  if (!reason?.trim()) return;
+  try {
+    const response = await sharedTourClient.editRound(code, record.token, roundId, record.tour.revision, playedDate, reason.trim());
+    sharedTourStore.upsert({ ...record, tour: response.tour });
+    renderSharedTourDetail(code);
+  } catch (error) { if (error.status === 409) await refreshSharedTour(code); alert('Kunde inte korrigera rundan: ' + error.message); }
+}
+
+async function postSharedTourAnnouncement(code) {
+  const record = sharedTourStore.find(code);
+  const input = document.getElementById('sharedTourAnnouncement');
+  const message = input?.value.trim();
+  if (!message) return;
+  try {
+    const response = await sharedTourClient.announce(code, record.token, message);
+    sharedTourStore.upsert({ ...record, tour: response.tour });
+    renderSharedTourDetail(code);
+  } catch (error) { alert('Kunde inte publicera meddelandet: ' + error.message); }
 }
 
 async function restoreSharedTourContributor(code, contributorId) {
@@ -5751,7 +5844,7 @@ function cancelSharedTourEdit(code) {
 
 async function saveSharedTourConditions(code) {
   const record = sharedTourStore.find(code);
-  if (!record || record.role !== 'organizer') return;
+  if (!record || !['organizer', 'administrator'].includes(record.role)) return;
   const bestValue = document.getElementById('sharedTourEditBest').value;
   const payload = {
     protocolVersion: GolfTourSync.PROTOCOL_VERSION,
@@ -5795,10 +5888,11 @@ function renderSharedTourDetail(code) {
   const el = document.getElementById('tourContent');
   if (!record?.tour) { el.innerHTML = '<p>Den delade touren kunde inte läsas.</p>'; return; }
   const tour = record.tour;
+  const canAdmin = ['organizer', 'administrator'].includes(record.role);
   const standings = GolfTourRules.computeSharedStandings(tour);
   const standingsRows = standings.map((row, index) => `<tr><td>${index + 1}</td><td>${escapeHtml(row.player.name)}</td><td style="text-align:right;">${row.total}p</td><td style="text-align:right;color:var(--muted);">${row.roundsCounted}/${row.roundsPlayed}</td></tr>`).join('');
   const roundRows = (tour.rounds || []).slice().sort((a, b) => b.playedDate.localeCompare(a.playedDate)).map(round =>
-    `<div class="hi-row"><strong>${escapeHtml(round.courseName)}</strong> · ${round.playedDate}<br><span style="color:var(--muted);font-size:0.8rem;">${round.subjects.map(subject => `${escapeHtml(subject.name)} ${subject.totalPoints}p`).join(', ')}</span></div>`).join('');
+    `<div class="hi-row"><strong>${escapeHtml(round.courseName)}</strong> · ${round.playedDate}${round.correctedAt ? ' · korrigerad' : ''}<br><span style="color:var(--muted);font-size:0.8rem;">${round.subjects.map(subject => `${escapeHtml(subject.name)} ${subject.totalPoints}p`).join(', ')}</span>${canAdmin ? `<button class="btn secondary" style="margin-top:7px;" onclick="correctSharedTourRound('${escapeHtml(record.code)}','${escapeHtml(round.id)}','${escapeHtml(round.playedDate)}')">Korrigera datum</button>` : ''}</div>`).join('');
   const courseRows = (tour.courses || []).map(course => {
     const tees = (course.tees || []).map(tee => escapeHtml(tee.name)).join(', ');
     const roundLimit = Number.isInteger(course.maxRounds)
@@ -5812,7 +5906,7 @@ function renderSharedTourDetail(code) {
     <div class="tour-condition-row"><span>⭐</span><div><strong>Rundor som räknas</strong><br>${tour.bestOfN ? `Spelarens bästa ${tour.bestOfN} rundor` : 'Alla godkända rundor'}</div></div>
     <div class="tour-condition-row"><span>🔁</span><div><strong>Fler rundor på samma bana</strong><br>${tour.duplicateCourseRule === 'first' ? 'De första rundorna upp till banans gräns räknas' : 'De bästa rundorna upp till banans gräns räknas'}</div></div>
     <div class="tour-condition-row"><span>🏌️</span><div><strong>Godkända spelformer</strong><br>Individuellt, bästboll och matchspel</div></div>`;
-  const editing = record.role === 'organizer' && _editingSharedTourCode === record.code;
+  const editing = canAdmin && _editingSharedTourCode === record.code;
   const conditionEditor = editing ? `<div class="tour-condition-editor">
     <label>Namn<input id="sharedTourEditName" maxlength="80" value="${escapeHtml(tour.name)}"></label>
     <div class="tour-edit-grid">
@@ -5852,14 +5946,14 @@ function renderSharedTourDetail(code) {
       <div style="display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end;">
         ${inactive ? `<button class="btn secondary" onclick="restoreSharedTourContributor('${escapeHtml(record.code)}','${escapeHtml(contributor.id)}')">Återställ</button>` : `
           ${contributor.accountLinked ? `<button class="btn secondary" onclick="updateSharedTourContributor('${escapeHtml(record.code)}','${escapeHtml(contributor.id)}')">Spara roll</button>
-          <button class="btn secondary" onclick="transferSharedTourOwnership('${escapeHtml(record.code)}','${escapeHtml(contributor.id)}','${escapeHtml(name)}')">Gör till ägare</button>` : ''}
+          ${record.role === 'organizer' ? `<button class="btn secondary" onclick="toggleSharedTourAdministrator('${escapeHtml(record.code)}','${escapeHtml(contributor.id)}',${!contributor.isAdmin})">${contributor.isAdmin ? 'Ta bort admin' : 'Gör till admin'}</button><button class="btn secondary" onclick="transferSharedTourOwnership('${escapeHtml(record.code)}','${escapeHtml(contributor.id)}','${escapeHtml(name)}')">Gör till ägare</button>` : ''}` : ''}
           <button class="tour-revoke-btn" onclick="revokeSharedTourContributor('${escapeHtml(record.code)}','${escapeHtml(contributor.id)}')">Ta bort</button>`}
       </div>
     </div>`;
   }).join('');
   const acceptedCount = contributors.filter(item => !item.revokedAt).length;
   const inactiveCount = contributors.length - acceptedCount;
-  const organizerControls = record.role === 'organizer' ? `
+  const organizerControls = canAdmin ? `
     <div class="card-title" style="margin-top:16px;">Administration</div>
     <div class="tour-condition-row"><span>🔗</span><div><strong>Inbjudningslänk ${record.invitation?.active === false ? 'inaktiv' : 'aktiv'}</strong><br>
       ${acceptedCount} aktiva medlemmar${inactiveCount ? ` · ${inactiveCount} har lämnat eller tagits bort` : ''} · version ${record.invitation?.revision || 1}</div></div>
@@ -5867,10 +5961,7 @@ function renderSharedTourDetail(code) {
     ${contributorRows ? `<div class="tour-contributor-list">${contributorRows}</div>` : '<p style="color:var(--muted);font-size:0.85rem;">Ingen har accepterat inbjudan ännu.</p>'}
     <div class="tour-admin-actions">
       <button class="btn secondary" onclick="beginSharedTourEdit('${escapeHtml(record.code)}')">✎ Redigera villkor</button>
-      <button class="btn tour-admin-invite" onclick="rotateSharedTourInvitation('${escapeHtml(record.code)}')">🔄 Skapa ny inbjudningslänk</button>
-      ${tour.status === 'open' ? `<button class="btn tour-admin-complete" onclick="completeSharedTour('${escapeHtml(record.code)}')">✓ Avsluta touren</button>` : ''}
-      ${tour.status === 'open' ? `<button class="btn secondary" style="color:var(--danger);" onclick="cancelSharedTour('${escapeHtml(record.code)}')">× Avbryt touren</button>` : ''}
-      <button class="btn secondary" style="color:var(--danger);" onclick="removeSharedTour('${escapeHtml(record.code)}')">🗑 Ta bort touren permanent</button>
+      ${record.role === 'organizer' ? `<button class="btn tour-admin-invite" onclick="rotateSharedTourInvitation('${escapeHtml(record.code)}')">🔄 Skapa ny inbjudningslänk</button>${tour.status === 'open' ? `<button class="btn tour-admin-complete" onclick="completeSharedTour('${escapeHtml(record.code)}')">✓ Avsluta touren</button><button class="btn secondary" style="color:var(--danger);" onclick="cancelSharedTour('${escapeHtml(record.code)}')">× Avbryt touren</button>` : ''}<button class="btn secondary" style="color:var(--danger);" onclick="removeSharedTour('${escapeHtml(record.code)}')">🗑 Ta bort touren permanent</button>` : ''}
     </div>` : '';
   const activityLabels = {
     tour_created: 'skapade touren', organizer_account_linked: 'kopplade touren till sitt konto',
@@ -5879,6 +5970,7 @@ function renderSharedTourDetail(code) {
     tour_completed: 'avslutade touren', tour_completed_automatically: 'Touren avslutades automatiskt',
     tour_cancelled: 'avbröt touren', member_removed: 'tog bort en medlem', member_restored: 'återställde en medlem',
     member_left: 'lämnade touren', membership_updated: 'ändrade ett medlemskap', ownership_transferred: 'överförde ägarskapet',
+    administrator_updated: 'ändrade en administratör', round_corrected: 'korrigerade en runda', announcement_posted: 'publicerade ett meddelande',
   };
   const activityRows = (record.activity || []).slice(0, 12).map(event => {
     const detail = event.type === 'round_recorded' ? ` · ${escapeHtml(event.details?.courseName || '')}` :
@@ -5900,13 +5992,16 @@ function renderSharedTourDetail(code) {
   el.innerHTML = `
     <button class="btn secondary" style="margin-bottom:12px;" onclick="backToSharedTourList()">← Alla tourer</button>
     <strong style="font-size:1.1rem;">🌐 ${escapeHtml(tour.name)}</strong><br>
-    <span style="font-size:0.8rem;color:var(--muted);">${tour.startDate} – ${tour.endDate} · kod ${escapeHtml(record.code)} · uppdateras automatiskt</span>
+    <span style="font-size:0.8rem;color:var(--muted);">${tour.startDate} – ${tour.endDate} · kod ${escapeHtml(record.code)} · ${_sharedTourSocket?.readyState === WebSocket.OPEN ? `live · ${_sharedTourOnline} online` : 'automatisk reservsynk'}</span>
     <div style="display:flex;gap:8px;margin-top:12px;">
       ${tour.status === 'open' ? `<button class="btn" style="flex:1;" onclick="startSharedTourRound('${escapeHtml(record.code)}')">+ Ny tourrunda</button>` : `<span style="color:var(--muted);">${tour.status === 'cancelled' ? 'Touren är avbruten' : 'Touren är avslutad'}</span>`}
       ${record.role === 'organizer' ? `<button class="btn secondary" style="flex:1;" onclick="shareSharedTourInvitation('${escapeHtml(record.code)}')">🔗 Bjud in</button>` : ''}
     </div>
 
     ${syncPanel}
+    <div class="card-title" style="margin-top:16px;">Meddelanden</div>
+    ${canAdmin ? `<div style="display:flex;gap:7px;"><input id="sharedTourAnnouncement" maxlength="500" placeholder="Skriv ett meddelande till touren" style="flex:1;"><button class="btn" onclick="postSharedTourAnnouncement('${escapeHtml(record.code)}')">Publicera</button></div>` : ''}
+    ${(tour.announcements || []).map(item => `<div class="activity-row"><strong>${escapeHtml(item.author)}</strong> · ${new Date(item.at).toLocaleString('sv-SE')}<br>${escapeHtml(item.message)}</div>`).join('') || '<p style="color:var(--muted);font-size:.85rem;">Inga meddelanden ännu.</p>'}
     <div class="card-title" style="margin-top:16px;">Villkor</div><div class="tour-condition-list">${conditionRows}</div>${conditionEditor}
     <div class="card-title" style="margin-top:16px;">Inkluderade banor</div>${courseRows || '<p style="color:var(--muted);font-size:0.85rem;">Inga banor har lagts till.</p>'}
     <div class="card-title" style="margin-top:16px;">Tourspelare</div>
@@ -7187,6 +7282,7 @@ try { _populateOriginLabelInput(); } catch(e) {}
 try { acceptSharedTourInvitationIfPresent(); } catch(e) {}
 try { syncSharedTourSubmissions(); } catch(e) {}
 try { updateAccountButton(); } catch(e) {}
+try { renderFirstRun(); } catch(e) {}
 try {
   const accountToken = new URLSearchParams(location.hash.slice(1)).get('account_token');
   const accountApiBase = new URLSearchParams(location.hash.slice(1)).get('account_api');

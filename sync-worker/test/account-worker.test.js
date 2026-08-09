@@ -8,7 +8,7 @@ beforeAll(async () => {
     CREATE TABLE IF NOT EXISTS login_tokens (token_hash TEXT PRIMARY KEY,email TEXT NOT NULL,expires_at INTEGER NOT NULL,created_at INTEGER NOT NULL);
     CREATE TABLE IF NOT EXISTS sessions (token_hash TEXT PRIMARY KEY,user_id TEXT NOT NULL,expires_at INTEGER NOT NULL,created_at INTEGER NOT NULL,last_seen_at INTEGER NOT NULL,session_id TEXT,device_name TEXT,device_type TEXT);
     CREATE TABLE IF NOT EXISTS account_snapshots (user_id TEXT PRIMARY KEY,version INTEGER NOT NULL DEFAULT 1,payload TEXT NOT NULL,updated_at INTEGER NOT NULL);
-    CREATE TABLE IF NOT EXISTS account_profiles (user_id TEXT PRIMARY KEY,display_name TEXT NOT NULL,handicap REAL NOT NULL,updated_at INTEGER NOT NULL);
+    CREATE TABLE IF NOT EXISTS account_profiles (user_id TEXT PRIMARY KEY,display_name TEXT NOT NULL,handicap REAL NOT NULL,player_id TEXT,updated_at INTEGER NOT NULL);
     CREATE TABLE IF NOT EXISTS account_tours (user_id TEXT NOT NULL,tour_code TEXT NOT NULL,role TEXT NOT NULL,member_id TEXT,joined_at INTEGER NOT NULL,PRIMARY KEY(user_id,tour_code));
     CREATE TABLE IF NOT EXISTS account_security_events (id TEXT PRIMARY KEY,user_id TEXT NOT NULL,event_type TEXT NOT NULL,created_at INTEGER NOT NULL,device_name TEXT,details TEXT);
     CREATE TABLE IF NOT EXISTS push_subscriptions (id TEXT PRIMARY KEY,user_id TEXT NOT NULL,session_id TEXT,endpoint TEXT NOT NULL UNIQUE,p256dh TEXT NOT NULL,auth TEXT NOT NULL,preferences TEXT NOT NULL,created_at INTEGER NOT NULL,updated_at INTEGER NOT NULL);
@@ -81,6 +81,24 @@ describe('passwordless accounts and cloud snapshots', () => {
     expect(await saved.json()).toMatchObject({ profile: { displayName: 'Ada', handicap: 12.4 } });
     const loaded = await SELF.fetch('https://worker.test/account/profile', { headers });
     expect(await loaded.json()).toMatchObject({ profile: { displayName: 'Ada', handicap: 12.4 } });
+  });
+
+  it('calculates cloud career statistics for the linked profile', async () => {
+    const userId = crypto.randomUUID();
+    const token = 'k'.repeat(43);
+    const now = Date.now();
+    await env.ACCOUNTS_DB.batch([
+      env.ACCOUNTS_DB.prepare('INSERT INTO users (id,email,created_at,last_login_at) VALUES (?,?,?,?)').bind(userId, `${userId}@example.com`, now, now),
+      env.ACCOUNTS_DB.prepare('INSERT INTO sessions (token_hash,user_id,expires_at,created_at,last_seen_at) VALUES (?,?,?,?,?)').bind(await hashToken(token), userId, now + 60_000, now, now),
+      env.ACCOUNTS_DB.prepare('INSERT INTO account_profiles (user_id,display_name,handicap,player_id,updated_at) VALUES (?,?,?,?,?)').bind(userId, 'Ada', 12, 'player-ada', now),
+      env.ACCOUNTS_DB.prepare('INSERT INTO account_snapshots (user_id,version,payload,updated_at) VALUES (?,?,?,?)').bind(userId, 1, JSON.stringify({ courses: [], players: [], tours: [], rounds: [
+        { date: '2026-07-01', courseName: 'A', subjects: [{ playerId: 'player-ada', name: 'Gamla namnet', totalPoints: 30 }, { playerId: 'player-bo', name: 'Bo', totalPoints: 40 }] },
+        { date: '2026-07-02', courseName: 'B', subjects: [{ playerId: 'player-ada', name: 'Ada', totalPoints: 36 }] },
+      ] }), now),
+    ]);
+    const response = await SELF.fetch('https://worker.test/account/stats', { headers: { Authorization: `Bearer ${token}` } });
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ stats: { rounds: 2, courses: 2, averagePoints: 33, bestPoints: 36, lastPlayedAt: '2026-07-02' } });
   });
 
   it('accepts authenticated snapshots above the live-mutation 16 KB limit', async () => {

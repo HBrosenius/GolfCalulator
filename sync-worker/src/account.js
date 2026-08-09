@@ -99,7 +99,7 @@ export async function getProfile(request, env) {
   const user = await userForSession(request, env);
   if (!user) return accountJson({ error: 'Inte inloggad' }, 401);
   const profile = await env.ACCOUNTS_DB.prepare(
-    'SELECT display_name AS displayName,handicap,updated_at AS updatedAt FROM account_profiles WHERE user_id = ?'
+    'SELECT display_name AS displayName,handicap,player_id AS playerId,updated_at AS updatedAt FROM account_profiles WHERE user_id = ?'
   ).bind(user.id).first();
   return accountJson({ profile: profile || null });
 }
@@ -108,17 +108,18 @@ export async function putProfile(body, request, env) {
   const user = await userForSession(request, env);
   if (!user) return accountJson({ error: 'Inte inloggad' }, 401);
   const displayName = typeof body?.displayName === 'string' ? body.displayName.trim() : '';
+  const playerId = body?.playerId === undefined || body.playerId === null ? null : String(body.playerId).slice(0, 64);
   if (!displayName || displayName.length > 50 || typeof body?.handicap !== 'number' ||
     !Number.isFinite(body.handicap) || body.handicap < 0 || body.handicap > 54 ||
-    Object.keys(body || {}).some(key => !['displayName', 'handicap'].includes(key))) {
+    Object.keys(body || {}).some(key => !['displayName', 'handicap', 'playerId'].includes(key))) {
     return accountJson({ error: 'Ogiltig spelarprofil' }, 400);
   }
   const updatedAt = Date.now();
   await env.ACCOUNTS_DB.prepare(`
-    INSERT INTO account_profiles (user_id,display_name,handicap,updated_at) VALUES (?,?,?,?)
-    ON CONFLICT(user_id) DO UPDATE SET display_name=excluded.display_name,handicap=excluded.handicap,updated_at=excluded.updated_at
-  `).bind(user.id, displayName, body.handicap, updatedAt).run();
-  return accountJson({ profile: { displayName, handicap: body.handicap, updatedAt } });
+    INSERT INTO account_profiles (user_id,display_name,handicap,player_id,updated_at) VALUES (?,?,?,?,?)
+    ON CONFLICT(user_id) DO UPDATE SET display_name=excluded.display_name,handicap=excluded.handicap,player_id=excluded.player_id,updated_at=excluded.updated_at
+  `).bind(user.id, displayName, body.handicap, playerId, updatedAt).run();
+  return accountJson({ profile: { displayName, handicap: body.handicap, playerId, updatedAt } });
 }
 
 export async function listAccountTours(request, env) {
@@ -309,7 +310,7 @@ export async function exportAccount(request, env) {
   const user = await userForSession(request, env);
   if (!user) return accountJson({ error: 'Inte inloggad' }, 401);
   const [profile, snapshot, tours, sessions, securityEvents, pushSubscriptions] = await Promise.all([
-    env.ACCOUNTS_DB.prepare('SELECT display_name AS displayName,handicap,updated_at AS updatedAt FROM account_profiles WHERE user_id = ?').bind(user.id).first(),
+    env.ACCOUNTS_DB.prepare('SELECT display_name AS displayName,handicap,player_id AS playerId,updated_at AS updatedAt FROM account_profiles WHERE user_id = ?').bind(user.id).first(),
     env.ACCOUNTS_DB.prepare('SELECT version,payload,updated_at AS updatedAt FROM account_snapshots WHERE user_id = ?').bind(user.id).first(),
     env.ACCOUNTS_DB.prepare('SELECT tour_code AS code,role,member_id AS memberId,joined_at AS joinedAt FROM account_tours WHERE user_id = ? ORDER BY joined_at').bind(user.id).all(),
     env.ACCOUNTS_DB.prepare('SELECT session_id AS id,device_name AS deviceName,device_type AS deviceType,created_at AS createdAt,last_seen_at AS lastSeenAt,expires_at AS expiresAt FROM sessions WHERE user_id = ? ORDER BY created_at').bind(user.id).all(),
@@ -357,4 +358,28 @@ export async function putSnapshot(body, request, env) {
     return accountJson({ error: 'Synkkonflikt', currentVersion: current?.version || 0 }, 409);
   }
   return accountJson({ version, updatedAt: now });
+}
+
+export async function getCareerStats(request, env) {
+  const user = await userForSession(request, env);
+  if (!user) return accountJson({ error: 'Inte inloggad' }, 401);
+  const [profile, row] = await Promise.all([
+    env.ACCOUNTS_DB.prepare('SELECT display_name AS displayName,player_id AS playerId FROM account_profiles WHERE user_id = ?').bind(user.id).first(),
+    env.ACCOUNTS_DB.prepare('SELECT payload FROM account_snapshots WHERE user_id = ?').bind(user.id).first(),
+  ]);
+  const data = row ? JSON.parse(row.payload) : { rounds: [] };
+  const name = profile?.displayName || null;
+  const performances = [];
+  for (const round of data.rounds || []) for (const subject of round.subjects || []) {
+    if (profile?.playerId ? String(subject.playerId) !== profile.playerId : (name && subject.name !== name)) continue;
+    if (typeof subject.totalPoints === 'number') performances.push({ points: subject.totalPoints, date: round.date || round.playedDate, course: round.courseName });
+  }
+  const totalPoints = performances.reduce((sum, item) => sum + item.points, 0);
+  const courses = new Set(performances.map(item => item.course).filter(Boolean));
+  return accountJson({ stats: {
+    displayName: name, rounds: performances.length, courses: courses.size,
+    averagePoints: performances.length ? Math.round(totalPoints / performances.length * 10) / 10 : null,
+    bestPoints: performances.length ? Math.max(...performances.map(item => item.points)) : null,
+    lastPlayedAt: performances.map(item => item.date).filter(Boolean).sort().at(-1) || null,
+  } });
 }

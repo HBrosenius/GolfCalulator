@@ -122,6 +122,24 @@ test('tour activity uses an authenticated read without secrets in the URL', asyn
   assert.doesNotMatch(captured.url, /account-token/);
 });
 
+test('real-time, administrator, correction and announcement client contracts stay versioned', async () => {
+  const calls = [];
+  const client = sync.createClient({ baseUrl: 'https://sync.test', fetchImpl: async (url, options) => {
+    calls.push({ url, options });
+    return new Response(JSON.stringify({ tour: { revision: 2 } }), { headers: { 'Content-Type': 'application/json' } });
+  } });
+  await client.setAdministrator('ABCD2345', 'token', 'member-1', true);
+  await client.editRound('ABCD2345', 'token', 'round-1', 4, '2026-07-11', 'Fel datum');
+  await client.announce('ABCD2345', 'token', 'Samling 09:00');
+  assert.equal(client.liveUrl('ABCD2345'), 'wss://sync.test/tour/ABCD2345/live');
+  assert.deepEqual(calls.map(call => [call.options.method, call.url]), [
+    ['PATCH', 'https://sync.test/tour/ABCD2345/contributors/member-1/administrator'],
+    ['PATCH', 'https://sync.test/tour/ABCD2345/rounds/round-1'],
+    ['POST', 'https://sync.test/tour/ABCD2345/announcements'],
+  ]);
+  assert.equal(JSON.parse(calls[1].options.body).expectedRevision, 4);
+});
+
 test('pending submission retry can be limited to one tour', async () => {
   const store = sync.createStore(memoryStorage());
   store.upsert({ code: 'ABCD2345', token: 'one', pendingSubmissions: [] });

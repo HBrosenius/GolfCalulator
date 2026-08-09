@@ -6,7 +6,7 @@ import { TOUR_SCHEMA_VERSION, validateTourCreate } from './tour-validation.js';
 import { deletePushSubscription, getPushKey, getPushSettings, notifyUsers, savePushSubscription } from './push.js';
 import {
   accountIdentity, deleteAccount, deleteSession, exchangeMagicLink, exportAccount, forgetAccountTour, getAccount, getProfile,
-  getSnapshot, listAccountSessions, listAccountTours, listSecurityEvents, putProfile, putSnapshot, rememberAccountTour,
+  getCareerStats, getSnapshot, listAccountSessions, listAccountTours, listSecurityEvents, putProfile, putSnapshot, rememberAccountTour,
   requestMagicLink, revokeAccountSession, revokeOtherAccountSessions, userForSession,
 } from './account.js';
 
@@ -152,6 +152,7 @@ async function route(request, env, ctx = null) {
     if (parts.length === 2 && parts[1] === 'sessions' && request.method === 'DELETE') return revokeOtherAccountSessions(request, env);
     if (parts.length === 3 && parts[1] === 'sessions' && request.method === 'DELETE') return revokeAccountSession(request, env, parts[2]);
     if (parts.length === 2 && parts[1] === 'security-events' && request.method === 'GET') return listSecurityEvents(request, env);
+    if (parts.length === 2 && parts[1] === 'stats' && request.method === 'GET') return getCareerStats(request, env);
     if (parts.length === 2 && parts[1] === 'push' && request.method === 'GET') return getPushSettings(request, env);
     if (parts.length === 2 && parts[1] === 'push' && request.method === 'PUT') {
       const parsed = await bodyOrResponse(request);
@@ -171,6 +172,15 @@ async function route(request, env, ctx = null) {
     const code = parts[1].toUpperCase();
     const tour = env.GOLF_TOURS.getByName(code);
     await tour.bindCode(code);
+    if (parts.length === 3 && parts[2] === 'live' && request.method === 'GET') {
+      const protocols = (request.headers.get('Sec-WebSocket-Protocol') || '').split(',').map(value => value.trim());
+      const token = protocols[1] || '';
+      const authenticated = token ? await userForSession(new Request(request.url, { headers: { Authorization: `Bearer ${token}` } }), env) : null;
+      const headers = new Headers(request.headers);
+      headers.delete('X-Account-User');
+      if (authenticated) headers.set('X-Account-User', authenticated.id);
+      return tour.fetch(new Request(request, { headers }));
+    }
     if (parts.length === 2 && request.method === 'GET') return fromTourResult(await tour.getPublicState());
     if (!protocolHeaderValid(request)) return json({ error: 'Unsupported protocol version' }, 426);
     const token = bearerToken(request);
@@ -223,6 +233,9 @@ async function route(request, env, ctx = null) {
       return fromTourResult(transferred);
     }
     if (parts.length === 3 && parts[2] === 'rounds' && request.method === 'POST') return fromTourResult(await tour.submitRound(parsed.body, token, accountUserId));
+    if (parts.length === 4 && parts[2] === 'rounds' && request.method === 'PATCH') return fromTourResult(await tour.editRound(parts[3], token, accountUserId, parsed.body));
+    if (parts.length === 3 && parts[2] === 'announcements' && request.method === 'POST') return fromTourResult(await tour.announce(token, accountUserId, parsed.body));
+    if (parts.length === 5 && parts[2] === 'contributors' && parts[4] === 'administrator' && request.method === 'PATCH') return fromTourResult(await tour.setAdministrator(parts[3], token, accountUserId, parsed.body));
     if (parts.length === 3 && parts[2] === 'conditions' && request.method === 'PATCH') return fromTourResult(await tour.update(token, parsed.body, accountUserId));
     if (parts.length === 3 && parts[2] === 'rotate-invitation' && request.method === 'POST') return fromTourResult(await tour.rotateInvitation(token, parsed.body, accountUserId));
     if (parts.length === 3 && parts[2] === 'complete' && request.method === 'POST') return fromTourResult(await tour.complete(token, parsed.body, accountUserId));
@@ -281,6 +294,7 @@ export default {
     let response;
     try { response = await route(request, env, ctx); }
     catch (error) { logError(request, error); response = json({ error: 'Service unavailable' }, 503); }
+    if (response.status === 101) return response;
     const headers = new Headers(response.headers);
     Object.entries(cors).forEach(([key, value]) => headers.set(key, value));
     return new Response(response.body, { status: response.status, headers });

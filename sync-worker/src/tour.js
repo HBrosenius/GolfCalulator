@@ -10,6 +10,7 @@ const RETENTION_MS = 365 * 24 * 60 * 60 * 1000;
 const result = (status, data = {}) => ({ status, ...data });
 const MEMBERSHIP_ROLES = new Set(['player', 'scorekeeper']);
 const MAX_ACTIVITY_EVENTS = 100;
+const MAX_ANNOUNCEMENTS = 50;
 
 function normalizeMembership(tour) {
   tour.contributors = (tour.contributors || []).map(item => ({
@@ -24,6 +25,9 @@ function normalizeMembership(tour) {
   tour.invitationRevision ??= 1;
   tour.invitationRotatedAt ??= null;
   tour.activity ??= [];
+  tour.announcements ??= [];
+  tour.roundHistory ??= [];
+  tour.contributors.forEach(item => { item.isAdmin ??= false; });
   return tour;
 }
 
@@ -76,11 +80,50 @@ function publicTour(tour) {
     members: tour.members,
     courses: tour.courses,
     rounds: tour.rounds,
+    announcements: (tour.announcements || []).slice().reverse(),
     contributorCount: tour.contributors.filter(item => !item.revokedAt).length,
   };
 }
 
 export class Tour extends DurableObject {
+  broadcast(tour, event = 'tour_updated') {
+    for (const socket of this.ctx.getWebSockets()) {
+      try {
+        const attachment = socket.deserializeAttachment() || {};
+        const contributor = tour.contributors.find(item => item.id === attachment.actorId && !item.revokedAt);
+        const role = attachment.actorRole === 'organizer' ? 'organizer' : contributor?.isAdmin ? 'administrator' : 'contributor';
+        socket.send(JSON.stringify({ type: event, tour: publicTour(tour), online: this.ctx.getWebSockets().length, access: { role } }));
+      } catch (_) {}
+    }
+  }
+
+  async fetch(request) {
+    if (request.headers.get('Upgrade')?.toLowerCase() !== 'websocket') return new Response('WebSocket required', { status: 426 });
+    const protocols = (request.headers.get('Sec-WebSocket-Protocol') || '').split(',').map(value => value.trim());
+    if (protocols[0] !== 'golf-v2' || !/^[A-Za-z0-9_-]{40,64}$/.test(protocols[1] || '')) return new Response('Unauthorized', { status: 401 });
+    const stored = await this.ctx.storage.get(TOUR_KEY);
+    const actor = stored ? await this.actorForToken(stored, protocols[1], request.headers.get('X-Account-User')) : null;
+    if (!stored || !actor) return new Response('Unauthorized', { status: 401 });
+    const [client, server] = Object.values(new WebSocketPair());
+    this.ctx.acceptWebSocket(server);
+    server.serializeAttachment({ connectedAt: Date.now(), actorId: actor.id, actorRole: actor.role });
+    server.send(JSON.stringify({ type: 'connected', tour: publicTour(stored), online: this.ctx.getWebSockets().length, access: { role: actor.role === 'organizer' ? 'organizer' : actor.isAdmin ? 'administrator' : 'contributor' } }));
+    this.broadcast(stored, 'presence');
+    return new Response(null, { status: 101, webSocket: client, headers: { 'Sec-WebSocket-Protocol': 'golf-v2' } });
+  }
+
+  async webSocketMessage(socket, message) {
+    if (message === 'ping') socket.send(JSON.stringify({ type: 'pong', at: Date.now() }));
+  }
+
+  async webSocketClose() {
+    const tour = await this.ctx.storage.get(TOUR_KEY);
+    if (tour) this.broadcast(tour, 'presence');
+  }
+
+  canAdminister(actor) {
+    return actor?.role === 'organizer' || !!actor?.isAdmin;
+  }
   async detachAccount(accountUserId) {
     const tour = await this.ctx.storage.get(TOUR_KEY);
     if (!tour || !accountUserId) return;
@@ -140,13 +183,13 @@ export class Tour extends DurableObject {
       const contributor = tour.contributors.find(item => !item.revokedAt && item.accountUserId === accountUserId);
       if (contributor) return {
         role: 'contributor', id: contributor.id, accountUserId, memberId: contributor.memberId || null,
-        membershipRole: contributor.role,
+        membershipRole: contributor.role, isAdmin: !!contributor.isAdmin,
       };
     }
     if (await tokenMatches(token, tour.organizerTokenHash)) return { role: 'organizer', id: 'organizer' };
     for (const contributor of tour.contributors) {
       if (!contributor.revokedAt && await tokenMatches(token, contributor.tokenHash)) {
-        return { role: 'contributor', id: contributor.id };
+        return { role: 'contributor', id: contributor.id, isAdmin: !!contributor.isAdmin };
       }
     }
     return null;
@@ -181,6 +224,8 @@ export class Tour extends DurableObject {
       invitationRevision: 1,
       invitationRotatedAt: null,
       activity: [],
+      announcements: [],
+      roundHistory: [],
       code: config.code || null,
     };
     addActivity(tour, 'tour_created', { role: 'organizer' });
@@ -248,6 +293,7 @@ export class Tour extends DurableObject {
       displayName: identity?.displayName || null,
       leftAt: null,
       removedAt: null,
+      isAdmin: false,
     };
     tour.contributors.push(contributor);
     addActivity(tour, 'member_joined', { role: 'contributor', id: contributor.id }, {
@@ -256,6 +302,7 @@ export class Tour extends DurableObject {
     tour.updatedAt = Date.now();
     tour.revision++;
     await this.ctx.storage.put(TOUR_KEY, tour);
+    this.broadcast(tour, 'member_joined');
     if (tour.organizerAccountUserId) this.ctx.waitUntil(notifyUsers(this.env, [tour.organizerAccountUserId], 'membership', pushPayload(tour, tour.name, `${actorName(tour, { role: 'contributor', id: contributor.id })} gick med i touren.`)));
     return result(200, {
       tour: publicTour(tour), contributorId: contributor.id, contributorToken,
@@ -270,7 +317,7 @@ export class Tour extends DurableObject {
     const actor = await this.actorForToken(tour, token, accountUserId);
     if (actor?.role === 'organizer') return result(200, { role: 'organizer' });
     if (actor) return result(200, {
-      role: 'contributor', contributorId: actor.id, ...(actor.memberId ? { memberId: actor.memberId } : {}),
+      role: actor.isAdmin ? 'administrator' : 'contributor', contributorId: actor.id, ...(actor.memberId ? { memberId: actor.memberId } : {}),
       ...(actor.accountUserId ? { membershipRole: actor.membershipRole || 'scorekeeper' } : {}),
     });
     return result(403, { error: 'Not authorized' });
@@ -281,7 +328,7 @@ export class Tour extends DurableObject {
     const tour = stored ? await this.ensureLifecycle(stored) : null;
     if (!tour) return result(404, { error: 'Tour not found' });
     const actor = await this.actorForToken(tour, token, accountUserId);
-    if (actor?.role !== 'organizer') return result(403, { error: 'Not authorized' });
+    if (!this.canAdminister(actor)) return result(403, { error: 'Not authorized' });
     return result(200, {
       tour: publicTour(tour),
       organizer: {
@@ -292,7 +339,7 @@ export class Tour extends DurableObject {
       contributors: tour.contributors.filter(item => !tour.organizerAccountUserId || item.accountUserId !== tour.organizerAccountUserId).map(item => ({
         id: item.id, deviceLabel: item.deviceLabel, createdAt: item.createdAt, revokedAt: item.revokedAt,
         accountLinked: !!item.accountUserId, memberId: item.memberId || null, role: item.role,
-        displayName: item.displayName || null, leftAt: item.leftAt || null, removedAt: item.removedAt || null,
+        displayName: item.displayName || null, leftAt: item.leftAt || null, removedAt: item.removedAt || null, isAdmin: !!item.isAdmin,
       })),
     });
   }
@@ -329,7 +376,7 @@ export class Tour extends DurableObject {
     const tour = stored ? await this.ensureLifecycle(stored) : null;
     if (!tour) return result(404, { error: 'Tour not found' });
     const actor = await this.actorForToken(tour, token, accountUserId);
-    if (actor?.role !== 'organizer') return result(403, { error: 'Not authorized' });
+    if (!this.canAdminister(actor)) return result(403, { error: 'Not authorized' });
     const invalid = validateTourUpdate(body, tour);
     if (invalid) return result(invalid.startsWith('Unsupported') ? 426 : 400, { error: invalid });
     if (body.expectedRevision !== tour.revision) return result(409, { error: 'Tour changed; refresh and try again' });
@@ -350,6 +397,7 @@ export class Tour extends DurableObject {
     tour.updatedAt = Date.now();
     tour.revision++;
     await this.ctx.storage.put(TOUR_KEY, tour);
+    this.broadcast(tour, 'conditions_updated');
     await this.scheduleLifecycle(tour);
     return result(200, { tour: publicTour(tour) });
   }
@@ -441,8 +489,70 @@ export class Tour extends DurableObject {
     tour.updatedAt = submittedAt;
     tour.revision++;
     await this.ctx.storage.put(TOUR_KEY, tour);
+    this.broadcast(tour, 'round_recorded');
     this.ctx.waitUntil(notifyUsers(this.env, accountUsers(tour, actor.accountUserId), 'rounds', pushPayload(tour, `Ny runda i ${tour.name}`, `${actorName(tour, actor)} registrerade ${course.name}.`)));
     return result(201, { tour: publicTour(tour), round, duplicate: false });
+  }
+
+  async setAdministrator(contributorId, token, accountUserId, body) {
+    const tour = await this.ctx.storage.get(TOUR_KEY);
+    if (!tour) return result(404, { error: 'Tour not found' });
+    if (!validMembershipRequest(body, ['isAdmin']) || typeof body.isAdmin !== 'boolean') return result(400, { error: 'Invalid request' });
+    const actor = await this.actorForToken(tour, token, accountUserId);
+    if (actor?.role !== 'organizer') return result(403, { error: 'Only the owner can change administrators' });
+    const contributor = tour.contributors.find(item => item.id === contributorId && !item.revokedAt && item.accountUserId);
+    if (!contributor) return result(400, { error: 'Administrator must have an active account' });
+    contributor.isAdmin = body.isAdmin;
+    addActivity(tour, 'administrator_updated', actor, { memberName: actorName(tour, { role: 'contributor', id: contributor.id }), isAdmin: body.isAdmin });
+    tour.updatedAt = Date.now(); tour.revision++;
+    await this.ctx.storage.put(TOUR_KEY, tour);
+    this.broadcast(tour, 'role_updated');
+    return result(200, { tour: publicTour(tour) });
+  }
+
+  async editRound(roundId, token, accountUserId, body) {
+    const tour = await this.ctx.storage.get(TOUR_KEY);
+    if (!tour) return result(404, { error: 'Tour not found' });
+    const actor = await this.actorForToken(tour, token, accountUserId);
+    if (!this.canAdminister(actor)) return result(403, { error: 'Not authorized' });
+    if (body?.protocolVersion !== PROTOCOL_VERSION || body?.schemaVersion !== TOUR_SCHEMA_VERSION ||
+      body.expectedRevision !== tour.revision || typeof body.reason !== 'string' || !body.reason.trim() || body.reason.length > 200 ||
+      typeof body.playedDate !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(body.playedDate) ||
+      body.playedDate < tour.startDate || body.playedDate > tour.endDate ||
+      Object.keys(body || {}).some(key => !['protocolVersion', 'schemaVersion', 'expectedRevision', 'playedDate', 'reason'].includes(key))) {
+      return result(body?.expectedRevision !== tour.revision ? 409 : 400, { error: body?.expectedRevision !== tour.revision ? 'Tour changed; refresh and try again' : 'Invalid correction' });
+    }
+    const round = tour.rounds.find(item => item.id === roundId);
+    if (!round) return result(404, { error: 'Round not found' });
+    const previousDate = round.playedDate;
+    round.playedDate = body.playedDate;
+    round.correctedAt = Date.now();
+    round.correctedBy = actor.id;
+    tour.roundHistory.push({ id: crypto.randomUUID(), roundId, at: round.correctedAt, actorName: actorName(tour, actor), reason: body.reason.trim(), before: { playedDate: previousDate }, after: { playedDate: round.playedDate } });
+    if (tour.roundHistory.length > 100) tour.roundHistory.splice(0, tour.roundHistory.length - 100);
+    addActivity(tour, 'round_corrected', actor, { courseName: round.courseName, reason: body.reason.trim() });
+    tour.updatedAt = round.correctedAt; tour.revision++;
+    await this.ctx.storage.put(TOUR_KEY, tour);
+    this.broadcast(tour, 'round_corrected');
+    return result(200, { tour: publicTour(tour), correction: tour.roundHistory.at(-1) });
+  }
+
+  async announce(token, accountUserId, body) {
+    const tour = await this.ctx.storage.get(TOUR_KEY);
+    if (!tour) return result(404, { error: 'Tour not found' });
+    const actor = await this.actorForToken(tour, token, accountUserId);
+    if (!this.canAdminister(actor)) return result(403, { error: 'Not authorized' });
+    const message = typeof body?.message === 'string' ? body.message.trim() : '';
+    if (!validMembershipRequest(body, ['message']) || !message || message.length > 500) return result(400, { error: 'Invalid announcement' });
+    const announcement = { id: crypto.randomUUID(), message, at: Date.now(), author: actorName(tour, actor) };
+    tour.announcements.push(announcement);
+    if (tour.announcements.length > MAX_ANNOUNCEMENTS) tour.announcements.shift();
+    addActivity(tour, 'announcement_posted', actor);
+    tour.updatedAt = announcement.at; tour.revision++;
+    await this.ctx.storage.put(TOUR_KEY, tour);
+    this.broadcast(tour, 'announcement');
+    this.ctx.waitUntil(notifyUsers(this.env, accountUsers(tour, actor.accountUserId), 'announcements', pushPayload(tour, tour.name, message)));
+    return result(201, { tour: publicTour(tour), announcement });
   }
 
   async revokeContributor(contributorId, token, body, accountUserId = null) {
@@ -452,7 +562,7 @@ export class Tour extends DurableObject {
       return result(400, { error: 'Invalid request' });
     }
     const actor = await this.actorForToken(tour, token, accountUserId);
-    if (actor?.role !== 'organizer') return result(403, { error: 'Not authorized' });
+    if (!this.canAdminister(actor)) return result(403, { error: 'Not authorized' });
     const contributor = tour.contributors.find(item => item.id === contributorId);
     if (!contributor) return result(404, { error: 'Contributor not found' });
     if (!contributor.revokedAt) {
@@ -500,7 +610,7 @@ export class Tour extends DurableObject {
     if (!tour) return result(404, { error: 'Tour not found' });
     normalizeMembership(tour);
     const actor = await this.actorForToken(tour, token, accountUserId);
-    if (actor?.role !== 'organizer') return result(403, { error: 'Not authorized' });
+    if (!this.canAdminister(actor)) return result(403, { error: 'Not authorized' });
     if (!validMembershipRequest(body, ['memberId', 'role']) || !MEMBERSHIP_ROLES.has(body.role)) {
       return result(400, { error: 'Invalid request' });
     }
@@ -553,7 +663,7 @@ export class Tour extends DurableObject {
     normalizeMembership(tour);
     if (!validMembershipRequest(body)) return result(400, { error: 'Invalid request' });
     const actor = await this.actorForToken(tour, token, accountUserId);
-    if (actor?.role !== 'organizer') return result(403, { error: 'Not authorized' });
+    if (!this.canAdminister(actor)) return result(403, { error: 'Not authorized' });
     const contributor = tour.contributors.find(item => item.id === contributorId);
     if (!contributor) return result(404, { error: 'Contributor not found' });
     if (contributor.memberId && tour.contributors.some(item => item.id !== contributor.id && !item.revokedAt && item.memberId === contributor.memberId)) {

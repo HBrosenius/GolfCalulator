@@ -88,6 +88,16 @@
           protocolVersion: PROTOCOL_VERSION, schemaVersion: SCHEMA_VERSION, contributorId,
         }),
       }),
+      setAdministrator: (code, token, contributorId, isAdmin) => jsonRequest(`/tour/${String(code).toUpperCase()}/contributors/${contributorId}/administrator`, {
+        method: 'PATCH', headers: headers(token), body: JSON.stringify({ protocolVersion: PROTOCOL_VERSION, schemaVersion: SCHEMA_VERSION, isAdmin }),
+      }),
+      editRound: (code, token, roundId, expectedRevision, playedDate, reason) => jsonRequest(`/tour/${String(code).toUpperCase()}/rounds/${roundId}`, {
+        method: 'PATCH', headers: headers(token), body: JSON.stringify({ protocolVersion: PROTOCOL_VERSION, schemaVersion: SCHEMA_VERSION, expectedRevision, playedDate, reason }),
+      }),
+      announce: (code, token, message) => jsonRequest(`/tour/${String(code).toUpperCase()}/announcements`, {
+        method: 'POST', headers: headers(token), body: JSON.stringify({ protocolVersion: PROTOCOL_VERSION, schemaVersion: SCHEMA_VERSION, message }),
+      }),
+      liveUrl: code => `${baseUrl.replace(/^http/, 'ws')}/tour/${String(code).toUpperCase()}/live`,
       submitRound: (code, token, payload) => jsonRequest(`/tour/${String(code).toUpperCase()}/rounds`, {
         method: 'POST', headers: headers(token), body: JSON.stringify(payload),
       }),
