@@ -444,6 +444,83 @@ test('offline shared-tour submission shows its error and can be retried', async 
   expect(await page.evaluate(code => sharedTourStore.find(code).pendingSubmissions, code)).toEqual([]);
 });
 
+test('ongoing local and shared tours can be cancelled and removed', async ({ page }) => {
+  const code = 'ABCD2345';
+  const token = 'A'.repeat(43);
+  const sharedTour = {
+    revision: 1, name: 'Delad att avbryta', startDate: '2026-01-01', endDate: '2026-12-31', status: 'open',
+    completedReason: null, bestOfN: null, duplicateCourseRule: 'best', rounds: [],
+    members: [{ id: 'member-1', name: 'Ada', hi: 18 }],
+    courses: [{ id: 'course-1', name: 'Testbanan', holes: 9, maxRounds: 1, tees: [{ name: 'Gul' }] }],
+  };
+  let sharedDeleted = false;
+  await page.route(`**/tour/${code}/cancel`, route => route.fulfill({
+    status: 200, contentType: 'application/json',
+    body: JSON.stringify({ ...sharedTour, revision: 2, status: 'cancelled', completedReason: 'cancelled' }),
+  }));
+  await page.route(`**/tour/${code}`, route => {
+    if (route.request().method() === 'DELETE') {
+      sharedDeleted = true;
+      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ deleted: true }) });
+    }
+    return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(sharedTour) });
+  });
+  page.on('dialog', dialog => dialog.accept());
+  await page.goto('/index.html');
+
+  await page.evaluate(() => {
+    localStorage.clear();
+    tourSaveNew({
+      id: 101, name: 'Lokal att avbryta', startDate: '2026-01-01', endDate: '2026-12-31', status: 'open',
+      bestOfN: null, duplicateCourseRule: 'best', roster: [], courses: [],
+    });
+    openTourView();
+    openTourDetail(101);
+  });
+  await page.getByRole('button', { name: 'Avbryt tour', exact: true }).click();
+  expect(await page.evaluate(() => tourFind(101).status)).toBe('cancelled');
+  await expect(page.locator('#tourContent')).toContainText('Avbruten');
+  await page.getByRole('button', { name: 'Ta bort tour', exact: true }).click();
+  expect(await page.evaluate(() => tourFind(101))).toBeUndefined();
+
+  await page.evaluate(({ code, token, sharedTour }) => {
+    sharedTourStore.upsert({ code, role: 'organizer', token, tour: sharedTour, pendingSubmissions: [] });
+    openSharedTourDetail(code);
+    stopSharedTourRefresh();
+  }, { code, token, sharedTour });
+  await page.getByRole('button', { name: /Avbryt touren/ }).click();
+  await expect(page.locator('#tourContent')).toContainText('Touren är avbruten');
+  await page.getByRole('button', { name: /Ta bort touren permanent/ }).click();
+  expect(sharedDeleted).toBe(true);
+  expect(await page.evaluate(code => sharedTourStore.find(code), code)).toBeNull();
+});
+
+test('participant removal only forgets the shared tour on that device', async ({ page }) => {
+  const code = 'ABCD2345';
+  let networkMutations = 0;
+  await page.route(`**/tour/${code}**`, route => {
+    if (route.request().method() !== 'GET') networkMutations++;
+    return route.abort();
+  });
+  page.on('dialog', dialog => dialog.accept());
+  await page.goto('/index.html');
+  await page.evaluate(code => {
+    sharedTourStore.upsert({
+      code, role: 'contributor', token: 'B'.repeat(43), pendingSubmissions: [],
+      tour: {
+        revision: 1, name: 'Deltagartour', startDate: '2026-01-01', endDate: '2026-12-31', status: 'open',
+        bestOfN: null, duplicateCourseRule: 'best', rounds: [], members: [], courses: [],
+      },
+    });
+    openSharedTourDetail(code);
+    stopSharedTourRefresh();
+  }, code);
+  networkMutations = 0;
+  await page.getByRole('button', { name: 'Ta bort från den här enheten' }).click();
+  expect(await page.evaluate(code => sharedTourStore.find(code), code)).toBeNull();
+  expect(networkMutations).toBe(0);
+});
+
 test('installed PWA reloads offline and defers an upgrade during an active round', async ({ page, context }) => {
   await page.goto('/index.html');
   await page.evaluate(() => localStorage.clear());

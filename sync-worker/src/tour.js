@@ -207,6 +207,35 @@ export class Tour extends DurableObject {
     return result(200, { tour: publicTour(tour) });
   }
 
+  async cancel(token, body) {
+    const tour = await this.ctx.storage.get(TOUR_KEY);
+    if (!tour) return result(404, { error: 'Tour not found' });
+    if (body?.protocolVersion !== PROTOCOL_VERSION || body?.schemaVersion !== TOUR_SCHEMA_VERSION || Object.keys(body).length !== 2) {
+      return result(400, { error: 'Invalid request' });
+    }
+    if (!await tokenMatches(token, tour.organizerTokenHash)) return result(403, { error: 'Not authorized' });
+    if (tour.status === 'open') {
+      tour.status = 'cancelled';
+      tour.completedReason = 'cancelled';
+      tour.updatedAt = Date.now();
+      tour.revision++;
+      await this.ctx.storage.put(TOUR_KEY, tour);
+      await this.scheduleLifecycle(tour);
+    }
+    return result(200, { tour: publicTour(tour) });
+  }
+
+  async delete(token, body) {
+    const tour = await this.ctx.storage.get(TOUR_KEY);
+    if (!tour) return result(404, { error: 'Tour not found' });
+    if (body?.protocolVersion !== PROTOCOL_VERSION || body?.schemaVersion !== TOUR_SCHEMA_VERSION || Object.keys(body).length !== 2) {
+      return result(400, { error: 'Invalid request' });
+    }
+    if (!await tokenMatches(token, tour.organizerTokenHash)) return result(403, { error: 'Not authorized' });
+    await this.ctx.storage.deleteAll();
+    return result(200, { deleted: true });
+  }
+
   async submitRound(body, token) {
     const stored = await this.ctx.storage.get(TOUR_KEY);
     const tour = stored ? await this.ensureLifecycle(stored) : null;

@@ -26,7 +26,8 @@ See `src/index.js` for the endpoints (`POST /room`, `GET /room/:code`,
 Tour endpoints are `POST /tour`, `GET /tour/:code`, `POST /tour/:code/join`,
 `GET /tour/:code/access`, `POST /tour/:code/rounds`, and the organizer-only
 `GET /tour/:code/manage`, `POST /tour/:code/rotate-invitation`,
-`PATCH /tour/:code/conditions`, `POST /tour/:code/complete`, and
+`PATCH /tour/:code/conditions`, `POST /tour/:code/complete`, `POST /tour/:code/cancel`,
+`DELETE /tour/:code`, and
 `POST /tour/:code/contributors/:id/revoke`.
 
 ## Authorization

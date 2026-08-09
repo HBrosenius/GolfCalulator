@@ -4994,6 +4994,37 @@ async function completeSharedTour(code) {
   } catch (error) { alert('Kunde inte avsluta touren: ' + error.message); }
 }
 
+async function cancelSharedTour(code) {
+  const record = sharedTourStore.find(code);
+  if (!record || record.role !== 'organizer') return;
+  if (!confirm('Avbryt touren? Inga fler rundor kan registreras, men resultat och touren finns kvar.')) return;
+  try {
+    const response = await sharedTourClient.cancel(code, record.token);
+    sharedTourStore.upsert({ ...record, tour: response.tour || response });
+    renderSharedTourDetail(code);
+    renderActiveToursCard();
+  } catch (error) { alert('Kunde inte avbryta touren: ' + error.message); }
+}
+
+async function removeSharedTour(code) {
+  const record = sharedTourStore.find(code);
+  if (!record) return;
+  const organizer = record.role === 'organizer';
+  const message = organizer
+    ? 'Ta bort den delade touren permanent för alla? Tourens serverdata och rapporterade resultat raderas. Lokalt sparade rundor påverkas inte.'
+    : 'Ta bort den delade touren från den här enheten? Touren finns kvar för övriga deltagare.';
+  if (!confirm(message)) return;
+  try {
+    if (organizer) await sharedTourClient.deleteTour(code, record.token);
+    sharedTourStore.remove(code);
+    stopSharedTourRefresh();
+    _tourViewMode = 'list';
+    _tourViewActiveId = null;
+    renderTourView();
+    renderActiveToursCard();
+  } catch (error) { alert('Kunde inte ta bort touren: ' + error.message); }
+}
+
 function beginSharedTourEdit(code) {
   _editingSharedTourCode = String(code).toUpperCase();
   stopSharedTourRefresh();
@@ -5110,13 +5141,15 @@ function renderSharedTourDetail(code) {
       <button class="btn secondary" onclick="beginSharedTourEdit('${escapeHtml(record.code)}')">✎ Redigera villkor</button>
       <button class="btn tour-admin-invite" onclick="rotateSharedTourInvitation('${escapeHtml(record.code)}')">🔄 Skapa ny inbjudningslänk</button>
       ${tour.status === 'open' ? `<button class="btn tour-admin-complete" onclick="completeSharedTour('${escapeHtml(record.code)}')">✓ Avsluta touren</button>` : ''}
+      ${tour.status === 'open' ? `<button class="btn secondary" style="color:var(--danger);" onclick="cancelSharedTour('${escapeHtml(record.code)}')">× Avbryt touren</button>` : ''}
+      <button class="btn secondary" style="color:var(--danger);" onclick="removeSharedTour('${escapeHtml(record.code)}')">🗑 Ta bort touren permanent</button>
     </div>` : '';
   el.innerHTML = `
     <button class="btn secondary" style="margin-bottom:12px;" onclick="backToSharedTourList()">← Alla tourer</button>
     <strong style="font-size:1.1rem;">🌐 ${escapeHtml(tour.name)}</strong><br>
     <span style="font-size:0.8rem;color:var(--muted);">${tour.startDate} – ${tour.endDate} · kod ${escapeHtml(record.code)} · uppdateras automatiskt</span>
     <div style="display:flex;gap:8px;margin-top:12px;">
-      ${tour.status === 'open' ? `<button class="btn" style="flex:1;" onclick="startSharedTourRound('${escapeHtml(record.code)}')">+ Ny tourrunda</button>` : '<span style="color:var(--muted);">Touren är avslutad</span>'}
+      ${tour.status === 'open' ? `<button class="btn" style="flex:1;" onclick="startSharedTourRound('${escapeHtml(record.code)}')">+ Ny tourrunda</button>` : `<span style="color:var(--muted);">${tour.status === 'cancelled' ? 'Touren är avbruten' : 'Touren är avslutad'}</span>`}
       ${record.role === 'organizer' ? `<button class="btn secondary" style="flex:1;" onclick="shareSharedTourInvitation('${escapeHtml(record.code)}')">🔗 Bjud in</button>` : ''}
     </div>
 
@@ -5128,6 +5161,7 @@ function renderSharedTourDetail(code) {
     <table style="width:100%;font-size:0.88rem;margin-top:16px;"><thead><tr><th></th><th style="text-align:left;">Spelare</th><th style="text-align:right;">Poäng</th><th style="text-align:right;">Räknade/spelade</th></tr></thead><tbody>${standingsRows || '<tr><td colspan="4">Inga rundor ännu.</td></tr>'}</tbody></table>
     <div class="card-title" style="margin-top:16px;">Rundor</div>${roundRows || '<p style="color:var(--muted);font-size:0.85rem;">Inga rundor ännu.</p>'}
     ${organizerControls}
+    ${record.role !== 'organizer' ? `<button class="btn secondary" style="margin-top:16px;color:var(--danger);" onclick="removeSharedTour('${escapeHtml(record.code)}')">Ta bort från den här enheten</button>` : ''}
   `;
 }
 
@@ -5367,9 +5401,9 @@ function renderTourDetail(id) {
         <span style="font-size:0.8rem;color:var(--muted);">${tour.startDate} – ${tour.endDate}${tour.bestOfN ? ` · räknar bästa ${tour.bestOfN}` : ''} · ${tour.duplicateCourseRule === 'first' ? 'första rundorna per bana räknas' : 'bästa rundorna per bana räknas'}</span><br>
         <span style="font-size:0.78rem;color:var(--muted);">${tour.courses.map(c => `${escapeHtml(c.name)}${c.holes ? ` · ${c.holes} hål` : ''} (${c.maxRounds})`).join(', ')}</span>
       </div>
-      <span style="font-size:0.78rem;padding:3px 8px;border-radius:12px;${isOpen ? 'background:#e8f5e9;color:var(--heading);' : 'background:#eee;color:var(--muted);'}">${isOpen ? 'Pågår' : 'Avslutad'}</span>
+      <span style="font-size:0.78rem;padding:3px 8px;border-radius:12px;${isOpen ? 'background:#e8f5e9;color:var(--heading);' : 'background:#eee;color:var(--muted);'}">${isOpen ? 'Pågår' : (tour.status === 'cancelled' ? 'Avbruten' : 'Avslutad')}</span>
     </div>
-    ${!isOpen && standings.length ? `<div class="info-box" style="margin:10px 0;">🏆 <strong>${escapeHtml(standings[0].player.nick || standings[0].player.name)}</strong> vann touren!</div>` : ''}
+    ${tour.status === 'completed' && standings.length ? `<div class="info-box" style="margin:10px 0;">🏆 <strong>${escapeHtml(standings[0].player.nick || standings[0].player.name)}</strong> vann touren!</div>` : ''}
     <table style="width:100%;font-size:0.88rem;margin-top:10px;">
       <thead><tr><th></th><th style="text-align:left;">Spelare</th><th style="text-align:right;">Poäng</th><th style="text-align:right;">Räknade/spelade</th></tr></thead>
       <tbody>${standingsRows || '<tr><td colspan="4" style="color:var(--muted);">Inga rundor spelade ännu.</td></tr>'}</tbody>
@@ -5381,6 +5415,7 @@ function renderTourDetail(id) {
       ${isOpen ? `<button class="btn secondary" style="flex:1;" onclick="completeTour(${tour.id})">Avsluta tour</button>` : ''}
     </div>
     ${isOpen ? `<button class="btn secondary" style="margin-top:10px;" onclick="publishLocalTour(${tour.id})">🌐 ${tour.sharedCode ? 'Kopiera inbjudan' : 'Dela tour online'}</button>` : ''}
+    ${isOpen ? `<button class="btn secondary" style="margin-top:10px;color:var(--danger);" onclick="cancelTour(${tour.id})">Avbryt tour</button>` : ''}
     <button class="btn secondary" style="margin-top:10px;color:var(--danger);" onclick="deleteTourConfirm(${tour.id})">Ta bort tour</button>
   `;
 }
@@ -5808,6 +5843,16 @@ function pickSavedPlayer(slotIndex, selectEl) {
     }
   }
   onPlayerInput(slotIndex, true);
+}
+
+function cancelTour(id) {
+  const tour = tourFind(id);
+  if (!tour || tour.status !== 'open') return;
+  if (!confirm('Avbryt touren? Sparade rundor påverkas inte.')) return;
+  tour.status = 'cancelled';
+  tourUpdate(tour);
+  renderTourView();
+  renderActiveToursCard();
 }
 
 function pickSharedTourMember(slotIndex, selectEl) {

@@ -231,6 +231,37 @@ describe('shared tour authorization', () => {
     expect(await response.json()).toMatchObject({ status: 'open', completedReason: null, endDate: '2027-08-31' });
   });
 
+  it('lets only the organizer cancel and permanently delete a shared tour', async () => {
+    const created = await createTour();
+    const joined = await joinTour(created);
+    const body = JSON.stringify({ protocolVersion: PROTOCOL_VERSION, schemaVersion: TOUR_SCHEMA_VERSION });
+    const deniedCancel = await SELF.fetch(`https://worker.test/tour/${created.code}/cancel`, {
+      method: 'POST', headers: headers(joined.body.contributorToken), body,
+    });
+    expect(deniedCancel.status).toBe(403);
+
+    const cancelled = await SELF.fetch(`https://worker.test/tour/${created.code}/cancel`, {
+      method: 'POST', headers: headers(created.organizerToken), body,
+    });
+    expect(cancelled.status).toBe(200);
+    expect(await cancelled.json()).toMatchObject({ status: 'cancelled', completedReason: 'cancelled' });
+    const rejectedRound = await SELF.fetch(`https://worker.test/tour/${created.code}/rounds`, {
+      method: 'POST', headers: headers(joined.body.contributorToken), body: JSON.stringify(submission(created)),
+    });
+    expect(rejectedRound.status).toBe(400);
+
+    const deniedDelete = await SELF.fetch(`https://worker.test/tour/${created.code}`, {
+      method: 'DELETE', headers: headers(joined.body.contributorToken), body,
+    });
+    expect(deniedDelete.status).toBe(403);
+    const deleted = await SELF.fetch(`https://worker.test/tour/${created.code}`, {
+      method: 'DELETE', headers: headers(created.organizerToken), body,
+    });
+    expect(deleted.status).toBe(200);
+    expect(await deleted.json()).toEqual({ deleted: true });
+    expect((await SELF.fetch(`https://worker.test/tour/${created.code}`)).status).toBe(404);
+  });
+
   it('allows contributors to submit validated rounds idempotently', async () => {
     const created = await createTour();
     const joined = await joinTour(created);

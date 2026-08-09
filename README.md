@@ -111,6 +111,7 @@ En lokal tour kan publiceras med **Dela tour online**. Det skapar en fristående
 - På startsidan visas **Pågående tourer** med aktiva lokala och delade tourer. En publicerad lokal tour visas inte en extra gång bredvid sin delade kopia.
 - Organisatören kan redigera namn, datum, antal bästa rundor, regel för flera rundor per bana och banornas rundgränser efter publicering. Startfält och bansnapshots förblir låsta, och datum får inte utesluta redan registrerade rundor.
 - Organisatören kan också kopiera eller byta inbjudningslänk, se behöriga enheter med anslutningstid, återkalla enskilda enheter samt avsluta touren. Efter ett manuellt avslut kan inga fler resultat läggas till.
+- En pågående lokal eller delad tour kan **avbrytas** utan att resultaten raderas. Lokala tourer kan därefter tas bort från enheten; organisatören kan ta bort en delad tour permanent för alla, medan deltagare bara tar bort den från sin egen enhet.
 - Om en tourrunda inte kan skickas visas en tydlig panel med antal försök och senaste fel. Rundan ligger kvar säkert på enheten, synkas automatiskt när nätverket återkommer och kan även skickas igen med **Försök synka igen**.
 - Vanliga säkerhetskopior innehåller inte tourens hemliga organisations- eller enhetsnycklar; de ligger bara på den enhet där länken öppnades eller touren publicerades.
 

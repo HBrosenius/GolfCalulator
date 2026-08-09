@@ -129,6 +129,8 @@ async function route(request, env) {
     if (parts.length === 3 && parts[2] === 'conditions' && request.method === 'PATCH') return fromTourResult(await tour.update(token, parsed.body));
     if (parts.length === 3 && parts[2] === 'rotate-invitation' && request.method === 'POST') return fromTourResult(await tour.rotateInvitation(token, parsed.body));
     if (parts.length === 3 && parts[2] === 'complete' && request.method === 'POST') return fromTourResult(await tour.complete(token, parsed.body));
+    if (parts.length === 3 && parts[2] === 'cancel' && request.method === 'POST') return fromTourResult(await tour.cancel(token, parsed.body));
+    if (parts.length === 2 && request.method === 'DELETE') return fromTourResult(await tour.delete(token, parsed.body));
     if (parts.length === 5 && parts[2] === 'contributors' && parts[4] === 'revoke' && request.method === 'POST') {
       return fromTourResult(await tour.revokeContributor(parts[3], token, parsed.body));
     }

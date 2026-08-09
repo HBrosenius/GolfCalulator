@@ -57,6 +57,12 @@
       complete: (code, token) => jsonRequest(`/tour/${String(code).toUpperCase()}/complete`, {
         method: 'POST', headers: headers(token), body: JSON.stringify({ protocolVersion: PROTOCOL_VERSION, schemaVersion: SCHEMA_VERSION }),
       }),
+      cancel: (code, token) => jsonRequest(`/tour/${String(code).toUpperCase()}/cancel`, {
+        method: 'POST', headers: headers(token), body: JSON.stringify({ protocolVersion: PROTOCOL_VERSION, schemaVersion: SCHEMA_VERSION }),
+      }),
+      deleteTour: (code, token) => jsonRequest(`/tour/${String(code).toUpperCase()}`, {
+        method: 'DELETE', headers: headers(token), body: JSON.stringify({ protocolVersion: PROTOCOL_VERSION, schemaVersion: SCHEMA_VERSION }),
+      }),
       revokeContributor: (code, token, contributorId) => jsonRequest(`/tour/${String(code).toUpperCase()}/contributors/${contributorId}/revoke`, {
         method: 'POST', headers: headers(token), body: JSON.stringify({ protocolVersion: PROTOCOL_VERSION, schemaVersion: SCHEMA_VERSION }),
       }),
