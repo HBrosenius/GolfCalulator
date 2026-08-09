@@ -263,6 +263,21 @@ Håldata valideras innan rundan startar: varje hål måste ha par och ett unikt 
 
 > **Obs:** Öppna alltid via samma webbläsare för att data ska vara tillgänglig — sparning kräver `localStorage` och fungerar inte i privat/inkognito-läge.
 
+## Konto och molnsynk
+
+Kontofunktionen är frivillig: appen fortsätter fungera lokalt och offline utan
+konto. Ett konto använder en lösenordsfri engångslänk via e-post och kan slå
+ihop banor, rundor, spelare och lokala tourer mellan enheter.
+
+- Inloggningslänkar gäller i 15 minuter och kan bara användas en gång.
+- Sessioner kan återkallas och gäller i upp till 30 dagar.
+- Synkronisering är icke-destruktiv och använder versionskontroll för samtidiga
+  ändringar.
+- Kontodata lagras i Cloudflare D1 och e-post levereras via Resend från
+  `login@golf.brosenius.se`.
+- Resend-nyckeln lagras endast som en Worker secret och skickas aldrig till
+  webbläsaren.
+
 ## Teknisk info
 
 - Ren HTML/CSS/JavaScript — inga beroenden eller byggsteg

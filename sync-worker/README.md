@@ -113,3 +113,23 @@ npx wrangler rollback --env production
 The first deployment that creates the Durable Object namespaces is a lifecycle
 change and cannot be rolled back across that boundary. Validate that deployment
 on staging before allowing the production job to proceed.
+
+## Passwordless accounts
+
+The Worker provides optional magic-link accounts and versioned cloud snapshots
+through D1. Anonymous and offline use remains available.
+
+- D1 binding: `ACCOUNTS_DB` (configured in `wrangler.jsonc`)
+- Worker secret: `RESEND_API_KEY` in staging and production
+- Sender: `Poängbogey <login@golf.brosenius.se>`
+- Link destination: `APP_BASE_URL`
+
+Apply migrations before deploying a version that uses the account routes:
+
+```bash
+npx wrangler d1 migrations apply ACCOUNTS_DB --env staging --remote
+npx wrangler d1 migrations apply ACCOUNTS_DB --env production --remote
+```
+
+Verify `golf.brosenius.se` in Resend before enabling login emails. Keep the
+Resend API key in Worker secrets; never commit it or expose it to the browser.
