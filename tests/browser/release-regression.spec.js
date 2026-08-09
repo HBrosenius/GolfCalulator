@@ -104,6 +104,10 @@ test('renaming a saved player keeps ID-linked history and statistics', async ({ 
     localStorage.setItem('golf_rounds_db', JSON.stringify([{
       id: 1001, date: '2026-08-01', courseName: 'Testbanan', tee: 'Gul',
       holes: 9, gameMode: 'individual',
+      markers: {
+        ctp: { hole: 2, player: 'Nya smeknamnet' },
+        ld: { hole: 4, player: 'Nya smeknamnet' },
+      },
       subjects: [{
         playerId: 'player-42', name: 'Henk', hi: 12.3, ph: 6,
         totalPoints: 18, totalBrutto: 45, rows,
@@ -122,6 +126,8 @@ test('renaming a saved player keeps ID-linked history and statistics', async ({ 
   await expect(page.locator('#playerHistoryHeader')).toContainText('Nya smeknamnet');
   await expect(page.locator('#playerHistoryHeader')).toContainText('1 rundor');
   await expect(page.locator('#playerHistoryList')).toContainText('Testbanan');
+  await expect(page.locator('#playerHistoryList')).toContainText('Längsta drive');
+  await expect(page.locator('#playerHistoryList')).toContainText('Närmast pinnen');
   await expect(page.locator('#playerHistoryList .player-history-pts').last()).toHaveText('18p');
 });
 

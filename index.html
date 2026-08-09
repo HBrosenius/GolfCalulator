@@ -4340,6 +4340,8 @@ function openPlayerHistory(id) {
   const player = playersLoad().find(p => p.id === id);
   if (!player) return;
   const displayName = player.nick || player.name;
+  const isMe = name => name === displayName || name === player.name ||
+    name === [player.name, player.lastName].filter(Boolean).join(' ');
   const medals = ['🥇','🥈','🥉','🪙'];
 
   // Find all rounds this player participated in
