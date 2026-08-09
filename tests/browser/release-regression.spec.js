@@ -744,6 +744,7 @@ test('first-run onboarding and shared-tour collaboration controls are visible', 
   expect(await page.evaluate(() => localStorage.getItem('golf_first_run_complete'))).toBe('1');
 
   await page.evaluate(() => {
+    playersSave([{ id: 'local-ada', name: 'Ada Andersson', nick: 'Ace', hi: 12, photo: 'data:image/jpeg;base64,/9j/2Q==' }]);
     const tour = {
       revision: 4, name: 'Live-tour', startDate: '2026-01-01', endDate: '2026-12-31', status: 'open',
       bestOfN: null, duplicateCourseRule: 'best', members: [{ id: 'm1', name: 'Ada', hi: 12 }],
@@ -751,7 +752,7 @@ test('first-run onboarding and shared-tour collaboration controls are visible', 
       announcements: [{ id: 'a1', author: 'Admin', message: 'Samling 09:00', at: Date.now() }],
       rounds: [{ id: 'r1', courseName: 'Testbanan', holes: 18, gameMode: 'individual', playedDate: '2026-08-01', subjects: [{ memberId: 'm1', name: 'Ada', totalPoints: 36 }] }],
     };
-    sharedTourStore.upsert({ code: 'ABCD2345', role: 'administrator', token: 'A'.repeat(43), tour, contributors: [], activity: [
+    sharedTourStore.upsert({ code: 'ABCD2345', role: 'administrator', token: 'A'.repeat(43), memberLinks: { 'local-ada': 'm1' }, tour, contributors: [], activity: [
       { type: 'round_corrected', actorName: 'Admin', actorRole: 'administrator', at: Date.now(), details: { courseName: 'Testbanan', reason: 'Fel datum' } },
     ], pendingSubmissions: [] });
     _tourViewMode = 'shared'; _tourViewActiveId = 'ABCD2345'; renderSharedTourDetail('ABCD2345'); showPrimaryView('tour', 'tourView');
@@ -761,7 +762,7 @@ test('first-run onboarding and shared-tour collaboration controls are visible', 
   await expect(page.locator('.tour-standing-row').first()).toContainText('🥇');
   await expect(page.locator('.tour-standing-row').first()).toContainText('Ada');
   await expect(page.locator('.tour-standing-score').first()).toContainText('36');
-  await expect(page.locator('.tour-standing-avatar').first()).toHaveText('A');
+  await expect(page.locator('.tour-standing-avatar img').first()).toHaveAttribute('src', /^data:image\/jpeg/);
   await expect(page.getByLabel('Filtrera ändringslogg')).toBeVisible();
   await expect(page.locator('#tourContent')).toContainText('anledning: Fel datum');
   await expect(page.getByRole('button', { name: 'Publicera' })).toBeVisible();

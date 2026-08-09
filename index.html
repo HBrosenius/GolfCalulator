@@ -5946,13 +5946,15 @@ async function retrySharedTourSubmissions(code) {
   }
 }
 
-function renderTourStandings(standings, emptyText = 'Inga rundor ännu.') {
+function renderTourStandings(standings, emptyText = 'Inga rundor ännu.', resolvePhoto = null) {
   const medals = ['🥇', '🥈', '🥉'];
   const rows = standings.map((row, index) => {
     const name = row.player.nick || row.player.name;
     const counted = Number(row.roundsCounted) || 0;
     const played = Number(row.roundsPlayed) || 0;
-    const photo = _photoForName(name);
+    const resolvedPhoto = typeof resolvePhoto === 'function' ? resolvePhoto(row.player) : null;
+    const photo = isValidPhotoUrl(resolvedPhoto) ? resolvedPhoto :
+      (isValidPhotoUrl(row.player.photo) ? row.player.photo : _photoForName(name));
     const initials = name.split(/\s+/).filter(Boolean).slice(0, 2).map(part => part[0]).join('').toLocaleUpperCase('sv-SE');
     return `<div class="tour-standing-row">
       <div class="tour-standing-place">${medals[index] ? `<span class="tour-standing-medal" aria-label="Placering ${index + 1}">${medals[index]}</span>` : ''}#${index + 1}</div>
@@ -5980,7 +5982,13 @@ function renderSharedTourDetail(code) {
   const tour = record.tour;
   const canAdmin = ['organizer', 'administrator'].includes(record.role);
   const standings = GolfTourRules.computeSharedStandings(tour);
-  const standingsPanel = renderTourStandings(standings);
+  const memberLinks = record.memberLinks || {};
+  const localPlayers = playersLoad();
+  const standingsPanel = renderTourStandings(standings, 'Inga rundor ännu.', tourPlayer => {
+    const localPlayerId = Object.entries(memberLinks).find(([, memberId]) => String(memberId) === String(tourPlayer.id))?.[0];
+    const localPlayer = localPlayers.find(player => String(player.id) === String(localPlayerId));
+    return localPlayer?.photo || null;
+  });
   const roundRows = (tour.rounds || []).slice().sort((a, b) => b.playedDate.localeCompare(a.playedDate)).map(round =>
     `<div class="hi-row"><strong>${escapeHtml(round.courseName)}</strong> · ${round.playedDate}${round.correctedAt ? ' · korrigerad' : ''}<br><span style="color:var(--muted);font-size:0.8rem;">${round.subjects.map(subject => `${escapeHtml(subject.name)} ${subject.totalPoints}p`).join(', ')}</span>${canAdmin ? `<button class="btn secondary" style="margin-top:7px;" onclick="correctSharedTourRound('${escapeHtml(record.code)}','${escapeHtml(round.id)}','${escapeHtml(round.playedDate)}')">Korrigera datum</button>` : ''}</div>`).join('');
   const courseRows = (tour.courses || []).map(course => {
