@@ -103,6 +103,28 @@
   }
   header h1 { font-size: 1.5rem; font-weight: 700; letter-spacing: -0.5px; }
   header p { font-size: 0.85rem; opacity: 0.85; margin-top: 4px; }
+  .account-button {
+    position: absolute;
+    top: 12px;
+    left: 12px;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    min-height: 40px;
+    padding: 0 12px;
+    border: 2px solid rgba(255,255,255,0.9);
+    border-radius: 20px;
+    background: white;
+    color: var(--green-dark);
+    box-shadow: 0 2px 7px rgba(0,0,0,0.3);
+    font: inherit;
+    font-size: 0.82rem;
+    font-weight: 750;
+    cursor: pointer;
+  }
+  .account-button:hover { background: #f3fff8; }
+  .account-button:focus-visible { outline: 3px solid #ffd54f; outline-offset: 2px; }
+  .account-button-icon { font-size: 1.05rem; }
 
   .primary-nav {
     position: sticky;
@@ -768,6 +790,8 @@
   .hidden { display: none !important; }
 
   @media (max-width: 360px) {
+    .account-button { width: 40px; padding: 0; justify-content: center; }
+    .account-button-label { display: none; }
     .result-grid { grid-template-columns: 1fr 1fr; }
     .score-input { width: 40px; }
   }
@@ -796,7 +820,7 @@
 <body>
 
 <header class="no-print">
-  <button id="accountButton" onclick="openAccountView()" title="Konto" style="position:absolute;top:14px;left:14px;background:rgba(255,255,255,0.15);border:none;border-radius:50%;width:36px;height:36px;font-size:1.1rem;cursor:pointer;color:white;">👤</button>
+  <button id="accountButton" class="account-button" onclick="openAccountView()" title="Logga in" aria-label="Logga in"><span class="account-button-icon" aria-hidden="true">👤</span><span class="account-button-label">Logga in</span></button>
   <button id="themeToggle" onclick="cycleTheme()" title="Byt tema" style="position:absolute;top:14px;right:14px;background:rgba(255,255,255,0.15);border:none;border-radius:50%;width:36px;height:36px;font-size:1.1rem;cursor:pointer;color:white;">🌙</button>
   <h1>⛳ Poängbogey</h1>
   <p>Golfkalkylator</p>
@@ -3460,8 +3484,9 @@ function updateAccountButton() {
   const button = document.getElementById('accountButton');
   if (!button) return;
   const signedIn = !!accountSessionLoad();
-  button.textContent = signedIn ? '☁️' : '👤';
+  button.innerHTML = `<span class="account-button-icon" aria-hidden="true">${signedIn ? '☁️' : '👤'}</span><span class="account-button-label">${signedIn ? 'Konto' : 'Logga in'}</span>`;
   button.title = signedIn ? 'Konto och molnsynk' : 'Logga in';
+  button.setAttribute('aria-label', button.title);
 }
 
 function openAccountView() {
