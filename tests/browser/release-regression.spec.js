@@ -148,6 +148,36 @@ test('a safe pending app update activates without waiting for a banner click', a
   });
 });
 
+test('top navigation separates play, players, rounds, tours and statistics', async ({ page }) => {
+  await page.goto('/index.html');
+  const nav = page.getByRole('navigation', { name: 'Huvudmeny' });
+
+  await nav.getByRole('button', { name: /Spelare/ }).click();
+  await expect(page.locator('#playersView')).toBeVisible();
+  await expect(nav.getByRole('button', { name: /Spelare/ })).toHaveAttribute('aria-current', 'page');
+
+  await nav.getByRole('button', { name: /Rundor/ }).click();
+  await expect(page.locator('#historyView')).toBeVisible();
+
+  await nav.getByRole('button', { name: /Tour/ }).click();
+  await expect(page.locator('#tourView')).toBeVisible();
+
+  await nav.getByRole('button', { name: /Statistik/ }).click();
+  await expect(page.locator('#statisticsView')).toBeVisible();
+  await expect(page.locator('#statisticsView')).toContainText('Säsong');
+  await expect(page.locator('#statisticsView')).toContainText('Hall of Fame');
+  await expect(page.locator('#statisticsView')).toContainText('Banrekord');
+
+  await page.locator('#statisticsView').getByRole('button', { name: /Säsong/ }).click();
+  await expect(page.locator('#seasonView')).toBeVisible();
+  await page.locator('#seasonView').getByRole('button').first().click();
+  await expect(page.locator('#statisticsView')).toBeVisible();
+
+  await nav.locator('[data-primary-nav="play"]').click();
+  await expect(page.locator('#step1')).toBeVisible();
+  await expect(page.locator('#stepIndicator')).toBeVisible();
+});
+
 test('a live joiner can link their seat to a local saved player', async ({ page }) => {
   await page.goto('/index.html');
   const linked = await page.evaluate(() => {
@@ -545,7 +575,7 @@ test('participant removal only forgets the shared tour on that device', async ({
   expect(networkMutations).toBe(0);
 });
 
-test('installed PWA reloads offline and defers an upgrade during an active round', async ({ page, context }) => {
+test('installed PWA reloads offline and applies a deferred upgrade after an active round', async ({ page, context }) => {
   await page.goto('/index.html');
   await page.evaluate(() => localStorage.clear());
   await page.evaluate(() => navigator.serviceWorker.ready.then(() => true));
@@ -582,8 +612,12 @@ test('installed PWA reloads offline and defers an upgrade during an active round
   }), { timeout: 15_000 }).toBe(true);
   await expect(page.locator('#pwaUpdateNotice')).toBeHidden();
 
-  await page.evaluate(() => inprogressClear());
-  await expect(page.locator('#pwaUpdateNotice')).toBeVisible();
-  await expect(page.locator('#pwaUpdateNotice')).toContainText('En ny version finns');
-  await expect(page.locator('#pwaUpdateNotice button')).toHaveText('Uppdatera nu');
+  await Promise.all([
+    page.waitForNavigation(),
+    page.evaluate(() => inprogressClear()),
+  ]);
+  await expect.poll(() => page.evaluate(async () =>
+    !(await navigator.serviceWorker.getRegistration())?.waiting
+  ), { timeout: 15_000 }).toBe(true);
+  await expect(page.locator('#pwaUpdateNotice')).toBeHidden();
 });

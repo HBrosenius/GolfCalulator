@@ -103,6 +103,57 @@
   header h1 { font-size: 1.5rem; font-weight: 700; letter-spacing: -0.5px; }
   header p { font-size: 0.85rem; opacity: 0.85; margin-top: 4px; }
 
+  .primary-nav {
+    position: sticky;
+    top: 0;
+    z-index: 90;
+    display: flex;
+    justify-content: center;
+    gap: 4px;
+    padding: 8px max(8px, env(safe-area-inset-right)) 8px max(8px, env(safe-area-inset-left));
+    background: var(--green-dark);
+    box-shadow: 0 2px 8px rgba(0,0,0,0.18);
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+  .primary-nav::-webkit-scrollbar { display: none; }
+  .primary-nav button {
+    flex: 0 0 auto;
+    min-width: 68px;
+    padding: 8px 9px;
+    border: 0;
+    border-radius: 9px;
+    background: transparent;
+    color: rgba(255,255,255,0.75);
+    font: inherit;
+    font-size: 0.76rem;
+    font-weight: 650;
+    cursor: pointer;
+  }
+  .primary-nav button[aria-current="page"] {
+    background: rgba(255,255,255,0.16);
+    color: white;
+  }
+  .primary-nav-icon { display: block; font-size: 1.05rem; margin-bottom: 2px; }
+  .statistics-menu { display: grid; gap: 10px; }
+  .statistics-menu button {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    width: 100%;
+    padding: 14px;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    background: var(--card);
+    color: var(--text);
+    text-align: left;
+    font: inherit;
+    cursor: pointer;
+  }
+  .statistics-menu button span:first-child { font-size: 1.4rem; }
+  .statistics-menu strong { display: block; color: var(--heading); }
+  .statistics-menu small { color: var(--muted); }
+
   .app-footer {
     text-align: center;
     font-size: 0.72rem;
@@ -746,7 +797,15 @@
   <p>Golfkalkylator</p>
 </header>
 
-<div class="step-indicator no-print">
+<nav class="primary-nav no-print" aria-label="Huvudmeny">
+  <button type="button" data-primary-nav="play" aria-current="page" onclick="navigatePrimary('play')"><span class="primary-nav-icon">⛳</span>Spela</button>
+  <button type="button" data-primary-nav="players" onclick="navigatePrimary('players')"><span class="primary-nav-icon">👤</span>Spelare</button>
+  <button type="button" data-primary-nav="rounds" onclick="navigatePrimary('rounds')"><span class="primary-nav-icon">📅</span>Rundor</button>
+  <button type="button" data-primary-nav="tour" onclick="navigatePrimary('tour')"><span class="primary-nav-icon">🚌</span>Tour</button>
+  <button type="button" data-primary-nav="statistics" onclick="navigatePrimary('statistics')"><span class="primary-nav-icon">📊</span>Statistik</button>
+</nav>
+
+<div id="stepIndicator" class="step-indicator no-print">
   <div class="step-dot active" id="dot1">1</div>
   <div class="step-dot" id="dot2">2</div>
   <div class="step-dot" id="dot3">3</div>
@@ -841,12 +900,6 @@
         <div class="card-title" style="margin:0;"><span class="icon">👤</span> Spelarregister</div>
         <button onclick="closePlayersView()" style="background:none;border:none;font-size:1.4rem;cursor:pointer;color:var(--muted);padding:0 4px;">✕</button>
       </div>
-      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:14px;">
-          <button onclick="openSeasonView()" style="background:none;border:1px solid var(--green);border-radius:6px;padding:4px 10px;font-size:0.8rem;color:var(--heading);cursor:pointer;">📅 Säsong</button>
-          <button onclick="openHallOfFame()" style="background:none;border:1px solid var(--green);border-radius:6px;padding:4px 10px;font-size:0.8rem;color:var(--heading);cursor:pointer;">🏆 Hall of Fame</button>
-          <button onclick="openCourseRecordsView()" style="background:none;border:1px solid var(--green);border-radius:6px;padding:4px 10px;font-size:0.8rem;color:var(--heading);cursor:pointer;">🏟️ Banrekord</button>
-          <button onclick="openTourView()" style="background:none;border:1px solid var(--green);border-radius:6px;padding:4px 10px;font-size:0.8rem;color:var(--heading);cursor:pointer;">🚌 Tour</button>
-      </div>
       <div id="savedPlayersList"></div>
       <div id="addPlayerForm" style="margin-top:14px;border-top:1px solid var(--border);padding-top:14px;">
         <div class="player-card-title" style="margin-bottom:10px;">Lägg till spelare</div>
@@ -879,6 +932,18 @@
         </div>
         <button class="btn" style="margin-top:10px;width:100%;" onclick="addSavedPlayer()">+ Lägg till</button>
         <div id="addPlayerError" style="display:none;font-size:0.82rem;color:var(--danger);margin-top:6px;"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- STATISTIK -->
+  <div id="statisticsView" class="hidden">
+    <div class="card">
+      <div class="card-title"><span class="icon">📊</span> Statistik</div>
+      <div class="statistics-menu">
+        <button type="button" onclick="openSeasonView()"><span>📅</span><span><strong>Säsong</strong><small>Order of Merit för valt datumintervall</small></span></button>
+        <button type="button" onclick="openHallOfFame()"><span>🏆</span><span><strong>Hall of Fame</strong><small>Topplistor och personliga rekord</small></span></button>
+        <button type="button" onclick="openCourseRecordsView()"><span>🏟️</span><span><strong>Banrekord</strong><small>Bästa resultat per bana</small></span></button>
       </div>
     </div>
   </div>
@@ -3307,7 +3372,49 @@ function step4Back() {
   goToStep(3);
 }
 
+const MAIN_VIEW_IDS = [
+  'historyView', 'playersView', 'statisticsView', 'seasonView',
+  'hallOfFameView', 'courseRecordsView', 'tourView', 'playerHistoryView',
+  'seasonDetailView', 'courseRecordsDetailView'
+];
+
+function setPrimaryNav(section) {
+  document.querySelectorAll('[data-primary-nav]').forEach(button => {
+    if (button.dataset.primaryNav === section) button.setAttribute('aria-current', 'page');
+    else button.removeAttribute('aria-current');
+  });
+}
+
+function hideMainViews() {
+  MAIN_VIEW_IDS.forEach(id => document.getElementById(id)?.classList.add('hidden'));
+  [1,2,3,4,5].forEach(i => document.getElementById(`step${i}`)?.classList.add('hidden'));
+}
+
+function showPrimaryView(section, id) {
+  liveSyncStop();
+  hideMainViews();
+  document.getElementById('stepIndicator').classList.add('hidden');
+  document.getElementById(id).classList.remove('hidden');
+  setPrimaryNav(section);
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+function navigatePrimary(section) {
+  if (section === 'play') { goToStep(1); return; }
+  if (section === 'players') { openPlayersView(); return; }
+  if (section === 'rounds') { openHistory(); return; }
+  if (section === 'tour') { openTourView(); return; }
+  if (section === 'statistics') openStatisticsView();
+}
+
+function openStatisticsView() {
+  showPrimaryView('statistics', 'statisticsView');
+}
+
 function goToStep(n) {
+  MAIN_VIEW_IDS.forEach(id => document.getElementById(id)?.classList.add('hidden'));
+  document.getElementById('stepIndicator').classList.remove('hidden');
+  setPrimaryNav('play');
   [1,2,3,4,5].forEach(i => {
     document.getElementById(`step${i}`).classList.toggle('hidden', i !== n);
     const dot = document.getElementById(`dot${i}`);
@@ -4659,13 +4766,11 @@ function openHallOfFame() {
     }
   }
 
-  document.getElementById('playersView').classList.add('hidden');
-  document.getElementById('hallOfFameView').classList.remove('hidden');
+  showPrimaryView('statistics', 'hallOfFameView');
 }
 
 function closeHallOfFame() {
-  document.getElementById('hallOfFameView').classList.add('hidden');
-  document.getElementById('playersView').classList.remove('hidden');
+  openStatisticsView();
 }
 
 // ============================================================
@@ -4681,13 +4786,11 @@ function openSeasonView() {
     toEl.value   = now.toLocaleDateString('sv-SE');
   }
   computeSeasonStandings();
-  document.getElementById('playersView').classList.add('hidden');
-  document.getElementById('seasonView').classList.remove('hidden');
+  showPrimaryView('statistics', 'seasonView');
 }
 
 function closeSeasonView() {
-  document.getElementById('seasonView').classList.add('hidden');
-  document.getElementById('playersView').classList.remove('hidden');
+  openStatisticsView();
 }
 
 function computeSeasonStandings() {
@@ -4745,13 +4848,11 @@ function computeSeasonStandings() {
 // ============================================================
 function openCourseRecordsView() {
   computeCourseRecords();
-  document.getElementById('playersView').classList.add('hidden');
-  document.getElementById('courseRecordsView').classList.remove('hidden');
+  showPrimaryView('statistics', 'courseRecordsView');
 }
 
 function closeCourseRecordsView() {
-  document.getElementById('courseRecordsView').classList.add('hidden');
-  document.getElementById('playersView').classList.remove('hidden');
+  openStatisticsView();
 }
 
 // ============================================================
@@ -4790,19 +4891,13 @@ function openTourView() {
   _tourOpenedFromStart = false;
   _tourViewMode = 'list';
   renderTourView();
-  document.getElementById('playersView').classList.add('hidden');
-  document.getElementById('tourView').classList.remove('hidden');
+  showPrimaryView('tour', 'tourView');
 }
 
 function closeTourView() {
   stopSharedTourRefresh();
-  document.getElementById('tourView').classList.add('hidden');
-  if (_tourOpenedFromStart) {
-    _tourOpenedFromStart = false;
-    goToStep(1);
-  } else {
-    document.getElementById('playersView').classList.remove('hidden');
-  }
+  _tourOpenedFromStart = false;
+  goToStep(1);
 }
 
 function openActiveLocalTour(id) {
@@ -4811,8 +4906,7 @@ function openActiveLocalTour(id) {
   _tourViewMode = 'detail';
   _tourViewActiveId = id;
   renderTourView();
-  document.getElementById('step1').classList.add('hidden');
-  document.getElementById('tourView').classList.remove('hidden');
+  showPrimaryView('tour', 'tourView');
 }
 
 function openActiveSharedTour(code) {
@@ -4820,8 +4914,7 @@ function openActiveSharedTour(code) {
   _tourViewMode = 'shared';
   _tourViewActiveId = String(code).toUpperCase();
   renderTourView();
-  document.getElementById('step1').classList.add('hidden');
-  document.getElementById('tourView').classList.remove('hidden');
+  showPrimaryView('tour', 'tourView');
   startSharedTourRefresh(code);
 }
 
@@ -4937,8 +5030,7 @@ function openSharedTourDetail(code) {
   _tourViewMode = 'shared';
   _tourViewActiveId = String(code).toUpperCase();
   renderTourView();
-  document.getElementById('playersView').classList.add('hidden');
-  document.getElementById('tourView').classList.remove('hidden');
+  showPrimaryView('tour', 'tourView');
   startSharedTourRefresh(code);
 }
 
@@ -5510,14 +5602,12 @@ function computeCourseRecords() {
 
 function openPlayersView() {
   renderSavedPlayersList();
-  document.getElementById('step1').classList.add('hidden');
-  document.getElementById('playersView').classList.remove('hidden');
+  showPrimaryView('players', 'playersView');
 }
 
 function closePlayersView() {
-  document.getElementById('playersView').classList.add('hidden');
-  document.getElementById('step1').classList.remove('hidden');
   buildPlayerCards(); // refresh pickers in step 3 if already there
+  goToStep(1);
 }
 
 // ============================================================
@@ -5898,13 +5988,11 @@ function pickSharedTourMember(slotIndex, selectEl) {
 function openHistory() {
   populateHistoryFilters();
   renderHistoryList();
-  document.getElementById('step1').classList.add('hidden');
-  document.getElementById('historyView').classList.remove('hidden');
+  showPrimaryView('rounds', 'historyView');
 }
 
 function closeHistory() {
-  document.getElementById('historyView').classList.add('hidden');
-  document.getElementById('step1').classList.remove('hidden');
+  goToStep(1);
 }
 
 function toggleHistoryFilters() {
