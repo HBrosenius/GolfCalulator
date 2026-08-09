@@ -97,4 +97,24 @@ describe('passwordless accounts and cloud snapshots', () => {
     expect(response.status).toBe(200);
     expect((await response.json()).version).toBe(1);
   });
+
+  it('deletes cloud account data while requiring an authenticated session', async () => {
+    const userId = crypto.randomUUID();
+    const sessionToken = 'd'.repeat(43);
+    const now = Date.now();
+    await env.ACCOUNTS_DB.batch([
+      env.ACCOUNTS_DB.prepare('INSERT INTO users (id,email,created_at,last_login_at) VALUES (?,?,?,?)')
+        .bind(userId, `${userId}@example.com`, now, now),
+      env.ACCOUNTS_DB.prepare('INSERT INTO sessions (token_hash,user_id,expires_at,created_at,last_seen_at) VALUES (?,?,?,?,?)')
+        .bind(await hashToken(sessionToken), userId, now + 60_000, now, now),
+      env.ACCOUNTS_DB.prepare('INSERT INTO account_snapshots (user_id,version,payload,updated_at) VALUES (?,?,?,?)')
+        .bind(userId, 1, JSON.stringify({ courses: [], rounds: [], players: [], tours: [] }), now),
+    ]);
+    expect((await SELF.fetch('https://worker.test/account/me', { method: 'DELETE' })).status).toBe(401);
+    expect((await SELF.fetch('https://worker.test/account/me', {
+      method: 'DELETE', headers: { Authorization: `Bearer ${sessionToken}` },
+    })).status).toBe(204);
+    expect(await env.ACCOUNTS_DB.prepare('SELECT id FROM users WHERE id = ?').bind(userId).first()).toBeNull();
+    expect(await env.ACCOUNTS_DB.prepare('SELECT user_id FROM account_snapshots WHERE user_id = ?').bind(userId).first()).toBeNull();
+  });
 });

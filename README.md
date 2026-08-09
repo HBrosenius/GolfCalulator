@@ -273,6 +273,14 @@ ihop banor, rundor, spelare och lokala tourer mellan enheter.
 - Sessioner kan återkallas och gäller i upp till 30 dagar.
 - Synkronisering är icke-destruktiv och använder versionskontroll för samtidiga
   ändringar.
+- Synkronisering sker automatiskt efter inloggning, vid appstart, när nätverket
+  kommer tillbaka och efter ändringar i banor, rundor, spelare eller lokala
+  tourer. Snabba ändringar samlas ihop och appen fortsätter alltid spara lokalt
+  utan att vänta på nätverket.
+- Kontovyn visar om data är synkroniserad, väntar på nätverk eller behöver ett
+  nytt försök samt tidpunkten för senaste lyckade synkronisering.
+- Molndatan kan exporteras som JSON. Kontot och all molndata kan raderas
+  permanent utan att lokal data på enheten tas bort.
 - Kontodata lagras i Cloudflare D1 och e-post levereras via Resend från
   `login@golf.brosenius.se`.
 - Resend-nyckeln lagras endast som en Worker secret och skickas aldrig till

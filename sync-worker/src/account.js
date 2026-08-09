@@ -166,6 +166,20 @@ export async function deleteSession(request, env) {
   return new Response(null, { status: 204, headers: { 'Cache-Control': 'no-store' } });
 }
 
+export async function deleteAccount(request, env) {
+  const user = await userForSession(request, env);
+  if (!user) return accountJson({ error: 'Inte inloggad' }, 401);
+  await env.ACCOUNTS_DB.batch([
+    env.ACCOUNTS_DB.prepare('DELETE FROM login_tokens WHERE email = ?').bind(user.email),
+    env.ACCOUNTS_DB.prepare('DELETE FROM account_tours WHERE user_id = ?').bind(user.id),
+    env.ACCOUNTS_DB.prepare('DELETE FROM account_profiles WHERE user_id = ?').bind(user.id),
+    env.ACCOUNTS_DB.prepare('DELETE FROM account_snapshots WHERE user_id = ?').bind(user.id),
+    env.ACCOUNTS_DB.prepare('DELETE FROM sessions WHERE user_id = ?').bind(user.id),
+    env.ACCOUNTS_DB.prepare('DELETE FROM users WHERE id = ?').bind(user.id),
+  ]);
+  return new Response(null, { status: 204, headers: { 'Cache-Control': 'no-store' } });
+}
+
 export async function getSnapshot(request, env) {
   const user = await userForSession(request, env);
   if (!user) return accountJson({ error: 'Inte inloggad' }, 401);

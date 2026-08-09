@@ -4,7 +4,7 @@ import { Tour } from './tour.js';
 import { PROTOCOL_VERSION, readJson, validateCreate } from './validation.js';
 import { TOUR_SCHEMA_VERSION, validateTourCreate } from './tour-validation.js';
 import {
-  deleteSession, exchangeMagicLink, getAccount, getProfile, getSnapshot, listAccountTours,
+  deleteAccount, deleteSession, exchangeMagicLink, getAccount, getProfile, getSnapshot, listAccountTours,
   putProfile, putSnapshot, rememberAccountTour, requestMagicLink, userForSession,
 } from './account.js';
 
@@ -136,6 +136,7 @@ async function route(request, env) {
     }
     if (parts.length === 2 && parts[1] === 'session' && request.method === 'DELETE') return deleteSession(request, env);
     if (parts.length === 2 && parts[1] === 'me' && request.method === 'GET') return getAccount(request, env);
+    if (parts.length === 2 && parts[1] === 'me' && request.method === 'DELETE') return deleteAccount(request, env);
     if (parts.length === 2 && parts[1] === 'profile' && request.method === 'GET') return getProfile(request, env);
     if (parts.length === 2 && parts[1] === 'profile' && request.method === 'PUT') {
       const parsed = await bodyOrResponse(request);

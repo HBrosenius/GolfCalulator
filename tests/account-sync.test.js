@@ -28,3 +28,16 @@ test('cloud snapshot merge preserves unique data and lets this device update mat
   assert.deepEqual(merged.players, [{ id: 'p1', hi: 11 }]);
   assert.deepEqual(merged.tours, [{ id: 3 }]);
 });
+
+test('account deletion uses authenticated DELETE without a request body', async () => {
+  let captured;
+  const client = createClient('https://sync.test', async (url, options) => {
+    captured = { url, options };
+    return new Response(null, { status: 204 });
+  });
+  await client.deleteAccount('session-token');
+  assert.equal(captured.url, 'https://sync.test/account/me');
+  assert.equal(captured.options.method, 'DELETE');
+  assert.equal(captured.options.headers.Authorization, 'Bearer session-token');
+  assert.equal(captured.options.body, undefined);
+});

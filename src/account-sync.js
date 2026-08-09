@@ -24,6 +24,7 @@
       requestLink: email => call('/account/login', { method: 'POST', body: { email } }),
       exchange: token => call('/account/exchange', { method: 'POST', body: { token } }),
       me: token => call('/account/me', {}, token),
+      deleteAccount: token => call('/account/me', { method: 'DELETE' }, token),
       profile: token => call('/account/profile', {}, token),
       saveProfile: (token, displayName, handicap) => call('/account/profile', { method: 'PUT', body: { displayName, handicap } }, token),
       tours: token => call('/account/tours', {}, token),

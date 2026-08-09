@@ -11,15 +11,15 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Poängbogey">
-<script src="src/scoring.js?v=20260809-1"></script>
-<script src="src/storage.js?v=20260809-1"></script>
-<script src="src/live-sync.js?v=20260809-1"></script>
-<script src="src/validation.js?v=20260809-1"></script>
-<script src="src/round-extras.js?v=20260809-1"></script>
-<script src="src/live-round.js?v=20260809-1"></script>
-<script src="src/tour-rules.js?v=20260809-1"></script>
-<script src="src/tour-sync.js?v=20260809-1"></script>
-<script src="src/account-sync.js?v=20260809-1"></script>
+<script src="src/scoring.js?v=20260809-2"></script>
+<script src="src/storage.js?v=20260809-2"></script>
+<script src="src/live-sync.js?v=20260809-2"></script>
+<script src="src/validation.js?v=20260809-2"></script>
+<script src="src/round-extras.js?v=20260809-2"></script>
+<script src="src/live-round.js?v=20260809-2"></script>
+<script src="src/tour-rules.js?v=20260809-2"></script>
+<script src="src/tour-sync.js?v=20260809-2"></script>
+<script src="src/account-sync.js?v=20260809-2"></script>
 <script>
 // Apply saved/system theme before first paint to avoid a flash of the wrong theme.
 (function() {
@@ -288,6 +288,8 @@
   .btn:hover { background: var(--green-light); }
   .btn.secondary { background: white; color: var(--green); border: 1.5px solid var(--green); }
   .btn.secondary:hover { background: var(--bg); }
+  .btn.danger { background: var(--card); color: var(--danger); border: 1.5px solid var(--danger); }
+  .btn.danger:hover { background: color-mix(in srgb, var(--danger) 10%, var(--card)); }
   .tour-admin-actions { display: grid; gap: 8px; margin-top: 10px; }
   .tour-admin-actions .btn { margin-top: 0; text-align: left; }
   .tour-admin-invite { background: var(--green); color: white; border: 1.5px solid var(--green); }
@@ -1464,7 +1466,9 @@ function dbLoad() {
 }
 
 function dbSave(entries) {
-  return storageDb.save(DB_KEY, entries, true);
+  const saved = storageDb.save(DB_KEY, entries, true);
+  if (saved) scheduleAccountSync('courses');
+  return saved;
 }
 
 function dbFind(name, tee, holes) {
@@ -3449,6 +3453,12 @@ function openStatisticsView() {
 }
 
 const ACCOUNT_SESSION_KEY = 'golf_account_session';
+const ACCOUNT_SYNC_META_KEY = 'golf_account_sync_meta';
+const ACCOUNT_SYNC_DELAY_MS = 1800;
+let _accountSyncTimer = null;
+let _accountSyncPromise = null;
+let _accountSyncApplyingRemote = false;
+let _accountSyncAgain = false;
 
 function accountSessionLoad() {
   const session = storageDb.load(ACCOUNT_SESSION_KEY, null);
@@ -3489,6 +3499,47 @@ function updateAccountButton() {
   button.setAttribute('aria-label', button.title);
 }
 
+function accountSyncMeta() {
+  return storageDb.load(ACCOUNT_SYNC_META_KEY, { status: 'idle', lastSyncedAt: null, error: null });
+}
+
+function saveAccountSyncMeta(patch) {
+  const next = { ...accountSyncMeta(), ...patch };
+  storageDb.save(ACCOUNT_SYNC_META_KEY, next);
+  updateAccountSyncSummary();
+  return next;
+}
+
+function accountSyncLabel(meta = accountSyncMeta()) {
+  if (!navigator.onLine || meta.status === 'offline') return 'Väntar på nätverk';
+  if (meta.status === 'syncing') return 'Synkroniserar…';
+  if (meta.status === 'pending') return 'Ändringar väntar';
+  if (meta.status === 'conflict') return 'Synkkonflikt – försök igen';
+  if (meta.status === 'error') return meta.error || 'Synkroniseringen misslyckades';
+  if (meta.lastSyncedAt) return `Senast synkroniserad ${new Date(meta.lastSyncedAt).toLocaleString('sv-SE')}`;
+  return 'Inte synkroniserad ännu';
+}
+
+function updateAccountSyncSummary() {
+  const element = document.getElementById('accountSyncSummary');
+  if (!element) return;
+  const meta = accountSyncMeta();
+  element.textContent = accountSyncLabel(meta);
+  element.style.color = ['error', 'conflict'].includes(meta.status) ? 'var(--danger)' : 'var(--muted)';
+}
+
+function scheduleAccountSync(_reason, delay = ACCOUNT_SYNC_DELAY_MS) {
+  if (_accountSyncApplyingRemote || !accountSessionLoad()) return;
+  if (_accountSyncPromise) { _accountSyncAgain = true; return; }
+  clearTimeout(_accountSyncTimer);
+  if (!navigator.onLine) {
+    saveAccountSyncMeta({ status: 'offline', error: null });
+    return;
+  }
+  saveAccountSyncMeta({ status: 'pending', error: null });
+  _accountSyncTimer = setTimeout(() => { syncAccountNow({ silent: true }); }, delay);
+}
+
 function openAccountView() {
   renderAccountView();
   showPrimaryView('account', 'accountView');
@@ -3515,12 +3566,15 @@ function renderAccountView() {
     <div style="background:#f0faf5;border-radius:10px;padding:12px;margin-bottom:14px;">
       <strong style="color:var(--heading);">${escapeHtml(session.user.email)}</strong>
       <div style="font-size:0.78rem;color:var(--muted);margin-top:3px;">Inloggad · lokal användning fungerar även offline</div>
+      <div id="accountSyncSummary" style="font-size:0.78rem;color:var(--muted);margin-top:3px;">${escapeHtml(accountSyncLabel())}</div>
     </div>
     <label for="accountPlayer" style="margin-top:0;">Min spelarprofil</label>
     <select id="accountPlayer" style="width:100%;">${playerOptions ? `<option value="">— Välj spelare —</option>${playerOptions}` : '<option value="">Skapa en spelare i spelarregistret först</option>'}</select>
     <button class="btn secondary" style="margin:10px 0;" onclick="saveAccountPlayerProfile()"${playerOptions ? '' : ' disabled'}>Koppla spelarprofil</button>
     <button class="btn" onclick="syncAccountNow()">☁️ Synkronisera nu</button>
+    <button class="btn secondary" style="margin-top:10px;" onclick="exportAccountData()">⬇️ Exportera molndata</button>
     <button class="btn secondary" style="margin-top:10px;" onclick="logoutAccount()">Logga ut på den här enheten</button>
+    <button class="btn danger" style="margin-top:10px;" onclick="deleteCloudAccount()">Radera konto och molndata</button>
     <p style="font-size:0.76rem;color:var(--muted);margin-top:12px;">Synkronisering slår ihop unika banor, rundor, spelare och lokala tourer. Data tas inte bort automatiskt.</p>`;
 }
 
@@ -3534,6 +3588,7 @@ async function saveAccountPlayerProfile() {
     if (typeof client.saveProfile !== 'function') throw new Error('Appuppdateringen är inte klar. Stäng och öppna appen igen.');
     const saved = await client.saveProfile(session.token, player.nick || player.name, Number(player.hi));
     accountSessionSave({ ...session, profile: { ...saved.profile, localPlayerId: player.id } });
+    scheduleAccountSync('profile');
     setAccountStatus('Spelarprofilen är kopplad till kontot.');
   } catch (error) { setAccountStatus(error.message || 'Kunde inte spara spelarprofilen.', 'error'); }
 }
@@ -3585,7 +3640,8 @@ async function exchangeAccountLink(token, apiBase) {
     try { await syncAccountTours(nextSession); } catch (_) {}
     history.replaceState(null, '', location.pathname + location.search);
     openAccountView();
-    setAccountStatus('Du är inloggad. Tryck på Synkronisera nu för att slå ihop data från dina enheter.');
+    setAccountStatus('Du är inloggad. Molnsynkroniseringen startar automatiskt.');
+    scheduleAccountSync('login', 100);
   } catch (error) {
     history.replaceState(null, '', location.pathname + location.search);
     openAccountView();
@@ -3598,17 +3654,30 @@ function localAccountSnapshot() {
 }
 
 function saveAccountSnapshot(data) {
-  dbSave(data.courses || []);
-  roundsSave(data.rounds || []);
-  playersSave(data.players || []);
-  toursSave(data.tours || []);
+  _accountSyncApplyingRemote = true;
+  try {
+    dbSave(data.courses || []);
+    roundsSave(data.rounds || []);
+    playersSave(data.players || []);
+    toursSave(data.tours || []);
+  } finally { _accountSyncApplyingRemote = false; }
 }
 
-async function syncAccountNow() {
+async function syncAccountNow(options = {}) {
+  const silent = !!options.silent;
   const session = accountSessionLoad();
-  if (!session || !navigator.onLine) { setAccountStatus('Ingen anslutning. Din lokala data är oförändrad.', 'error'); return; }
-  setAccountStatus('Synkroniserar…');
-  try {
+  if (!session) return;
+  if (!navigator.onLine) {
+    saveAccountSyncMeta({ status: 'offline', error: null });
+    if (!silent) setAccountStatus('Ingen anslutning. Ändringarna synkroniseras när nätverket är tillbaka.', 'error');
+    return;
+  }
+  if (_accountSyncPromise) return _accountSyncPromise;
+  clearTimeout(_accountSyncTimer);
+  saveAccountSyncMeta({ status: 'syncing', error: null });
+  if (!silent) setAccountStatus('Synkroniserar…');
+  _accountSyncPromise = (async () => {
+   try {
     let remote = await accountApi().snapshot(session.token);
     let merged = GolfAccountSync.mergeSnapshots(remote.data, localAccountSnapshot());
     saveAccountSnapshot(merged);
@@ -3625,18 +3694,63 @@ async function syncAccountNow() {
     renderSavedPlayersList();
     try { await syncAccountTours(session); } catch (_) {}
     renderActiveToursCard();
-    setAccountStatus('Synkroniseringen är klar på den här enheten.');
+    saveAccountSyncMeta({ status: 'synced', lastSyncedAt: Date.now(), error: null });
+    if (!silent) setAccountStatus('Synkroniseringen är klar på den här enheten.');
   } catch (error) {
     if (error.status === 401) {
       accountSessionSave(null);
-      renderAccountView();
+      if (document.getElementById('accountContent')) renderAccountView();
       setAccountStatus('Sessionen har gått ut. Be om en ny inloggningslänk.', 'error');
-    } else setAccountStatus(error.message || 'Synkroniseringen misslyckades.', 'error');
-  }
+    } else {
+      saveAccountSyncMeta({ status: error.status === 409 ? 'conflict' : 'error', error: error.message || 'Synkroniseringen misslyckades.' });
+      if (!silent) setAccountStatus(error.message || 'Synkroniseringen misslyckades.', 'error');
+    }
+   } finally {
+     _accountSyncPromise = null;
+     if (_accountSyncAgain) {
+       _accountSyncAgain = false;
+       scheduleAccountSync('queued', 500);
+     }
+   }
+  })();
+  return _accountSyncPromise;
+}
+
+async function exportAccountData() {
+  const session = accountSessionLoad();
+  if (!session || !navigator.onLine) { setAccountStatus('Anslut till nätverket för att exportera molndata.', 'error'); return; }
+  try {
+    await syncAccountNow({ silent: true });
+    const snapshot = await accountApi().snapshot(session.token);
+    const payload = JSON.stringify({ version: 1, exportedAt: new Date().toISOString(), ...snapshot }, null, 2);
+    const url = URL.createObjectURL(new Blob([payload], { type: 'application/json' }));
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `poangbogey-cloud-${new Date().toISOString().slice(0, 10)}.json`;
+    link.click();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    setAccountStatus('Molndatan har exporterats.');
+  } catch (error) { setAccountStatus(error.message || 'Kunde inte exportera molndata.', 'error'); }
+}
+
+async function deleteCloudAccount() {
+  const session = accountSessionLoad();
+  if (!session) return;
+  if (!confirm('Radera kontot och all molnsynkdata permanent? Lokal data på den här enheten finns kvar. Åtkomst till account-kopplade tourer kan försvinna.')) return;
+  if (!confirm('Detta går inte att ångra. Radera kontot?')) return;
+  try {
+    await accountApi().deleteAccount(session.token);
+    clearTimeout(_accountSyncTimer);
+    accountSessionSave(null);
+    storageDb.remove(ACCOUNT_SYNC_META_KEY);
+    renderAccountView();
+    setAccountStatus('Kontot och molndatan har raderats. Lokal data finns kvar.');
+  } catch (error) { setAccountStatus(error.message || 'Kunde inte radera kontot.', 'error'); }
 }
 
 async function logoutAccount() {
   const session = accountSessionLoad();
+  clearTimeout(_accountSyncTimer);
   accountSessionSave(null);
   renderAccountView();
   if (session && navigator.onLine) accountApi().logout(session.token).catch(() => {});
@@ -4072,6 +4186,7 @@ function roundsLoad() {
 function roundsSave(rounds) {
   if (!_lsOk) return;
   if (!storageDb.save(ROUNDS_KEY, rounds)) alert('Lagringsutrymmet är fullt — ta bort några rundor eller spelarbilder för att göra plats.');
+  else scheduleAccountSync('rounds');
 }
 
 function roundSaveNew(roundData) {
@@ -4521,7 +4636,7 @@ function playersSave(list) {
   if (!_lsOk) return;
   if (!storageDb.save(PLAYERS_KEY, list)) {
     alert('Lagringsutrymmet är fullt — ta bort några rundor eller spelarbilder för att göra plats.');
-  }
+  } else scheduleAccountSync('players');
 }
 
 // New rounds use immutable player IDs. Name matching remains as a migration
@@ -4567,7 +4682,7 @@ function toursSave(list) {
   if (!_lsOk) return;
   if (!storageDb.save(TOURS_KEY, list)) {
     alert('Lagringsutrymmet är fullt — ta bort några rundor eller spelarbilder för att göra plats.');
-  }
+  } else scheduleAccountSync('tours');
 }
 
 function tourFind(id) {
@@ -6762,12 +6877,18 @@ try {
   const accountToken = new URLSearchParams(location.hash.slice(1)).get('account_token');
   const accountApiBase = new URLSearchParams(location.hash.slice(1)).get('account_api');
   if (accountToken) exchangeAccountLink(accountToken, accountApiBase);
+  else if (accountSessionLoad()) scheduleAccountSync('startup', 800);
 } catch(e) {}
 window.addEventListener('online', () => {
   syncSharedTourSubmissions();
+  scheduleAccountSync('online', 300);
   if (_tourViewMode === 'shared' && _tourViewActiveId) startSharedTourRefresh(_tourViewActiveId);
 });
+window.addEventListener('offline', () => {
+  if (accountSessionLoad()) saveAccountSyncMeta({ status: 'offline', error: null });
+});
 document.addEventListener('visibilitychange', () => {
+  if (!document.hidden) scheduleAccountSync('visible', 500);
   if (!document.hidden && _tourViewMode === 'shared' && _tourViewActiveId) startSharedTourRefresh(_tourViewActiveId);
 });
 if ('serviceWorker' in navigator) {
