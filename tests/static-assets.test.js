@@ -22,11 +22,11 @@ test('service-worker shell contains existing files and application modules', () 
   const shellMatch = source.match(/const SHELL = \[([\s\S]*?)\];/);
   assert.ok(shellMatch, 'SHELL asset list was not found');
   const assets = [...shellMatch[1].matchAll(/['"]\.\/?([^'"]+)['"]/g)].map(match => match[1]);
-  for (const moduleName of ['scoring', 'storage', 'live-sync', 'validation', 'round-extras', 'live-round', 'tour-rules', 'tour-sync']) {
-    assert.ok(assets.includes(`src/${moduleName}.js`), `missing ${moduleName} module`);
+  for (const moduleName of ['scoring', 'storage', 'live-sync', 'validation', 'round-extras', 'live-round', 'tour-rules', 'tour-sync', 'account-sync']) {
+    assert.ok(assets.some(asset => asset.split('?')[0] === `src/${moduleName}.js`), `missing ${moduleName} module`);
   }
   for (const asset of assets.filter(asset => asset !== '')) {
-    assert.ok(fs.existsSync(path.join(root, asset)), `missing service-worker asset: ${asset}`);
+    assert.ok(fs.existsSync(path.join(root, asset.split('?')[0])), `missing service-worker asset: ${asset}`);
   }
 });
 
@@ -43,6 +43,14 @@ test('account login tolerates a previously cached account client module', () => 
   const html = fs.readFileSync(path.join(root, 'index.html'), 'utf8');
   assert.match(html, /typeof client\.tours !== 'function'/);
   assert.match(html, /try \{ await syncAccountTours\(nextSession\); \} catch \(_\) \{\}/);
+});
+
+test('versioned scripts bypass stale PWA modules and use network-first refreshes', () => {
+  const html = fs.readFileSync(path.join(root, 'index.html'), 'utf8');
+  const worker = fs.readFileSync(path.join(root, 'sw.js'), 'utf8');
+  assert.match(html, /src\/account-sync\.js\?v=[0-9-]+/);
+  assert.match(worker, /event\.request\.destination === 'script'/);
+  assert.match(worker, /fetch\(event\.request\)/);
 });
 
 test('PWA updates use automatic cache generations and a deferred Swedish prompt', () => {

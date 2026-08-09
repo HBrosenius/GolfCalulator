@@ -4,15 +4,15 @@ const META_BASE = new URL('./__golf_cache__/', self.location.href).href;
 const SHELL = [
   './',
   './index.html',
-  './src/scoring.js',
-  './src/storage.js',
-  './src/live-sync.js',
-  './src/validation.js',
-  './src/round-extras.js',
-  './src/live-round.js',
-  './src/tour-rules.js',
-  './src/tour-sync.js',
-  './src/account-sync.js',
+  './src/scoring.js?v=20260809-1',
+  './src/storage.js?v=20260809-1',
+  './src/live-sync.js?v=20260809-1',
+  './src/validation.js?v=20260809-1',
+  './src/round-extras.js?v=20260809-1',
+  './src/live-round.js?v=20260809-1',
+  './src/tour-rules.js?v=20260809-1',
+  './src/tour-sync.js?v=20260809-1',
+  './src/account-sync.js?v=20260809-1',
   './manifest.json',
   './icon-192.png',
   './icon-512.png',
@@ -89,6 +89,17 @@ self.addEventListener('fetch', event => {
 
   event.respondWith((async () => {
     const cache = await currentCache();
+    if (event.request.destination === 'script') {
+      try {
+        const response = await fetch(event.request);
+        if (cache && response.ok) await cache.put(event.request, response.clone());
+        return response;
+      } catch (error) {
+        const fallback = cache && await cache.match(event.request);
+        if (fallback) return fallback;
+        throw error;
+      }
+    }
     const hit = cache && await cache.match(event.request);
     if (hit) return hit;
     const response = await fetch(event.request);
