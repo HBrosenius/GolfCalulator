@@ -39,6 +39,24 @@ test('inline application JavaScript parses', () => {
   });
 });
 
+test('spectator tour renderer does not inject server data through HTML', () => {
+  const html = fs.readFileSync(path.join(root, 'index.html'), 'utf8');
+  const renderer = html.match(/function renderSpectatorTourDetail\(code\) \{([\s\S]*?)\n\}\n\nfunction closeSpectatorTour/);
+  assert.ok(renderer, 'spectator renderer was not found');
+  assert.doesNotMatch(renderer[1], /\.innerHTML\s*=/);
+  assert.match(renderer[1], /\.textContent\s*=/);
+  assert.match(renderer[1], /\.replaceChildren\(\)/);
+});
+
+test('live-room seat renderer does not reinterpret player names as HTML', () => {
+  const html = fs.readFileSync(path.join(root, 'index.html'), 'utf8');
+  const renderer = html.match(/function renderJoinLiveSeatList\(room, code\) \{([\s\S]*?)\r?\n\}\r?\n\r?\nfunction claimLiveSeat/);
+  assert.ok(renderer, 'live-room seat renderer was not found');
+  assert.doesNotMatch(renderer[1], /\.innerHTML\s*=/);
+  assert.match(renderer[1], /button\.textContent\s*=/);
+  assert.match(renderer[1], /playerSelect\.replaceChildren\(\)/);
+});
+
 test('account login tolerates a previously cached account client module', () => {
   const html = fs.readFileSync(path.join(root, 'index.html'), 'utf8');
   assert.match(html, /typeof client\.tours !== 'function'/);
@@ -63,4 +81,11 @@ test('PWA updates use automatic cache generations and a deferred Swedish prompt'
   assert.match(html, /Uppdatera nu/);
   assert.match(html, /if \(inprogressLoad\(\)\)/);
   assert.match(html, /controllerchange/);
+});
+
+test('Worker deployment workflow grants only explicit read access', () => {
+  const workflow = fs.readFileSync(path.join(root, '.github', 'workflows', 'deploy-sync-worker.yml'), 'utf8');
+  assert.match(workflow, /^permissions: \{\}$/m);
+  assert.equal((workflow.match(/^      contents: read$/gm) || []).length, 2);
+  assert.doesNotMatch(workflow, /(?:write-all|contents: write)/);
 });

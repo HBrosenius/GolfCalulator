@@ -8,10 +8,14 @@ on:
       - 'sync-worker/**'
       - '.github/workflows/deploy-sync-worker.yml'
 
+permissions: {}
+
 jobs:
   deploy:
     needs: verify
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     defaults:
       run:
         working-directory: sync-worker
@@ -33,3 +37,5 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
   verify:
     uses: ./.github/workflows/verify.yml
+    permissions:
+      contents: read

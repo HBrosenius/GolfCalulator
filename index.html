@@ -4475,17 +4475,31 @@ function renderJoinLiveSeatList(room, code) {
   const savedPlayers = playersLoad();
   if (link && playerSelect) {
     link.classList.toggle('hidden', shared || savedPlayers.length === 0);
-    playerSelect.innerHTML = '<option value="">Matcha automatiskt</option>' + savedPlayers.map(player =>
-      `<option value="${player.id}">${escapeHtml(player.nick || player.name)}</option>`).join('');
+    playerSelect.replaceChildren();
+    const automaticOption = document.createElement('option');
+    automaticOption.value = '';
+    automaticOption.textContent = 'Matcha automatiskt';
+    playerSelect.append(automaticOption);
+    savedPlayers.forEach(player => {
+      const option = document.createElement('option');
+      option.value = String(player.id);
+      option.textContent = player.nick || player.name || '';
+      playerSelect.append(option);
+    });
   }
-  list.innerHTML = seatNames.map((name, i) => {
+  list.replaceChildren();
+  seatNames.forEach((name, i) => {
     const seatData = room.seats && room.seats[i];
     const taken = !!(seatData && seatData.claimed);
-    return `<button class="btn ${taken ? 'secondary' : ''}" ${taken ? 'disabled' : ''}
-      style="${taken ? 'opacity:0.5;' : ''}" onclick="claimLiveSeat('${code}', ${i})">
-      ${escapeHtml(name)}${taken ? ' (upptagen)' : ''}
-    </button>`;
-  }).join('');
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = `btn${taken ? ' secondary' : ''}`;
+    button.disabled = taken;
+    if (taken) button.style.opacity = '0.5';
+    button.textContent = `${name || ''}${taken ? ' (upptagen)' : ''}`;
+    button.addEventListener('click', () => claimLiveSeat(code, i));
+    list.append(button);
+  });
 }
 
 function claimLiveSeat(code, seat) {
@@ -5960,14 +5974,94 @@ function renderSpectatorTourDetail(code) {
   const el = document.getElementById('tourContent');
   if (!tour || !el) return;
   const standings = GolfTourRules.computeSharedStandings(tour);
-  el.innerHTML = `<button class="btn secondary" style="margin-bottom:12px;" onclick="closeSpectatorTour()">← Till appen</button><div class="spectator-board">
-    <div style="text-align:center;padding:8px 0 2px;"><div style="font-size:.75rem;color:var(--muted);text-transform:uppercase;letter-spacing:.08em;"><span class="spectator-live-dot"></span>Åskådarläge · live</div><strong style="font-size:1.45rem;color:var(--heading);">🏆 ${escapeHtml(tour.name)}</strong><br><span style="font-size:.8rem;color:var(--muted);">${tour.startDate} – ${tour.endDate}</span></div>
-    <div class="spectator-update">Uppdaterad ${new Date(tour.updatedAt || Date.now()).toLocaleTimeString('sv-SE')}</div>
-    ${renderTourStandings(standings)}
-    <div class="card-title" style="margin-top:16px;">📣 Senaste nytt</div>${(tour.announcements || []).slice(0,3).map(item => `<div class="activity-row"><strong>${escapeHtml(item.message)}</strong><br><span style="color:var(--muted);">${escapeHtml(item.author)}</span></div>`).join('') || '<p style="color:var(--muted);font-size:.85rem;">Inga meddelanden ännu.</p>'}
-    <div class="card-title" style="margin-top:16px;">Tourens tidslinje</div>${tournamentTimeline(tour)}
-    <div class="card-title" style="margin-top:16px;">Spelarprofiler</div>${renderTournamentProfiles(tour)}
-    </div>`;
+  const node = (tag, className, text) => {
+    const element = document.createElement(tag);
+    if (className) element.className = className;
+    if (text !== undefined) element.textContent = String(text);
+    return element;
+  };
+  const title = (text) => {
+    const element = node('div', 'card-title', text);
+    element.style.marginTop = '16px';
+    return element;
+  };
+
+  el.replaceChildren();
+  const back = node('button', 'btn secondary', '← Till appen');
+  back.type = 'button';
+  back.style.marginBottom = '12px';
+  back.addEventListener('click', closeSpectatorTour);
+  el.append(back);
+
+  const board = node('div', 'spectator-board');
+  const heading = node('div');
+  heading.style.cssText = 'text-align:center;padding:8px 0 2px;';
+  const live = node('div', '', 'Åskådarläge · live');
+  live.style.cssText = 'font-size:.75rem;color:var(--muted);text-transform:uppercase;letter-spacing:.08em;';
+  live.prepend(node('span', 'spectator-live-dot'));
+  const name = node('strong', '', `🏆 ${tour.name || ''}`);
+  name.style.cssText = 'font-size:1.45rem;color:var(--heading);';
+  const dates = node('span', '', `${tour.startDate || ''} – ${tour.endDate || ''}`);
+  dates.style.cssText = 'font-size:.8rem;color:var(--muted);';
+  heading.append(live, name, document.createElement('br'), dates);
+  board.append(heading, node('div', 'spectator-update', `Uppdaterad ${new Date(tour.updatedAt || Date.now()).toLocaleTimeString('sv-SE')}`));
+
+  const standingsSection = node('section', 'tour-standings');
+  standingsSection.setAttribute('aria-label', 'Tourställning');
+  const standingsHeader = node('div', 'tour-standings-header');
+  standingsHeader.append(node('div', 'tour-standings-title', '🏆 Tourställning'), node('div', 'tour-standings-caption', 'Bäst resultat först'));
+  standingsSection.append(standingsHeader);
+  const medals = ['🥇', '🥈', '🥉'];
+  standings.forEach((row, index) => {
+    const playerName = row.player.nick || row.player.name || '';
+    const line = node('div', 'tour-standing-row');
+    const place = node('div', 'tour-standing-place', `#${index + 1}`);
+    if (medals[index]) place.prepend(node('span', 'tour-standing-medal', medals[index]));
+    const avatar = node('div', 'tour-standing-avatar');
+    const photo = isValidPhotoUrl(row.player.photo) ? row.player.photo : _photoForName(playerName);
+    if (photo) { const image = node('img'); image.src = photo; image.alt = ''; avatar.append(image); }
+    else avatar.textContent = playerName.split(/\s+/).filter(Boolean).slice(0, 2).map(part => part[0]).join('').toLocaleUpperCase('sv-SE') || '?';
+    const player = node('div');
+    player.append(node('div', 'tour-standing-name', playerName), node('div', 'tour-standing-rounds', `${Number(row.roundsCounted) || 0} räknade av ${Number(row.roundsPlayed) || 0} spelade rundor`));
+    const score = node('div', 'tour-standing-score', row.total);
+    score.append(node('span', '', 'poäng'));
+    line.append(place, avatar, player, score);
+    standingsSection.append(line);
+  });
+  if (!standings.length) standingsSection.append(node('p', 'tour-standings-empty', 'Inga rundor ännu.'));
+  board.append(standingsSection, title('📣 Senaste nytt'));
+
+  const announcements = (tour.announcements || []).slice(0, 3);
+  announcements.forEach(item => {
+    const row = node('div', 'activity-row');
+    row.append(node('strong', '', item.message || ''), document.createElement('br'));
+    const author = node('span', '', item.author || ''); author.style.color = 'var(--muted)'; row.append(author);
+    board.append(row);
+  });
+  if (!announcements.length) { const empty = node('p', '', 'Inga meddelanden ännu.'); empty.style.cssText = 'color:var(--muted);font-size:.85rem;'; board.append(empty); }
+
+  board.append(title('Tourens tidslinje'));
+  const events = [
+    ...(tour.rounds || []).map(round => ({ at: new Date(`${round.playedDate}T12:00:00`).getTime(), icon: '⛳', text: `${round.courseName} · ${(round.subjects || []).map(subject => `${subject.name} ${GolfTourRules.subjectPoints(subject)}p · ${Number.isFinite(subject.totalBrutto) ? subject.totalBrutto : '–'} slag`).join(', ')}` })),
+    ...(tour.announcements || []).map(item => ({ at: item.at, icon: '📣', text: `${item.author}: ${item.message}` })),
+  ].sort((a, b) => b.at - a.at).slice(0, 30);
+  const timeline = node('div', 'tour-timeline');
+  events.forEach(event => { const item = node('div', 'tour-timeline-item'); item.append(node('strong', '', `${event.icon} ${event.text}`), node('span', 'tour-timeline-time', new Date(event.at).toLocaleString('sv-SE'))); timeline.append(item); });
+  if (!events.length) { const empty = node('p', '', 'Tourens händelser visas här när spelet börjar.'); empty.style.cssText = 'color:var(--muted);font-size:.85rem;'; timeline.append(empty); }
+  board.append(timeline, title('Spelarprofiler'));
+
+  const profileGrid = node('div', 'tour-profile-grid');
+  GolfTourRules.computePlayerProfiles(tour).forEach(profile => {
+    const details = node('details', 'tour-profile');
+    details.append(node('summary', '', `${profile.position ? `#${profile.position} · ` : ''}${profile.member.name || ''}`));
+    const metrics = node('div', 'tour-profile-metrics');
+    [[profile.appearances, 'starter'], [profile.averagePoints, 'snittpoäng'], [profile.bestRound?.points ?? '–', 'bästa runda'], [profile.wins ? '🏆' : profile.podiums ? '🏅' : '–', 'medaljer'], [`${profile.headToHead.wins}–${profile.headToHead.losses}–${profile.headToHead.ties}`, 'inbördes vinster–förluster–delade']].forEach(([value, label], index) => { const metric = node('span'); if (index === 4) metric.style.gridColumn = '1/-1'; metric.append(node('strong', '', value), document.createTextNode(label)); metrics.append(metric); });
+    details.append(metrics);
+    if (profile.bestRound) { const best = node('div', '', `Bäst: ${profile.bestRound.courseName} · ${profile.bestRound.playedDate}`); best.style.cssText = 'font-size:.72rem;color:var(--muted);margin-top:7px;'; details.append(best); }
+    profileGrid.append(details);
+  });
+  board.append(profileGrid);
+  el.append(board);
 }
 
 function closeSpectatorTour() {
