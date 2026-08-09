@@ -3479,6 +3479,7 @@ function renderResults(playerResults, rankContainerId = 'rankingContainer', prCo
         <div style="text-align:right;">
           <div class="rank-pts">${r.totalPoints}</div>
           <div class="rank-pts-label">poäng</div>
+          <div style="font-size:.72rem;color:var(--muted);margin-top:3px;">${Number.isFinite(r.totalBrutto) ? `${r.totalBrutto} slag` : '– slag'}</div>
         </div>
       </div>`;
   });
@@ -3532,7 +3533,7 @@ function renderResults(playerResults, rankContainerId = 'rankingContainer', prCo
       <div class="player-result-section"><div class="card">
         <div class="card-title" style="display:flex;align-items:center;gap:8px;">
           ${_resultAvatarHtml(sectionPhoto, 'result-section-avatar')}
-          <span>📊 ${escapeHtml(r.subj.name)} · ${r.totalPoints} poäng</span>
+          <span>📊 ${escapeHtml(r.subj.name)} · ${r.totalPoints} poäng <small style="color:var(--muted);font-weight:500;">· ${Number.isFinite(r.totalBrutto) ? r.totalBrutto : '–'} slag</small></span>
         </div>
         <div style="font-size:0.8rem;color:var(--muted);margin-bottom:10px;">${subLabel}</div>
         <div style="overflow-x:auto;">
@@ -5394,7 +5395,7 @@ function openPlayerHistory(id) {
             </div>
             <div>
               <div class="player-history-pts">${pts}p</div>
-              <div class="player-history-pts-label">poäng</div>
+              <div class="player-history-pts-label">poäng · ${Number.isFinite(subj?.totalBrutto) ? subj.totalBrutto : '–'} slag</div>
             </div>
           </div>`;
       }).join('');
@@ -5947,7 +5948,7 @@ function renderTournamentProfiles(tour) {
 
 function tournamentTimeline(tour, activity = []) {
   const events = [
-    ...(tour.rounds || []).map(round => ({ at: new Date(`${round.playedDate}T12:00:00`).getTime(), icon: '⛳', title: `${round.courseName} · ${round.subjects.map(subject => `${subject.name} ${GolfTourRules.subjectPoints(subject)}p`).join(', ')}` })),
+    ...(tour.rounds || []).map(round => ({ at: new Date(`${round.playedDate}T12:00:00`).getTime(), icon: '⛳', title: `${round.courseName} · ${round.subjects.map(subject => `${subject.name} ${GolfTourRules.subjectPoints(subject)}p · ${Number.isFinite(subject.totalBrutto) ? subject.totalBrutto : '–'} slag`).join(', ')}` })),
     ...(tour.announcements || []).map(item => ({ at: item.at, icon: '📣', title: `${item.author}: ${item.message}` })),
     ...(activity || []).filter(item => item.type === 'round_started').map(item => ({ at: item.at, icon: '🏌️', title: `Runda startad på ${item.details?.courseName || 'tourbanan'} · ${(item.details?.playerNames || []).join(', ')}` })),
   ].sort((a, b) => b.at - a.at).slice(0, 30);
@@ -6194,7 +6195,7 @@ function renderSharedTourDetail(code) {
     return localPlayer?.photo || null;
   });
   const roundRows = (tour.rounds || []).slice().sort((a, b) => b.playedDate.localeCompare(a.playedDate)).map(round =>
-    `<div class="hi-row"><strong>${escapeHtml(round.courseName)}</strong> · ${round.playedDate}${round.correctedAt ? ' · korrigerad' : ''}<br><span style="color:var(--muted);font-size:0.8rem;">${round.subjects.map(subject => `${escapeHtml(subject.name)} ${subject.totalPoints}p`).join(', ')}</span>${canAdmin ? `<button class="btn secondary" style="margin-top:7px;" onclick="correctSharedTourRound('${escapeHtml(record.code)}','${escapeHtml(round.id)}','${escapeHtml(round.playedDate)}')">Korrigera datum</button>` : ''}</div>`).join('');
+    `<div class="hi-row"><strong>${escapeHtml(round.courseName)}</strong> · ${round.playedDate}${round.correctedAt ? ' · korrigerad' : ''}<br><span style="color:var(--muted);font-size:0.8rem;">${round.subjects.map(subject => `${escapeHtml(subject.name)} <strong style="color:var(--heading);">${subject.totalPoints}p</strong> · ${Number.isFinite(subject.totalBrutto) ? subject.totalBrutto : '–'} slag`).join(', ')}</span>${canAdmin ? `<button class="btn secondary" style="margin-top:7px;" onclick="correctSharedTourRound('${escapeHtml(record.code)}','${escapeHtml(round.id)}','${escapeHtml(round.playedDate)}')">Korrigera datum</button>` : ''}</div>`).join('');
   const courseRows = (tour.courses || []).map(course => {
     const tees = (course.tees || []).map(tee => escapeHtml(tee.name)).join(', ');
     const roundLimit = Number.isInteger(course.maxRounds)
@@ -6634,7 +6635,7 @@ function renderTourDetail(id) {
   const roundRows = rounds.map(r => {
     const rosterSubjects = r.subjects.filter(s =>
       standings.some(row => (row.player.nick || row.player.name) === s.name));
-    const names = rosterSubjects.map(s => `${escapeHtml(s.name)} (${GolfTourRules.subjectPoints(s)}p)`).join(', ');
+    const names = rosterSubjects.map(s => `${escapeHtml(s.name)} (<strong>${GolfTourRules.subjectPoints(s)}p</strong> · ${Number.isFinite(s.totalBrutto) ? s.totalBrutto : '–'} slag)`).join(', ');
     return `<div class="hi-row"><strong>${escapeHtml(r.courseName || '')}</strong> — ${r.date} <span style="color:var(--muted);">· ${names}</span></div>`;
   }).join('');
 
@@ -7216,15 +7217,16 @@ function renderHistoryList() {
         : '';
       rankRows = `
         <div class="hi-rank-row" style="justify-content:center;font-weight:700;color:var(--heading);">${hasWinner ? '🏆 ' : ''}${result}</div>
-        ${tally ? `<div class="hi-rank-row" style="justify-content:center;color:var(--muted);font-size:0.8rem;">${tally}</div>` : ''}`;
+        ${tally ? `<div class="hi-rank-row" style="justify-content:center;color:var(--muted);font-size:0.8rem;">${tally}</div>` : ''}
+        <div class="hi-rank-row" style="justify-content:center;color:var(--muted);font-size:0.78rem;">${r.subjects.map(s => `${escapeHtml(s.name)}: ${s.totalPoints}p · ${Number.isFinite(s.totalBrutto) ? s.totalBrutto : '–'} slag`).join(' · ')}</div>`;
     } else {
-      topLine = sorted.map((s, i) => `${medals[i]||''} ${escapeHtml(s.name)} ${s.totalPoints}p`).join(' · ');
+      topLine = sorted.map((s, i) => `${medals[i]||''} ${escapeHtml(s.name)} ${s.totalPoints}p · ${Number.isFinite(s.totalBrutto) ? s.totalBrutto : '–'} slag`).join(' · ');
       rankRows = sorted.map((s, i) => `
         <div class="hi-rank-row">
           <span>${medals[i]||''}</span>
           <span class="hi-rank-name">${escapeHtml(s.name)}${s.members ? ` <span style="font-weight:400;color:var(--muted)">(${s.members.map(escapeHtml).join(' & ')})</span>` : ''}${s.teamId ? ` <span style="font-weight:400;color:var(--muted)">(Lag ${escapeHtml(s.teamId)}${s.teammate ? ' · med ' + escapeHtml(s.teammate) : ''})</span>` : ''}</span>
           <span style="color:var(--muted);font-size:0.75rem;margin-right:6px;">HCP +${s.ph}${hasMixedTees(r.subjects) && s.tee ? ` · ${teeIconFor(s.tee)}` : ''}</span>
-          <span class="hi-rank-pts">${s.totalPoints} p</span>
+          <span style="text-align:right;"><span class="hi-rank-pts">${s.totalPoints} p</span><br><span style="color:var(--muted);font-size:.72rem;">${Number.isFinite(s.totalBrutto) ? s.totalBrutto : '–'} slag</span></span>
         </div>`).join('');
     }
     const detailTables = r.subjects.map(s => {
@@ -7236,7 +7238,7 @@ function renderHistoryList() {
         </tr>`).join('');
       return `
         <div style="margin-top:10px;">
-          <div style="font-weight:600;font-size:0.85rem;margin-bottom:6px;">${escapeHtml(s.name)} · ${s.totalPoints} poäng</div>
+          <div style="font-weight:600;font-size:0.85rem;margin-bottom:6px;">${escapeHtml(s.name)} · ${s.totalPoints} poäng <span style="color:var(--muted);font-weight:400;">· ${Number.isFinite(s.totalBrutto) ? s.totalBrutto : '–'} slag</span></div>
           <div style="overflow-x:auto;">
             <table class="result-table">
               <thead><tr><th>Hål</th><th>Par</th><th>Hcp</th><th>Slag</th><th>Poäng</th></tr></thead>
@@ -7485,7 +7487,7 @@ function _shareTextFromRows(rows, meta) {
   const teeLabel = meta.mixedTees ? '⛳ Blandat tee' : `${teeIconFor(meta.tee)} ${meta.tee}`;
   const wx = meta.weather && WEATHER[meta.weather] ? ` · ${WEATHER[meta.weather].e} ${WEATHER[meta.weather].l}` : '';
   const header = `⛳ ${meta.courseName} · ${teeLabel} · ${meta.holes} hål · ${meta.date}${wx}`;
-  const lines = rows.map((r, i) => `${medals[i]||''} ${r.name}: ${r.points} poäng`);
+  const lines = rows.map((r, i) => `${medals[i]||''} ${r.name}: ${r.points} poäng${Number.isFinite(r.strokes) ? ` · ${r.strokes} slag` : ''}`);
   const tailParts = [];
   if (meta.highlight) tailParts.push(meta.highlight);
   if (meta.note) tailParts.push(`📝 "${meta.note}"`);
@@ -7526,7 +7528,7 @@ async function shareRound(id) {
   if (!r) return;
   const rows = [...r.subjects]
     .sort((a, b) => b.totalPoints - a.totalPoints)
-    .map(s => ({ name: s.name, points: s.totalPoints }));
+    .map(s => ({ name: s.name, points: s.totalPoints, strokes: s.totalBrutto }));
   const pseudo = r.subjects.map(s => ({ subj: { name: s.name }, rows: s.rows }));
   const matchLine = r.gameMode === 'match' ? matchResultText(pseudo) : '';
   const highlightsText = buildHighlightsText(pseudo, r.markers || null);
@@ -7562,7 +7564,7 @@ async function shareResult() {
   let rows, highlight;
   if (lr && lr.length) {
     rows = lr.slice().sort((a, b) => b.totalPoints - a.totalPoints)
-      .map(r => ({ name: r.subj.name, points: r.totalPoints }));
+      .map(r => ({ name: r.subj.name, points: r.totalPoints, strokes: r.totalBrutto }));
     const matchLine = lr[0]?.isMatch ? matchResultText(lr) : '';
     const highlightsText = buildHighlightsText(lr, window._lastMarkers || null);
     highlight = [matchLine, highlightsText].filter(Boolean).join('\n');

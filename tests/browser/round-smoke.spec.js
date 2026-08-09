@@ -36,6 +36,8 @@ test('select course, score two players, finish and find the saved round', async 
   await expect(page.locator('#rankingContainer')).toContainText('Ada');
   await expect(page.locator('#rankingContainer')).toContainText('Bo');
   await expect(page.locator('#rankingContainer .rank-pts')).toHaveCount(2);
+  await expect(page.locator('#rankingContainer')).toContainText('36 slag');
+  await expect(page.locator('#rankingContainer')).toContainText('45 slag');
 
   const savedRounds = await page.evaluate(() => JSON.parse(localStorage.getItem('golf_rounds_db') || '[]'));
   expect(savedRounds).toHaveLength(1);
@@ -47,4 +49,6 @@ test('select course, score two players, finish and find the saved round', async 
   await expect(page.locator('#historyView')).toBeVisible();
   await expect(page.locator('#historyList')).toContainText('Binga Golf');
   await expect(page.locator('#historyList')).toContainText('Ada');
+  await expect(page.locator('#historyList')).toContainText('36 slag');
+  await expect(page.locator('#historyList')).toContainText('45 slag');
 });
