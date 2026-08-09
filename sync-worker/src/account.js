@@ -24,9 +24,9 @@ function validSnapshot(value) {
 }
 
 async function sendMagicLink(env, email, token, idempotencyKey) {
-  if (!env.RESEND_API_KEY || !env.ACCOUNT_FROM_EMAIL || !env.APP_BASE_URL) throw new Error('Account email is not configured');
+  if (!env.RESEND_API_KEY || !env.ACCOUNT_FROM_EMAIL || !env.APP_BASE_URL || !env.ACCOUNT_API_BASE) throw new Error('Account email is not configured');
   const base = String(env.APP_BASE_URL).replace(/#.*$/, '');
-  const link = `${base}#account_token=${encodeURIComponent(token)}`;
+  const link = `${base}#account_token=${encodeURIComponent(token)}&account_api=${encodeURIComponent(env.ACCOUNT_API_BASE)}`;
   const response = await fetch('https://api.resend.com/emails', {
     method: 'POST',
     headers: {

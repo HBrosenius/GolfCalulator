@@ -38,7 +38,7 @@ test('select course, score two players, finish and find the saved round', async 
   expect(savedRounds[0].subjects.map(subject => subject.name)).toEqual(['Ada', 'Bo']);
 
   await page.locator('#step5 button', { hasText: 'Ny runda' }).click();
-  await page.locator('#step1 button', { hasText: 'Sparade rundor' }).click();
+  await page.locator('[data-primary-nav="rounds"]').click();
   await expect(page.locator('#historyView')).toBeVisible();
   await expect(page.locator('#historyList')).toContainText('Binga Golf');
   await expect(page.locator('#historyList')).toContainText('Ada');

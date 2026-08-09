@@ -3437,8 +3437,16 @@ function accountSessionSave(session) {
   updateAccountButton();
 }
 
-function accountApi() {
-  return GolfAccountSync.createClient(liveSyncClient.baseUrl);
+const ACCOUNT_API_ALLOWLIST = new Set([
+  'https://golfcalc-sync.golfcalc-sync.workers.dev',
+  'https://golfcalc-sync-staging.golfcalc-sync.workers.dev',
+]);
+
+function accountApi(apiBase) {
+  const sessionBase = accountSessionLoad()?.apiBase;
+  const selected = ACCOUNT_API_ALLOWLIST.has(apiBase) ? apiBase :
+    (ACCOUNT_API_ALLOWLIST.has(sessionBase) ? sessionBase : liveSyncClient.baseUrl);
+  return GolfAccountSync.createClient(selected);
 }
 
 function setAccountStatus(message, kind = 'ok') {
@@ -3495,10 +3503,11 @@ async function requestAccountLink() {
   }
 }
 
-async function exchangeAccountLink(token) {
+async function exchangeAccountLink(token, apiBase) {
   try {
-    const result = await accountApi().exchange(token);
-    accountSessionSave({ token: result.sessionToken, expiresAt: result.expiresAt, user: result.user });
+    const selectedBase = ACCOUNT_API_ALLOWLIST.has(apiBase) ? apiBase : liveSyncClient.baseUrl;
+    const result = await accountApi(selectedBase).exchange(token);
+    accountSessionSave({ token: result.sessionToken, expiresAt: result.expiresAt, user: result.user, apiBase: selectedBase });
     history.replaceState(null, '', location.pathname + location.search);
     openAccountView();
     setAccountStatus('Du är inloggad. Tryck på Synkronisera nu för att slå ihop data från dina enheter.');
@@ -6656,7 +6665,8 @@ try { syncSharedTourSubmissions(); } catch(e) {}
 try { updateAccountButton(); } catch(e) {}
 try {
   const accountToken = new URLSearchParams(location.hash.slice(1)).get('account_token');
-  if (accountToken) exchangeAccountLink(accountToken);
+  const accountApiBase = new URLSearchParams(location.hash.slice(1)).get('account_api');
+  if (accountToken) exchangeAccountLink(accountToken, accountApiBase);
 } catch(e) {}
 window.addEventListener('online', () => {
   syncSharedTourSubmissions();

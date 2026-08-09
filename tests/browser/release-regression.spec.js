@@ -202,7 +202,7 @@ test('magic-link sign-in preserves local use and uploads a merged cloud snapshot
     } else await route.fulfill({ status: 204 });
   });
 
-  await page.goto(`/index.html#account_token=${'t'.repeat(43)}`);
+  await page.goto(`/index.html#account_token=${'t'.repeat(43)}&account_api=${encodeURIComponent('https://golfcalc-sync.golfcalc-sync.workers.dev')}`);
   await expect(page.locator('#accountView')).toBeVisible();
   await expect(page.locator('#accountContent')).toContainText('ada@example.com');
   await page.getByRole('button', { name: /Synkronisera nu/ }).click();
