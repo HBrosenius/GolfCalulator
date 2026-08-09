@@ -65,7 +65,16 @@ describe('secure live-room protocol', () => {
   it('reports the deployed protocol version for staging health checks', async () => {
     const response = await SELF.fetch('https://worker.test/health');
     expect(response.status).toBe(200);
-    expect(await response.json()).toEqual({ ok: true, protocolVersion: PROTOCOL_VERSION });
+    expect(await response.json()).toMatchObject({ ok: true, protocolVersion: PROTOCOL_VERSION, service: 'golfcalc-sync' });
+  });
+
+  it('accepts bounded anonymous browser error reports without echoing details', async () => {
+    const response = await SELF.fetch('https://worker.test/monitor/client-error', {
+      method: 'POST', headers: { 'Content-Type': 'application/json', 'CF-Connecting-IP': crypto.randomUUID() },
+      body: JSON.stringify({ kind: 'error', message: 'render failed', source: 'index.html', line: 42 }),
+    });
+    expect(response.status).toBe(204);
+    expect(await response.text()).toBe('');
   });
 
   it('creates public state without leaking stored credentials', async () => {

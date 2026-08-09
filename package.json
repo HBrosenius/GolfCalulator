@@ -9,7 +9,8 @@
     "test:unit": "node --test tests/*.test.js && npm --prefix sync-worker test",
     "test:scoring": "node --test tests/scoring.test.js",
     "test:worker": "npm --prefix sync-worker test",
-    "test:browser": "playwright test"
+    "test:browser": "playwright test",
+    "smoke:production": "node scripts/production-smoke.mjs"
   },
   "devDependencies": {
     "@playwright/test": "1.62.1"

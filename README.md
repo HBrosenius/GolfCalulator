@@ -260,6 +260,17 @@ Inför en release körs `npm run verify:release`. Kommandot kör hela testsviten
 5. Exportera och återimportera en säkerhetskopia samt kontrollera att spelarkopplingar och historik finns kvar efter ett namnbyte.
 6. Publicera en tour, öppna inbjudan på en andra enhet, välj en annan spelare ur tourens startfält och spara en runda; kontrollera att ställningen uppdateras automatiskt på båda enheterna.
 
+Ett schemalagt GitHub Actions-jobb kör dessutom `npm run smoke:production` var sjätte timme. Det kontrollerar appen och Worker-hälsan, verifierar inloggningskontraktet, skapar en isolerad testtour, rapporterar en runda, inväntar resultatet via WebSocket och tar därefter bort testtouren.
+
+### Driftövervakning
+
+- Cloudflare Workers Logs och traces är aktiverade. Worker-händelser loggas som strukturerade JSON-objekt med stabila händelsenamn för bland annat HTTP-fel, e-post, push och schemalagda hälsokontroller.
+- Den dagliga cron-körningen verifierar även D1 och larmar om kontrollen misslyckas. `ALERT_WEBHOOK_URL` kan sättas som en Worker secret för larm till valfri webhook.
+- `SENTRY_DSN` kan sättas som en Worker secret för att skicka både Worker-fel och sanerade webbläsarfel till Sentry. Ingen DSN eller annan övervakningsnyckel finns i klientkoden.
+- Webbläsaren rapporterar ohanterade fel och tourrundor som fortfarande ligger i synkkön efter tre försök. Rapporterna innehåller inte kontotoken, e-post, resultatdata eller push-endpoints.
+- Realtidsloggar kan läsas med `npx wrangler tail --env production --format json`; historiska loggar och filtrering finns under Worker-tjänstens **Observability** i Cloudflare.
+- Sätt hemligheter interaktivt från `sync-worker`: `npx wrangler secret put SENTRY_DSN --env production` och `npx wrangler secret put ALERT_WEBHOOK_URL --env production`.
+
 ## Kom igång
 
 1. Ladda ner `index.html`

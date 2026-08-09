@@ -1,4 +1,5 @@
 import webpush from 'web-push';
+import { reportOperationalError, structuredLog } from './observability.js';
 import { bearerToken, hashToken } from './auth.js';
 import { userForSession } from './account.js';
 
@@ -76,9 +77,10 @@ export async function notifyUsers(env, userIds, category, payload) {
         vapidDetails: { subject: env.VAPID_SUBJECT, publicKey: env.VAPID_PUBLIC_KEY, privateKey: env.VAPID_PRIVATE_KEY },
         TTL: category === 'reminders' ? 86400 : 3600,
       });
+      structuredLog('info', 'push_delivery_succeeded', { component: 'push', category });
     } catch (error) {
       if ([404, 410].includes(error?.statusCode)) await env.ACCOUNTS_DB.prepare('DELETE FROM push_subscriptions WHERE id = ?').bind(row.id).run();
-      else console.error(JSON.stringify({ level: 'error', message: 'push_delivery_failed', status: error?.statusCode || 0 }));
+      else await reportOperationalError(env, 'push_delivery_failed', { component: 'push', category, status: error?.statusCode || 0, error: error?.message || String(error) });
     }
   }));
 }

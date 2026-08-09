@@ -18,7 +18,7 @@
 <script src="src/round-extras.js?v=20260809-2"></script>
 <script src="src/live-round.js?v=20260809-2"></script>
 <script src="src/tour-rules.js?v=20260809-2"></script>
-<script src="src/tour-sync.js?v=20260809-4"></script>
+<script src="src/tour-sync.js?v=20260809-5"></script>
 <script src="src/account-sync.js?v=20260809-7"></script>
 <script>
 // Apply saved/system theme before first paint to avoid a flash of the wrong theme.
@@ -677,7 +677,7 @@
   .tour-standings-title { font-size: 1.05rem; font-weight: 800; color: var(--heading); }
   .tour-standings-caption { font-size: 0.72rem; color: var(--muted); text-align: right; }
   .tour-standing-row {
-    display: grid; grid-template-columns: 42px minmax(0, 1fr) auto;
+    display: grid; grid-template-columns: 42px 38px minmax(0, 1fr) auto;
     align-items: center; gap: 10px; padding: 11px 12px; margin-top: 8px;
     background: rgba(255,255,255,.92); border: 1px solid rgba(30,100,60,.11);
     border-radius: 12px;
@@ -689,13 +689,21 @@
   .tour-standing-place { text-align: center; font-size: .78rem; font-weight: 800; color: var(--muted); }
   .tour-standing-medal { display: block; font-size: 1.65rem; line-height: 1; margin-bottom: 2px; }
   .tour-standing-name { min-width: 0; font-weight: 750; color: var(--heading); overflow-wrap: anywhere; }
+  .tour-standing-avatar {
+    width: 38px; height: 38px; border-radius: 50%; overflow: hidden;
+    display: flex; align-items: center; justify-content: center;
+    background: #dcefe3; border: 2px solid rgba(31,107,63,.35);
+    color: var(--green-dark); font-size: .78rem; font-weight: 850;
+  }
+  .tour-standing-avatar img { width: 100%; height: 100%; object-fit: cover; }
   .tour-standing-rounds { margin-top: 2px; font-size: .73rem; color: var(--muted); }
   .tour-standing-score { text-align: right; color: var(--heading); font-size: 1.45rem; font-weight: 850; line-height: 1; }
   .tour-standing-score span { display: block; margin-top: 4px; font-size: .65rem; font-weight: 650; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; }
   .tour-standings-empty { margin: 4px 0 0; padding: 14px; text-align: center; color: var(--muted); font-size: .85rem; }
   @media (max-width: 420px) {
     .tour-standings { padding: 13px; }
-    .tour-standing-row { grid-template-columns: 38px minmax(0, 1fr) auto; padding: 10px 9px; }
+    .tour-standing-row { grid-template-columns: 34px 34px minmax(0, 1fr) auto; padding: 10px 8px; gap: 7px; }
+    .tour-standing-avatar { width: 34px; height: 34px; }
     .tour-standing-score { font-size: 1.25rem; }
   }
 
@@ -4071,6 +4079,15 @@ function goToStep(n) {
 // UI comes in later phases — until state.liveRoomCode is set (by that UI),
 // every function here is a guarded no-op, so solo scoring is unaffected.
 const liveSyncClient = GolfLiveSync.createClient();
+
+function reportClientOperationalError(kind, message, source = '', line = null) {
+  const payload = { kind, message: String(message || 'Okänt klientfel').slice(0, 300), source: String(source || '').slice(0, 200) };
+  if (Number.isInteger(line)) payload.line = line;
+  fetch(`${liveSyncClient.baseUrl}/monitor/client-error`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload),
+    keepalive: true, credentials: 'omit',
+  }).catch(() => {});
+}
 const LIVE_PROTOCOL_VERSION = GolfLiveSync.PROTOCOL_VERSION;
 const LIVE_SYNC_POLL_MS = 4000;
 const LIVE_SYNC_PUSH_DEBOUNCE_MS = 600;
@@ -5935,8 +5952,11 @@ function renderTourStandings(standings, emptyText = 'Inga rundor ännu.') {
     const name = row.player.nick || row.player.name;
     const counted = Number(row.roundsCounted) || 0;
     const played = Number(row.roundsPlayed) || 0;
+    const photo = _photoForName(name);
+    const initials = name.split(/\s+/).filter(Boolean).slice(0, 2).map(part => part[0]).join('').toLocaleUpperCase('sv-SE');
     return `<div class="tour-standing-row">
       <div class="tour-standing-place">${medals[index] ? `<span class="tour-standing-medal" aria-label="Placering ${index + 1}">${medals[index]}</span>` : ''}#${index + 1}</div>
+      <div class="tour-standing-avatar">${photo ? `<img src="${escapeHtml(photo)}" alt="">` : escapeHtml(initials || '?')}</div>
       <div><div class="tour-standing-name">${escapeHtml(name)}</div><div class="tour-standing-rounds">${counted} räknade av ${played} spelade rundor</div></div>
       <div class="tour-standing-score">${row.total}<span>poäng</span></div>
     </div>`;
@@ -5945,6 +5965,12 @@ function renderTourStandings(standings, emptyText = 'Inga rundor ännu.') {
     <div class="tour-standings-header"><div class="tour-standings-title">🏆 Tourställning</div><div class="tour-standings-caption">Bäst resultat först</div></div>
     ${rows || `<p class="tour-standings-empty">${escapeHtml(emptyText)}</p>`}
   </section>`;
+}
+
+let _tourActivityFilter = 'all';
+function setTourActivityFilter(value, code) {
+  _tourActivityFilter = ['all', 'rounds', 'members', 'administration'].includes(value) ? value : 'all';
+  renderSharedTourDetail(code);
 }
 
 function renderSharedTourDetail(code) {
@@ -6036,8 +6062,15 @@ function renderSharedTourDetail(code) {
     member_left: 'lämnade touren', membership_updated: 'ändrade ett medlemskap', ownership_transferred: 'överförde ägarskapet',
     administrator_updated: 'ändrade en administratör', round_corrected: 'korrigerade en runda', announcement_posted: 'publicerade ett meddelande',
   };
-  const activityRows = (record.activity || []).slice(0, 12).map(event => {
+  const activityGroups = {
+    rounds: new Set(['round_recorded', 'round_corrected']),
+    members: new Set(['member_joined', 'member_removed', 'member_restored', 'member_left', 'membership_updated']),
+    administration: new Set(['tour_created', 'organizer_account_linked', 'invitation_rotated', 'conditions_updated', 'tour_completed', 'tour_completed_automatically', 'tour_cancelled', 'ownership_transferred', 'administrator_updated', 'announcement_posted']),
+  };
+  const filteredActivity = (record.activity || []).filter(event => _tourActivityFilter === 'all' || activityGroups[_tourActivityFilter]?.has(event.type));
+  const activityRows = filteredActivity.slice(0, 50).map(event => {
     const detail = event.type === 'round_recorded' ? ` · ${escapeHtml(event.details?.courseName || '')}` :
+      event.type === 'round_corrected' ? ` · ${escapeHtml(event.details?.courseName || '')}${event.details?.reason ? ` · anledning: ${escapeHtml(event.details.reason)}` : ''}` :
       event.type === 'ownership_transferred' ? ` · ny ägare ${escapeHtml(event.details?.newOrganizerName || '')}` :
       event.details?.memberName ? ` · ${escapeHtml(event.details.memberName)}` : '';
     const system = event.actorRole === 'system';
@@ -6072,7 +6105,15 @@ function renderSharedTourDetail(code) {
     ${(tour.members || []).map(member => `<div class="hi-row"><strong>${escapeHtml(member.name)}</strong><span style="float:right;color:var(--muted);">HCP ${member.hi}</span></div>`).join('') || '<p>Inga deltagare.</p>'}
     ${standingsPanel}
     <div class="card-title" style="margin-top:16px;">Rundor</div>${roundRows || '<p style="color:var(--muted);font-size:0.85rem;">Inga rundor ännu.</p>'}
-    <div class="card-title" style="margin-top:16px;">Aktivitet</div>${activityRows || '<p style="color:var(--muted);font-size:0.85rem;">Ingen aktivitet har registrerats ännu.</p>'}
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-top:16px;">
+      <div class="card-title" style="margin:0;">Ändringslogg</div>
+      <select aria-label="Filtrera ändringslogg" onchange="setTourActivityFilter(this.value,'${escapeHtml(record.code)}')" style="width:auto;max-width:170px;">
+        <option value="all"${_tourActivityFilter === 'all' ? ' selected' : ''}>Alla händelser</option>
+        <option value="rounds"${_tourActivityFilter === 'rounds' ? ' selected' : ''}>Rundor</option>
+        <option value="members"${_tourActivityFilter === 'members' ? ' selected' : ''}>Medlemmar</option>
+        <option value="administration"${_tourActivityFilter === 'administration' ? ' selected' : ''}>Administration</option>
+      </select>
+    </div>${activityRows || '<p style="color:var(--muted);font-size:0.85rem;">Inga händelser matchar filtret.</p>'}
     ${myMembership}
     ${organizerControls}
     ${record.role !== 'organizer' ? `<button class="btn secondary" style="margin-top:16px;color:var(--danger);" onclick="removeSharedTour('${escapeHtml(record.code)}')">Ta bort från den här enheten</button>` : ''}
@@ -6126,6 +6167,9 @@ async function syncSharedTourSubmissions(onlyCode = null) {
       submissionId: result.ok ? result.response.round.id : null,
     };
     changed = true;
+  });
+  results.filter(result => !result.ok && result.attempts >= 3).forEach(result => {
+    reportClientOperationalError('error', `Tour submission remains queued after ${result.attempts} attempts`, 'tour-sync');
   });
   if (changed) roundsSave(rounds);
   renderActiveToursCard();
@@ -7337,6 +7381,8 @@ try { _populateOriginLabelInput(); } catch(e) {}
 try { acceptSharedTourInvitationIfPresent(); } catch(e) {}
 try { syncSharedTourSubmissions(); } catch(e) {}
 try { updateAccountButton(); } catch(e) {}
+window.addEventListener('error', event => reportClientOperationalError('error', event.message, event.filename, event.lineno));
+window.addEventListener('unhandledrejection', event => reportClientOperationalError('unhandledrejection', event.reason?.message || String(event.reason || 'Okänt Promise-fel'), 'promise'));
 try { renderFirstRun(); } catch(e) {}
 try {
   const accountToken = new URLSearchParams(location.hash.slice(1)).get('account_token');

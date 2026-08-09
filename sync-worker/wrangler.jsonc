@@ -34,6 +34,7 @@
     "production": {
       "name": "golfcalc-sync",
       "vars": {
+        "ENVIRONMENT": "production",
         "APP_BASE_URL": "https://hbrosenius.github.io/GolfCalulator/",
         "ACCOUNT_API_BASE": "https://golfcalc-sync.golfcalc-sync.workers.dev",
         "ACCOUNT_FROM_EMAIL": "Poängbogey <login@golf.brosenius.se>"
@@ -58,6 +59,7 @@
     "staging": {
       "name": "golfcalc-sync-staging",
       "vars": {
+        "ENVIRONMENT": "staging",
         "APP_BASE_URL": "https://hbrosenius.github.io/GolfCalulator/",
         "ACCOUNT_API_BASE": "https://golfcalc-sync-staging.golfcalc-sync.workers.dev",
         "ACCOUNT_FROM_EMAIL": "Poängbogey <login@golf.brosenius.se>"

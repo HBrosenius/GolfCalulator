@@ -1,4 +1,5 @@
 import { bearerToken, generateToken, hashToken } from './auth.js';
+import { reportOperationalError, structuredLog } from './observability.js';
 
 const LOGIN_TTL_MS = 15 * 60 * 1000;
 const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000;
@@ -231,9 +232,10 @@ export async function requestMagicLink(body, request, env) {
   ]);
   try {
     await sendMagicLink(env, email, token, tokenHash);
+    structuredLog('info', 'magic_link_delivered', { component: 'email', provider: 'resend' });
   } catch (error) {
     await env.ACCOUNTS_DB.prepare('DELETE FROM login_tokens WHERE token_hash = ?').bind(tokenHash).run();
-    console.error(JSON.stringify({ level: 'error', message: 'magic_link_delivery_failed' }));
+    await reportOperationalError(env, 'magic_link_delivery_failed', { component: 'email', provider: 'resend', error: error?.message || String(error) }, null, { alert: true });
   }
   return accepted();
 }
@@ -266,7 +268,7 @@ export async function exchangeMagicLink(body, env, ctx = null) {
   await addSecurityEvent(env, user.id, 'session_created', device.deviceName, { deviceType: device.deviceType });
   if (existingUser) {
     const alert = sendNewDeviceAlert(env, user.email, device.deviceName, now)
-      .catch(() => console.error(JSON.stringify({ level: 'error', message: 'new_device_alert_failed' })));
+      .catch(error => reportOperationalError(env, 'new_device_alert_failed', { component: 'email', provider: 'resend', error: error?.message || String(error) }));
     if (ctx) ctx.waitUntil(alert); else await alert;
   }
   return accountJson({ sessionToken, sessionId, expiresAt: now + SESSION_TTL_MS, user });

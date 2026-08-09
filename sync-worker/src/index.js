@@ -4,6 +4,7 @@ import { Tour } from './tour.js';
 import { PROTOCOL_VERSION, readJson, validateCreate } from './validation.js';
 import { TOUR_SCHEMA_VERSION, validateTourCreate } from './tour-validation.js';
 import { deletePushSubscription, getPushKey, getPushSettings, notifyUsers, savePushSubscription } from './push.js';
+import { clientErrorPayload, reportOperationalError, structuredLog } from './observability.js';
 import {
   accountIdentity, deleteAccount, deleteSession, exchangeMagicLink, exportAccount, forgetAccountTour, getAccount, getProfile,
   getCareerStats, getSnapshot, listAccountSessions, listAccountTours, listSecurityEvents, putProfile, putSnapshot, rememberAccountTour,
@@ -124,7 +125,16 @@ async function createTour(request, env) {
 async function route(request, env, ctx = null) {
   const url = new URL(request.url);
   if (url.pathname === '/health' && request.method === 'GET') {
-    return json({ ok: true, protocolVersion: PROTOCOL_VERSION });
+    return json({ ok: true, protocolVersion: PROTOCOL_VERSION, service: 'golfcalc-sync', release: env.RELEASE_VERSION || null });
+  }
+  if (url.pathname === '/monitor/client-error' && request.method === 'POST') {
+    const clientKey = `client-error:${request.headers.get('CF-Connecting-IP') || 'local'}`;
+    if (!await env.CREATE_LIMITER.getByName(clientKey).check()) return new Response(null, { status: 204 });
+    const parsed = await bodyOrResponse(request);
+    if (parsed.response) return parsed.response;
+    const payload = clientErrorPayload(parsed.body);
+    if (payload) reportOperationalError(env, 'browser_error', { component: 'browser', ...payload }, ctx);
+    return new Response(null, { status: 204 });
   }
   const parts = url.pathname.split('/').filter(Boolean);
   if (parts[0] === 'account') {
@@ -279,13 +289,6 @@ async function route(request, env, ctx = null) {
   return json({ error: 'Not found' }, 404);
 }
 
-function logError(request, error) {
-  console.error(JSON.stringify({
-    level: 'error', message: 'request_failed', method: request.method,
-    path: new URL(request.url).pathname, error: error instanceof Error ? error.message : String(error),
-  }));
-}
-
 export default {
   async fetch(request, env, ctx) {
     const origin = request.headers.get('Origin');
@@ -293,7 +296,13 @@ export default {
     if (request.method === 'OPTIONS') return new Response(null, { headers: cors });
     let response;
     try { response = await route(request, env, ctx); }
-    catch (error) { logError(request, error); response = json({ error: 'Service unavailable' }, 503); }
+    catch (error) {
+      reportOperationalError(env, 'request_failed', {
+        method: request.method, path: new URL(request.url).pathname,
+        error: error instanceof Error ? error.message : String(error),
+      }, ctx, { alert: true });
+      response = json({ error: 'Service unavailable' }, 503);
+    }
     if (response.status === 101) return response;
     const headers = new Headers(response.headers);
     Object.entries(cors).forEach(([key, value]) => headers.set(key, value));
@@ -301,12 +310,21 @@ export default {
   },
   async scheduled(_controller, env, ctx) {
     ctx.waitUntil((async () => {
-      const rows = await env.ACCOUNTS_DB.prepare('SELECT DISTINCT tour_code AS code FROM account_tours').all();
-      for (const row of rows.results || []) {
-        const tour = env.GOLF_TOURS.getByName(row.code);
-        await tour.bindCode(row.code);
-        const due = await tour.endReminderDue(Date.now());
-        if (due?.userIds?.length) await notifyUsers(env, due.userIds, 'reminders', due.payload);
+      const startedAt = Date.now();
+      try {
+        const databaseCheck = await env.ACCOUNTS_DB.prepare('SELECT 1 AS ok').first();
+        if (databaseCheck?.ok !== 1) throw new Error('D1 health check failed');
+        const rows = await env.ACCOUNTS_DB.prepare('SELECT DISTINCT tour_code AS code FROM account_tours').all();
+        for (const row of rows.results || []) {
+          const tour = env.GOLF_TOURS.getByName(row.code);
+          await tour.bindCode(row.code);
+          const due = await tour.endReminderDue(Date.now());
+          if (due?.userIds?.length) await notifyUsers(env, due.userIds, 'reminders', due.payload);
+        }
+        structuredLog('info', 'scheduled_health_check_ok', { component: 'cron', toursChecked: rows.results?.length || 0, durationMs: Date.now() - startedAt });
+      } catch (error) {
+        await reportOperationalError(env, 'scheduled_health_check_failed', { component: 'cron', error: error?.message || String(error) }, null, { alert: true });
+        throw error;
       }
     })());
   },

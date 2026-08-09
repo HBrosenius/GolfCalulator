@@ -141,7 +141,7 @@
       if (!record) return false;
       const pending = Array.isArray(record.pendingSubmissions) ? record.pendingSubmissions.slice() : [];
       const index = pending.findIndex(item => item.payload.clientRoundId === payload.clientRoundId);
-      const queued = { payload, attempts: index >= 0 ? pending[index].attempts : 0, lastError: null };
+      const queued = { payload, attempts: index >= 0 ? pending[index].attempts : 0, queuedAt: pending[index]?.queuedAt || Date.now(), lastError: null };
       if (index >= 0) pending[index] = queued;
       else pending.push(queued);
       return upsert({ ...record, pendingSubmissions: pending });
@@ -179,7 +179,7 @@
             attempts: (queued.attempts || 0) + 1,
             lastError: error.message || 'Synchronization failed',
           });
-          results.push({ code: record.code, clientRoundId: queued.payload.clientRoundId, ok: false, error });
+          results.push({ code: record.code, clientRoundId: queued.payload.clientRoundId, ok: false, attempts: (queued.attempts || 0) + 1, error });
         }
       }
     }
