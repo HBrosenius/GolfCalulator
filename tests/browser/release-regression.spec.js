@@ -679,3 +679,56 @@ test('installed PWA reloads offline and applies a deferred upgrade after an acti
   ), { timeout: 15_000 }).toBe(true);
   await expect(page.locator('#pwaUpdateNotice')).toBeHidden();
 });
+
+test('account conflict choices, notification history and privacy controls work end to end', async ({ page }) => {
+  const api = 'https://golfcalc-sync.golfcalc-sync.workers.dev';
+  const token = 's'.repeat(43);
+  let firstSaveAttempted = false;
+  let savedData;
+  let deleted = false;
+  await page.route(`${api}/account/**`, async route => {
+    const path = new URL(route.request().url()).pathname;
+    if (path === '/account/snapshot' && route.request().method() === 'GET') {
+      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({
+        version: firstSaveAttempted ? 2 : 1, updatedAt: Date.now(),
+        data: { courses: [], rounds: [{ id: 'cloud-round' }], players: [], tours: [] },
+      }) });
+    }
+    if (path === '/account/snapshot' && route.request().method() === 'PUT') {
+      const body = route.request().postDataJSON();
+      if (!firstSaveAttempted) { firstSaveAttempted = true; return route.fulfill({ status: 409, contentType: 'application/json', body: JSON.stringify({ error: 'Synkkonflikt', currentVersion: 2 }) }); }
+      savedData = body.data;
+      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ version: 3, updatedAt: Date.now() }) });
+    }
+    if (path === '/account/export') return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ format: 'poangbogey-account-export', version: 1, snapshot: { data: savedData || {} } }) });
+    if (path === '/account/me' && route.request().method() === 'DELETE') { deleted = true; return route.fulfill({ status: 204 }); }
+    if (path === '/account/profile') return route.fulfill({ status: 200, contentType: 'application/json', body: '{"profile":null}' });
+    if (path === '/account/tours') return route.fulfill({ status: 200, contentType: 'application/json', body: '{"tours":[]}' });
+    if (path === '/account/sessions') return route.fulfill({ status: 200, contentType: 'application/json', body: '{"sessions":[]}' });
+    if (path === '/account/security-events') return route.fulfill({ status: 200, contentType: 'application/json', body: '{"events":[]}' });
+    if (path === '/account/push') return route.fulfill({ status: 200, contentType: 'application/json', body: '{"enabled":false,"preferences":{}}' });
+    return route.fulfill({ status: 404, contentType: 'application/json', body: '{"error":"not found"}' });
+  });
+  await page.addInitScript(({ api, token }) => {
+    localStorage.clear();
+    localStorage.setItem('golf_account_session', JSON.stringify({ apiBase: api, token, user: { id: 'u1', email: 'ada@example.com' } }));
+    localStorage.setItem('golf_rounds_db', JSON.stringify([{ id: 'local-round' }]));
+  }, { api, token });
+  await page.goto('/index.html');
+  await page.evaluate(() => { serviceWorkerNotificationHistory = async () => [{ id: 'n1', title: '<b>Ny runda</b>', body: 'Ada registrerade 36p', url: './index.html#shared_tour=ABCD2345', at: Date.now() }]; openAccountView(); });
+  await expect(page.locator('#accountNotificationHistory')).toContainText('<b>Ny runda</b>');
+  await expect(page.locator('#accountNotificationHistory b')).toHaveCount(0);
+  await page.getByRole('button', { name: '☁️ Synkronisera nu' }).click();
+  await expect(page.locator('#accountConflictPanel')).toContainText('Synkkonflikt');
+  await page.getByRole('button', { name: 'Slå ihop båda' }).click();
+  expect(savedData.rounds.map(round => round.id).sort()).toEqual(['cloud-round', 'local-round']);
+
+  const downloadPromise = page.waitForEvent('download');
+  await page.getByRole('button', { name: /Exportera molndata/ }).click();
+  expect((await downloadPromise).suggestedFilename()).toMatch(/^poangbogey-cloud-/);
+
+  page.on('dialog', async dialog => dialog.type() === 'prompt' ? dialog.accept('ada@example.com') : dialog.accept());
+  await page.getByRole('button', { name: 'Radera konto och molndata' }).click();
+  await expect.poll(() => deleted).toBe(true);
+  expect(await page.evaluate(() => localStorage.getItem('golf_account_session'))).toBeNull();
+});

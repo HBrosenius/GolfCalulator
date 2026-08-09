@@ -53,6 +53,12 @@ describe('passwordless accounts and cloud snapshots', () => {
     });
     expect(stale.status).toBe(409);
 
+    const concurrent = await Promise.all([1, 2].map(value => SELF.fetch('https://worker.test/account/snapshot', {
+      method: 'PUT', headers: { ...headers, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ baseVersion: 1, data: { courses: [], rounds: [], players: [{ id: `p${value}` }], tours: [] } }),
+    })));
+    expect(concurrent.map(response => response.status).sort()).toEqual([200, 409]);
+
     expect((await SELF.fetch('https://worker.test/account/session', { method: 'DELETE', headers })).status).toBe(204);
     expect((await SELF.fetch('https://worker.test/account/me', { headers })).status).toBe(401);
   });
@@ -111,6 +117,9 @@ describe('passwordless accounts and cloud snapshots', () => {
         .bind(await hashToken(sessionToken), userId, now + 60_000, now, now),
       env.ACCOUNTS_DB.prepare('INSERT INTO account_snapshots (user_id,version,payload,updated_at) VALUES (?,?,?,?)')
         .bind(userId, 1, JSON.stringify({ courses: [], rounds: [], players: [], tours: [] }), now),
+      env.ACCOUNTS_DB.prepare('INSERT INTO account_security_events (id,user_id,event_type,created_at) VALUES (?,?,?,?)').bind(crypto.randomUUID(), userId, 'session_created', now),
+      env.ACCOUNTS_DB.prepare('INSERT INTO push_subscriptions (id,user_id,session_id,endpoint,p256dh,auth,preferences,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?)')
+        .bind(crypto.randomUUID(), userId, null, `https://fcm.googleapis.com/fcm/send/${userId}`, 'A'.repeat(65), 'B'.repeat(22), '{}', now, now),
     ]);
     expect((await SELF.fetch('https://worker.test/account/me', { method: 'DELETE' })).status).toBe(401);
     expect((await SELF.fetch('https://worker.test/account/me', {
@@ -118,6 +127,28 @@ describe('passwordless accounts and cloud snapshots', () => {
     })).status).toBe(204);
     expect(await env.ACCOUNTS_DB.prepare('SELECT id FROM users WHERE id = ?').bind(userId).first()).toBeNull();
     expect(await env.ACCOUNTS_DB.prepare('SELECT user_id FROM account_snapshots WHERE user_id = ?').bind(userId).first()).toBeNull();
+    expect(await env.ACCOUNTS_DB.prepare('SELECT user_id FROM push_subscriptions WHERE user_id = ?').bind(userId).first()).toBeNull();
+    expect(await env.ACCOUNTS_DB.prepare('SELECT user_id FROM account_security_events WHERE user_id = ?').bind(userId).first()).toBeNull();
+  });
+
+  it('exports a portable archive without session credentials or push endpoints', async () => {
+    const userId = crypto.randomUUID();
+    const token = 'x'.repeat(43);
+    const now = Date.now();
+    await env.ACCOUNTS_DB.batch([
+      env.ACCOUNTS_DB.prepare('INSERT INTO users (id,email,created_at,last_login_at) VALUES (?,?,?,?)').bind(userId, `${userId}@example.com`, now, now),
+      env.ACCOUNTS_DB.prepare('INSERT INTO sessions (token_hash,user_id,expires_at,created_at,last_seen_at,session_id,device_name,device_type) VALUES (?,?,?,?,?,?,?,?)')
+        .bind(await hashToken(token), userId, now + 60_000, now, now, crypto.randomUUID(), 'Chrome', 'desktop'),
+      env.ACCOUNTS_DB.prepare('INSERT INTO account_snapshots (user_id,version,payload,updated_at) VALUES (?,?,?,?)')
+        .bind(userId, 2, JSON.stringify({ courses: [], rounds: [{ id: 1 }], players: [], tours: [] }), now),
+    ]);
+    const response = await SELF.fetch('https://worker.test/account/export', { headers: { Authorization: `Bearer ${token}` } });
+    expect(response.status).toBe(200);
+    const archive = await response.json();
+    expect(archive).toMatchObject({ format: 'poangbogey-account-export', version: 1, account: { id: userId }, snapshot: { version: 2 } });
+    expect(archive.snapshot.data.rounds).toEqual([{ id: 1 }]);
+    expect(JSON.stringify(archive)).not.toContain(token);
+    expect(JSON.stringify(archive)).not.toContain('tokenHash');
   });
 
   it('names and remotely revokes sessions while keeping a security log', async () => {
@@ -159,7 +190,7 @@ describe('passwordless accounts and cloud snapshots', () => {
     ]);
     const headers = { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' };
     const saved = await SELF.fetch('https://worker.test/account/push', { method: 'PUT', headers, body: JSON.stringify({
-      subscription: { endpoint: 'https://push.example.test/subscription', keys: { p256dh: 'A'.repeat(65), auth: 'B'.repeat(22) } },
+      subscription: { endpoint: 'https://fcm.googleapis.com/fcm/send/subscription', keys: { p256dh: 'A'.repeat(65), auth: 'B'.repeat(22) } },
       preferences: { rounds: false, reminders: true },
     }) });
     expect(saved.status).toBe(200);

@@ -238,7 +238,7 @@ När en uppdatering är redo visas **En ny version finns** med knappen **Uppdate
 
 Kärnlogiken ligger i fristående moduler under `src/`: poängberäkning, lokal lagring och migrering, live-API samt klientvalidering. Modulerna fungerar både direkt i webbläsaren och från Node-tester utan byggsteg. Rendering och vyhantering ligger fortfarande i `index.html`.
 
-Kör hela testsviten med `npm test`. Den omfattar regel- och lagringstester, Worker-tester, återanslutning till live-rundor, export/import och migrering samt webbläsartester av en komplett sparad runda, delade tourinbjudningar, val av valfri tourspelare, offlinekö och synk, automatisk ställningsuppdatering, startsidevisning av pågående tourer, mobil/dark-mode-layout, offline-återladdning och säkra PWA-uppgraderingar.
+Kör hela testsviten med `npm test`. Den omfattar regel- och lagringstester, Worker-tester, återanslutning till live-rundor, export/import och migrering samt webbläsartester av en komplett sparad runda, kontoinloggning och molnsynk, konflikthantering, kontoexport/radering, notishistorik, delade tourinbjudningar, offlinekö och synk, automatisk ställningsuppdatering, mobil/dark-mode-layout, offline-återladdning och säkra PWA-uppgraderingar.
 
 Inför en release körs `npm run verify:release`. Kommandot kör hela testsviten, validerar Worker-konfigurationen med en torrkörning och kontrollerar båda beroendeträden efter kända sårbarheter. Första gången behövs `npm ci`, `npm ci --prefix sync-worker` och `npx playwright install chromium`.
 
@@ -271,16 +271,21 @@ ihop banor, rundor, spelare och lokala tourer mellan enheter.
 
 - Inloggningslänkar gäller i 15 minuter och kan bara användas en gång.
 - Sessioner kan återkallas och gäller i upp till 30 dagar.
-- Synkronisering är icke-destruktiv och använder versionskontroll för samtidiga
-  ändringar.
+- Synkronisering är icke-destruktiv och använder en atomisk versionskontroll för
+  samtidiga ändringar. Om molnet ändras under en synkning får användaren välja
+  mellan att slå ihop båda kopiorna, använda molnets kopia eller behålla den
+  lokala kopian.
 - Synkronisering sker automatiskt efter inloggning, vid appstart, när nätverket
   kommer tillbaka och efter ändringar i banor, rundor, spelare eller lokala
   tourer. Snabba ändringar samlas ihop och appen fortsätter alltid spara lokalt
   utan att vänta på nätverket.
 - Kontovyn visar om data är synkroniserad, väntar på nätverk eller behöver ett
   nytt försök samt tidpunkten för senaste lyckade synkronisering.
-- Molndatan kan exporteras som JSON. Kontot och all molndata kan raderas
-  permanent utan att lokal data på enheten tas bort.
+- En fullständig kontoexport i JSON innehåller profil, synkdata, tourmedlemskap,
+  sessionsmetadata, säkerhetslogg och notisinställningar, men aldrig
+  sessionsnycklar eller push-endpoints. Kontot och all molndata kan raderas
+  permanent efter bekräftelse med e-postadressen utan att lokal data på enheten
+  tas bort. Kontoidentiteten kopplas samtidigt loss från delade tourer.
 - Kontodata lagras i Cloudflare D1 och e-post levereras via Resend från
   `login@golf.brosenius.se`.
 - Resend-nyckeln lagras endast som en Worker secret och skickas aldrig till
@@ -307,6 +312,9 @@ ihop banor, rundor, spelare och lokala tourer mellan enheter.
   öppnar rätt delad tour direkt. Prenumerationer kopplas till sessionen och
   raderas automatiskt när enheten loggas ut eller push-tjänsten meddelar att
   prenumerationen har upphört.
+- De 50 senaste mottagna pushnotiserna sparas lokalt av service workern och kan
+  läsas eller rensas under Notishistorik i kontovyn, även om appen inte var
+  öppen när notisen kom.
 - En daglig Worker-trigger skickar en påminnelse till aktiva medlemmar när en
   delad tour avslutas följande dag. VAPID-privatnyckeln lagras endast som en
   Worker-hemlighet och finns aldrig i källkod, D1 eller klienten.

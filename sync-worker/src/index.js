@@ -5,7 +5,7 @@ import { PROTOCOL_VERSION, readJson, validateCreate } from './validation.js';
 import { TOUR_SCHEMA_VERSION, validateTourCreate } from './tour-validation.js';
 import { deletePushSubscription, getPushKey, getPushSettings, notifyUsers, savePushSubscription } from './push.js';
 import {
-  accountIdentity, deleteAccount, deleteSession, exchangeMagicLink, forgetAccountTour, getAccount, getProfile,
+  accountIdentity, deleteAccount, deleteSession, exchangeMagicLink, exportAccount, forgetAccountTour, getAccount, getProfile,
   getSnapshot, listAccountSessions, listAccountTours, listSecurityEvents, putProfile, putSnapshot, rememberAccountTour,
   requestMagicLink, revokeAccountSession, revokeOtherAccountSessions, userForSession,
 } from './account.js';
@@ -141,6 +141,7 @@ async function route(request, env, ctx = null) {
     if (parts.length === 2 && parts[1] === 'session' && request.method === 'DELETE') return deleteSession(request, env);
     if (parts.length === 2 && parts[1] === 'me' && request.method === 'GET') return getAccount(request, env);
     if (parts.length === 2 && parts[1] === 'me' && request.method === 'DELETE') return deleteAccount(request, env);
+    if (parts.length === 2 && parts[1] === 'export' && request.method === 'GET') return exportAccount(request, env);
     if (parts.length === 2 && parts[1] === 'profile' && request.method === 'GET') return getProfile(request, env);
     if (parts.length === 2 && parts[1] === 'profile' && request.method === 'PUT') {
       const parsed = await bodyOrResponse(request);

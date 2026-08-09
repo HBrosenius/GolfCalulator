@@ -1,6 +1,7 @@
 const CACHE_PREFIX = 'golf-shell-';
 const META_CACHE = 'golf-cache-meta';
 const META_BASE = new URL('./__golf_cache__/', self.location.href).href;
+const NOTIFICATION_HISTORY_KEY = META_BASE + 'notification-history';
 const SHELL = [
   './',
   './index.html',
@@ -12,7 +13,7 @@ const SHELL = [
   './src/live-round.js?v=20260809-2',
   './src/tour-rules.js?v=20260809-2',
   './src/tour-sync.js?v=20260809-3',
-  './src/account-sync.js?v=20260809-5',
+  './src/account-sync.js?v=20260809-6',
   './manifest.json',
   './icon-192.png',
   './icon-512.png',
@@ -60,12 +61,34 @@ self.addEventListener('activate', event => {
 
 self.addEventListener('message', event => {
   if (event.data && event.data.type === 'SKIP_WAITING') self.skipWaiting();
+  if (event.data && event.data.type === 'GET_NOTIFICATION_HISTORY') event.waitUntil((async () => {
+    const meta = await caches.open(META_CACHE);
+    const response = await meta.match(NOTIFICATION_HISTORY_KEY);
+    const history = response ? await response.json().catch(() => []) : [];
+    event.ports?.[0]?.postMessage(Array.isArray(history) ? history : []);
+  })());
+  if (event.data && event.data.type === 'CLEAR_NOTIFICATION_HISTORY') event.waitUntil(
+    caches.open(META_CACHE).then(cache => cache.delete(NOTIFICATION_HISTORY_KEY))
+  );
 });
+
+async function rememberNotification(data) {
+  const meta = await caches.open(META_CACHE);
+  const response = await meta.match(NOTIFICATION_HISTORY_KEY);
+  const history = response ? await response.json().catch(() => []) : [];
+  const item = {
+    id: crypto.randomUUID(), title: String(data.title || 'Poängbogey').slice(0, 120),
+    body: String(data.body || 'En delad tour har uppdaterats.').slice(0, 300),
+    url: String(data.url || './index.html').slice(0, 500), at: Date.now(),
+  };
+  await meta.put(NOTIFICATION_HISTORY_KEY, Response.json([item, ...(Array.isArray(history) ? history : [])].slice(0, 50)));
+}
 
 self.addEventListener('push', event => {
   event.waitUntil((async () => {
     let data = {};
     try { data = event.data ? event.data.json() : {}; } catch (_) {}
+    await rememberNotification(data);
     await self.registration.showNotification(data.title || 'Poängbogey', {
       body: data.body || 'En delad tour har uppdaterats.', icon: './icon-192.png', badge: './icon-192.png',
       tag: data.tag || 'golf-tour', data: { url: data.url || './index.html' },

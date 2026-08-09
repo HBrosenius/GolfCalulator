@@ -14,7 +14,11 @@ function preferences(value) {
 }
 
 function validSubscription(value) {
-  return value && typeof value.endpoint === 'string' && value.endpoint.length <= 2048 && /^https:\/\//.test(value.endpoint) &&
+  let endpoint;
+  try { endpoint = new URL(value?.endpoint); } catch (_) { return false; }
+  const allowedHost = ['fcm.googleapis.com', 'updates.push.services.mozilla.com', 'push.services.mozilla.com', 'web.push.apple.com']
+    .some(host => endpoint.hostname === host || endpoint.hostname.endsWith(`.${host}`)) || endpoint.hostname.endsWith('.notify.windows.com');
+  return allowedHost && value.endpoint.length <= 2048 && endpoint.protocol === 'https:' &&
     typeof value.keys?.p256dh === 'string' && /^[A-Za-z0-9_-]{40,200}$/.test(value.keys.p256dh) &&
     typeof value.keys?.auth === 'string' && /^[A-Za-z0-9_-]{10,100}$/.test(value.keys.auth);
 }

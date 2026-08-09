@@ -42,6 +42,18 @@ test('account deletion uses authenticated DELETE without a request body', async 
   assert.equal(captured.options.body, undefined);
 });
 
+test('account export downloads the complete authenticated archive', async () => {
+  let captured;
+  const client = createClient('https://sync.test', async (url, options) => {
+    captured = { url, options };
+    return new Response(JSON.stringify({ format: 'poangbogey-account-export' }), { headers: { 'Content-Type': 'application/json' } });
+  });
+  const archive = await client.exportAccount('session-token');
+  assert.equal(captured.url, 'https://sync.test/account/export');
+  assert.equal(captured.options.headers.Authorization, 'Bearer session-token');
+  assert.equal(archive.format, 'poangbogey-account-export');
+});
+
 test('account dashboard endpoints use authenticated reads', async () => {
   const calls = [];
   const client = createClient('https://sync.test', async (url, options) => {

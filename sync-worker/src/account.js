@@ -290,8 +290,12 @@ export async function deleteSession(request, env) {
 export async function deleteAccount(request, env) {
   const user = await userForSession(request, env);
   if (!user) return accountJson({ error: 'Inte inloggad' }, 401);
+  const memberships = await env.ACCOUNTS_DB.prepare('SELECT tour_code AS code FROM account_tours WHERE user_id = ?').bind(user.id).all();
+  await Promise.all((memberships.results || []).map(item => env.GOLF_TOURS.getByName(item.code).detachAccount(user.id)));
   await env.ACCOUNTS_DB.batch([
     env.ACCOUNTS_DB.prepare('DELETE FROM login_tokens WHERE email = ?').bind(user.email),
+    env.ACCOUNTS_DB.prepare('DELETE FROM push_subscriptions WHERE user_id = ?').bind(user.id),
+    env.ACCOUNTS_DB.prepare('DELETE FROM account_security_events WHERE user_id = ?').bind(user.id),
     env.ACCOUNTS_DB.prepare('DELETE FROM account_tours WHERE user_id = ?').bind(user.id),
     env.ACCOUNTS_DB.prepare('DELETE FROM account_profiles WHERE user_id = ?').bind(user.id),
     env.ACCOUNTS_DB.prepare('DELETE FROM account_snapshots WHERE user_id = ?').bind(user.id),
@@ -299,6 +303,28 @@ export async function deleteAccount(request, env) {
     env.ACCOUNTS_DB.prepare('DELETE FROM users WHERE id = ?').bind(user.id),
   ]);
   return new Response(null, { status: 204, headers: { 'Cache-Control': 'no-store' } });
+}
+
+export async function exportAccount(request, env) {
+  const user = await userForSession(request, env);
+  if (!user) return accountJson({ error: 'Inte inloggad' }, 401);
+  const [profile, snapshot, tours, sessions, securityEvents, pushSubscriptions] = await Promise.all([
+    env.ACCOUNTS_DB.prepare('SELECT display_name AS displayName,handicap,updated_at AS updatedAt FROM account_profiles WHERE user_id = ?').bind(user.id).first(),
+    env.ACCOUNTS_DB.prepare('SELECT version,payload,updated_at AS updatedAt FROM account_snapshots WHERE user_id = ?').bind(user.id).first(),
+    env.ACCOUNTS_DB.prepare('SELECT tour_code AS code,role,member_id AS memberId,joined_at AS joinedAt FROM account_tours WHERE user_id = ? ORDER BY joined_at').bind(user.id).all(),
+    env.ACCOUNTS_DB.prepare('SELECT session_id AS id,device_name AS deviceName,device_type AS deviceType,created_at AS createdAt,last_seen_at AS lastSeenAt,expires_at AS expiresAt FROM sessions WHERE user_id = ? ORDER BY created_at').bind(user.id).all(),
+    env.ACCOUNTS_DB.prepare('SELECT id,event_type AS type,created_at AS at,device_name AS deviceName,details FROM account_security_events WHERE user_id = ? ORDER BY created_at').bind(user.id).all(),
+    env.ACCOUNTS_DB.prepare('SELECT session_id AS sessionId,preferences,created_at AS createdAt,updated_at AS updatedAt FROM push_subscriptions WHERE user_id = ? ORDER BY created_at').bind(user.id).all(),
+  ]);
+  return accountJson({
+    format: 'poangbogey-account-export', version: 1, exportedAt: new Date().toISOString(),
+    account: { id: user.id, email: user.email, createdAt: user.createdAt }, profile: profile || null,
+    snapshot: snapshot ? { version: snapshot.version, updatedAt: snapshot.updatedAt, data: JSON.parse(snapshot.payload) }
+      : { version: 0, updatedAt: null, data: { courses: [], rounds: [], players: [], tours: [] } },
+    sharedTours: tours.results || [], sessions: sessions.results || [],
+    securityEvents: (securityEvents.results || []).map(event => ({ ...event, details: event.details ? JSON.parse(event.details) : null })),
+    notificationSettings: (pushSubscriptions.results || []).map(item => ({ ...item, preferences: JSON.parse(item.preferences) })),
+  });
 }
 
 export async function getSnapshot(request, env) {
@@ -319,13 +345,16 @@ export async function putSnapshot(body, request, env) {
   const payload = JSON.stringify(body.data);
   if (encoder.encode(payload).byteLength > MAX_SNAPSHOT_BYTES) return accountJson({ error: 'Synkdata är för stor' }, 413);
   const now = Date.now();
-  const existing = await env.ACCOUNTS_DB.prepare('SELECT version FROM account_snapshots WHERE user_id = ?').bind(user.id).first();
-  const currentVersion = existing?.version || 0;
-  if (body.baseVersion !== currentVersion) return accountJson({ error: 'Synkkonflikt', currentVersion }, 409);
-  const version = currentVersion + 1;
-  await env.ACCOUNTS_DB.prepare(`
+  const version = body.baseVersion + 1;
+  const saved = await env.ACCOUNTS_DB.prepare(`
     INSERT INTO account_snapshots (user_id,version,payload,updated_at) VALUES (?,?,?,?)
     ON CONFLICT(user_id) DO UPDATE SET version=excluded.version,payload=excluded.payload,updated_at=excluded.updated_at
-  `).bind(user.id, version, payload, now).run();
+    WHERE account_snapshots.version = ?
+    RETURNING version
+  `).bind(user.id, version, payload, now, body.baseVersion).first();
+  if (!saved) {
+    const current = await env.ACCOUNTS_DB.prepare('SELECT version FROM account_snapshots WHERE user_id = ?').bind(user.id).first();
+    return accountJson({ error: 'Synkkonflikt', currentVersion: current?.version || 0 }, 409);
+  }
   return accountJson({ version, updatedAt: now });
 }

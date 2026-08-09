@@ -25,6 +25,7 @@
       exchange: (token, device = {}) => call('/account/exchange', { method: 'POST', body: { token, ...device } }),
       me: token => call('/account/me', {}, token),
       deleteAccount: token => call('/account/me', { method: 'DELETE' }, token),
+      exportAccount: token => call('/account/export', {}, token),
       profile: token => call('/account/profile', {}, token),
       saveProfile: (token, displayName, handicap) => call('/account/profile', { method: 'PUT', body: { displayName, handicap } }, token),
       tours: token => call('/account/tours', {}, token),

@@ -19,7 +19,7 @@
 <script src="src/live-round.js?v=20260809-2"></script>
 <script src="src/tour-rules.js?v=20260809-2"></script>
 <script src="src/tour-sync.js?v=20260809-3"></script>
-<script src="src/account-sync.js?v=20260809-5"></script>
+<script src="src/account-sync.js?v=20260809-6"></script>
 <script>
 // Apply saved/system theme before first paint to avoid a flash of the wrong theme.
 (function() {
@@ -3464,6 +3464,7 @@ let _accountSyncTimer = null;
 let _accountSyncPromise = null;
 let _accountSyncApplyingRemote = false;
 let _accountSyncAgain = false;
+let _accountPendingConflict = null;
 
 function accountSessionLoad() {
   const session = storageDb.load(ACCOUNT_SESSION_KEY, null);
@@ -3579,6 +3580,7 @@ function renderAccountView() {
     <select id="accountPlayer" style="width:100%;">${playerOptions ? `<option value="">— Välj spelare —</option>${playerOptions}` : '<option value="">Skapa en spelare i spelarregistret först</option>'}</select>
     <button class="btn secondary" style="margin:10px 0;" onclick="saveAccountPlayerProfile()"${playerOptions ? '' : ' disabled'}>Koppla spelarprofil</button>
     <button class="btn" onclick="syncAccountNow()">☁️ Synkronisera nu</button>
+    <div id="accountConflictPanel" class="account-status error hidden" style="margin-top:10px;"></div>
     <button class="btn secondary" style="margin-top:10px;" onclick="exportAccountData()">⬇️ Exportera molndata</button>
     <button class="btn secondary" style="margin-top:10px;" onclick="logoutAccount()">Logga ut på den här enheten</button>
     <button class="btn danger" style="margin-top:10px;" onclick="deleteCloudAccount()">Radera konto och molndata</button>
@@ -3617,6 +3619,7 @@ async function loadAccountDashboard() {
       <div class="account-metric"><strong>${sessions.length}</strong><span>aktiva sessioner</span></div>
     </div>
     <div id="accountPushSettings" class="tour-condition-row"><span>🔔</span><div><strong>Pushnotiser</strong><br><span style="color:var(--muted);font-size:.8rem;">Hämtar inställningar…</span></div></div>
+    <details style="margin:12px 0;"><summary style="cursor:pointer;font-size:.84rem;font-weight:600;">Notishistorik</summary><div id="accountNotificationHistory"><p style="color:var(--muted);font-size:.8rem;">Hämtar notiser…</p></div></details>
     <div style="font-size:.82rem;margin-bottom:12px;"><strong>Spelarprofil:</strong> ${profile ? `${escapeHtml(profile.displayName)} · HCP ${profile.handicap}` : 'Inte kopplad'}</div>
     <div class="card-title">Mina delade tourer</div>
     ${tourRows || '<p style="color:var(--muted);font-size:.82rem;">Inga kontokopplade tourer ännu.</p>'}
@@ -3629,6 +3632,38 @@ async function loadAccountDashboard() {
       ${securityEvents.slice(0, 20).map(event => `<div class="activity-row"><strong>${event.type === 'session_created' ? 'Ny inloggning' : event.type === 'session_revoked' ? 'En session loggades ut' : 'Alla andra sessioner loggades ut'}</strong>${event.deviceName ? ` · ${escapeHtml(event.deviceName)}` : ''}<br><span style="color:var(--muted);">${new Date(event.at).toLocaleString('sv-SE')}</span></div>`).join('') || '<p style="color:var(--muted);font-size:.8rem;">Inga säkerhetshändelser ännu.</p>'}
     </details>`;
   renderAccountPushSettings();
+  renderAccountNotificationHistory();
+}
+
+async function serviceWorkerNotificationHistory() {
+  if (!navigator.serviceWorker?.controller) return [];
+  return new Promise(resolve => {
+    const channel = new MessageChannel();
+    const timer = setTimeout(() => resolve([]), 1500);
+    channel.port1.onmessage = event => { clearTimeout(timer); resolve(Array.isArray(event.data) ? event.data : []); };
+    navigator.serviceWorker.controller.postMessage({ type: 'GET_NOTIFICATION_HISTORY' }, [channel.port2]);
+  });
+}
+
+async function renderAccountNotificationHistory() {
+  const element = document.getElementById('accountNotificationHistory');
+  if (!element) return;
+  const history = await serviceWorkerNotificationHistory();
+  if (!document.getElementById('accountNotificationHistory')) return;
+  element.innerHTML = history.length ? `${history.map(item => `<a class="activity-row" style="display:block;color:var(--text);text-decoration:none;" href="${escapeHtml(safeNotificationUrl(item.url))}"><strong>${escapeHtml(item.title)}</strong><br><span>${escapeHtml(item.body)}</span><br><span style="color:var(--muted);">${new Date(item.at).toLocaleString('sv-SE')}</span></a>`).join('')}<button class="btn secondary" style="margin-top:8px;" onclick="clearAccountNotificationHistory()">Rensa historik</button>`
+    : '<p style="color:var(--muted);font-size:.8rem;">Inga mottagna notiser på den här enheten.</p>';
+}
+
+function safeNotificationUrl(value) {
+  try {
+    const url = new URL(String(value || './index.html'), location.href);
+    return url.origin === location.origin && url.pathname.endsWith('/index.html') ? `${url.pathname}${url.hash}` : './index.html';
+  } catch (_) { return './index.html'; }
+}
+
+function clearAccountNotificationHistory() {
+  navigator.serviceWorker?.controller?.postMessage({ type: 'CLEAR_NOTIFICATION_HISTORY' });
+  setTimeout(renderAccountNotificationHistory, 100);
 }
 
 function pushPreferenceValues() {
@@ -3830,9 +3865,10 @@ async function syncAccountNow(options = {}) {
     } catch (error) {
       if (error.status !== 409) throw error;
       remote = await accountApi().snapshot(session.token);
-      merged = GolfAccountSync.mergeSnapshots(remote.data, localAccountSnapshot());
-      saveAccountSnapshot(merged);
-      await accountApi().saveSnapshot(session.token, remote.version, merged);
+      _accountPendingConflict = { remote, local: localAccountSnapshot() };
+      const conflict = new Error('Data ändrades på en annan enhet. Välj hur konflikten ska lösas.');
+      conflict.status = 409;
+      throw conflict;
     }
     renderSavedCourses();
     renderSavedPlayersList();
@@ -3847,6 +3883,7 @@ async function syncAccountNow(options = {}) {
       setAccountStatus('Sessionen har gått ut. Be om en ny inloggningslänk.', 'error');
     } else {
       saveAccountSyncMeta({ status: error.status === 409 ? 'conflict' : 'error', error: error.message || 'Synkroniseringen misslyckades.' });
+      if (error.status === 409) renderAccountConflictPanel();
       if (!silent) setAccountStatus(error.message || 'Synkroniseringen misslyckades.', 'error');
     }
    } finally {
@@ -3860,13 +3897,38 @@ async function syncAccountNow(options = {}) {
   return _accountSyncPromise;
 }
 
+function renderAccountConflictPanel() {
+  const panel = document.getElementById('accountConflictPanel');
+  if (!panel || !_accountPendingConflict) return;
+  panel.classList.remove('hidden');
+  panel.innerHTML = '<strong>Synkkonflikt</strong><br><span style="font-size:.8rem;">Molndatan ändrades under synkningen. Välj vilken kopia som ska användas.</span><div style="display:grid;gap:6px;margin-top:8px;"><button class="btn secondary" onclick="resolveAccountConflict(\'merge\')">Slå ihop båda</button><button class="btn secondary" onclick="resolveAccountConflict(\'cloud\')">Använd molnets kopia</button><button class="btn secondary" onclick="resolveAccountConflict(\'local\')">Behåll den här enhetens kopia</button></div>';
+}
+
+async function resolveAccountConflict(strategy) {
+  const session = accountSessionLoad();
+  const pending = _accountPendingConflict;
+  if (!session || !pending) return;
+  try {
+    const data = strategy === 'cloud' ? pending.remote.data : strategy === 'local' ? pending.local
+      : GolfAccountSync.mergeSnapshots(pending.remote.data, pending.local);
+    if (strategy !== 'cloud') await accountApi().saveSnapshot(session.token, pending.remote.version, data);
+    saveAccountSnapshot(data);
+    _accountPendingConflict = null;
+    saveAccountSyncMeta({ status: 'synced', lastSyncedAt: Date.now(), error: null });
+    renderAccountView();
+    setAccountStatus('Synkkonflikten är löst.');
+  } catch (error) {
+    setAccountStatus(error.status === 409 ? 'Molndatan ändrades igen. Synkronisera och välj på nytt.' : (error.message || 'Konflikten kunde inte lösas.'), 'error');
+    if (error.status === 409) _accountPendingConflict = null;
+  }
+}
+
 async function exportAccountData() {
   const session = accountSessionLoad();
   if (!session || !navigator.onLine) { setAccountStatus('Anslut till nätverket för att exportera molndata.', 'error'); return; }
   try {
     await syncAccountNow({ silent: true });
-    const snapshot = await accountApi().snapshot(session.token);
-    const payload = JSON.stringify({ version: 1, exportedAt: new Date().toISOString(), ...snapshot }, null, 2);
+    const payload = JSON.stringify(await accountApi().exportAccount(session.token), null, 2);
     const url = URL.createObjectURL(new Blob([payload], { type: 'application/json' }));
     const link = document.createElement('a');
     link.href = url;
@@ -3881,7 +3943,10 @@ async function deleteCloudAccount() {
   const session = accountSessionLoad();
   if (!session) return;
   if (!confirm('Radera kontot och all molnsynkdata permanent? Lokal data på den här enheten finns kvar. Åtkomst till account-kopplade tourer kan försvinna.')) return;
-  if (!confirm('Detta går inte att ångra. Radera kontot?')) return;
+  if (prompt(`Detta går inte att ångra. Skriv ${session.user.email} för att bekräfta.`)?.trim().toLowerCase() !== session.user.email.toLowerCase()) {
+    setAccountStatus('Raderingen avbröts eftersom e-postadressen inte matchade.', 'error');
+    return;
+  }
   try {
     await accountApi().deleteAccount(session.token);
     clearTimeout(_accountSyncTimer);

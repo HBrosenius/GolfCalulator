@@ -81,6 +81,30 @@ function publicTour(tour) {
 }
 
 export class Tour extends DurableObject {
+  async detachAccount(accountUserId) {
+    const tour = await this.ctx.storage.get(TOUR_KEY);
+    if (!tour || !accountUserId) return;
+    normalizeMembership(tour);
+    let changed = false;
+    if (tour.organizerAccountUserId === accountUserId) {
+      tour.organizerAccountUserId = null;
+      tour.organizerDisplayName = null;
+      changed = true;
+    }
+    for (const contributor of tour.contributors) {
+      if (contributor.accountUserId === accountUserId) {
+        contributor.accountUserId = null;
+        contributor.displayName = null;
+        changed = true;
+      }
+    }
+    if (changed) {
+      tour.updatedAt = Date.now();
+      tour.revision++;
+      await this.ctx.storage.put(TOUR_KEY, tour);
+    }
+  }
+
   async bindCode(code) {
     const tour = await this.ctx.storage.get(TOUR_KEY);
     if (tour && !tour.code) { tour.code = code; await this.ctx.storage.put(TOUR_KEY, tour); }
