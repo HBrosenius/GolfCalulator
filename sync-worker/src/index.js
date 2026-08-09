@@ -4,7 +4,8 @@ import { Tour } from './tour.js';
 import { PROTOCOL_VERSION, readJson, validateCreate } from './validation.js';
 import { TOUR_SCHEMA_VERSION, validateTourCreate } from './tour-validation.js';
 import {
-  deleteSession, exchangeMagicLink, getAccount, getSnapshot, putSnapshot, requestMagicLink,
+  deleteSession, exchangeMagicLink, getAccount, getProfile, getSnapshot, listAccountTours,
+  putProfile, putSnapshot, rememberAccountTour, requestMagicLink, userForSession,
 } from './account.js';
 
 export { GolfRoom, CreateRateLimiter, Tour };
@@ -63,7 +64,8 @@ async function createRoom(request, env) {
   const invalid = validateCreate(parsed.body);
   if (invalid) return json({ error: invalid }, invalid.startsWith('Unsupported') ? 426 : 400);
   if (parsed.body.tourRef) {
-    const access = await env.GOLF_TOURS.getByName(parsed.body.tourRef.code).access(bearerToken(request));
+    const account = env.ACCOUNTS_DB ? await userForSession(request, env) : null;
+    const access = await env.GOLF_TOURS.getByName(parsed.body.tourRef.code).access(bearerToken(request), account?.id);
     if (access.status !== 200) return json({ error: 'Not authorized for tour' }, 403);
   }
 
@@ -100,6 +102,12 @@ async function createTour(request, env) {
     const code = randomCode(8);
     const created = await env.GOLF_TOURS.getByName(code).create(parsed.body, organizerTokenHash, invitationTokenHash);
     if (created.status === 201) {
+      const account = env.ACCOUNTS_DB ? await userForSession(request, env) : null;
+      if (account) {
+        const bound = await env.GOLF_TOURS.getByName(code).bindOrganizerAccount(account.id);
+        if (bound.tour) created.tour = bound.tour;
+        await rememberAccountTour(env, account.id, code, 'organizer');
+      }
       return json({
         code, tour: created.tour, organizerToken, invitationToken,
         protocolVersion: PROTOCOL_VERSION, schemaVersion: TOUR_SCHEMA_VERSION,
@@ -127,6 +135,12 @@ async function route(request, env) {
     }
     if (parts.length === 2 && parts[1] === 'session' && request.method === 'DELETE') return deleteSession(request, env);
     if (parts.length === 2 && parts[1] === 'me' && request.method === 'GET') return getAccount(request, env);
+    if (parts.length === 2 && parts[1] === 'profile' && request.method === 'GET') return getProfile(request, env);
+    if (parts.length === 2 && parts[1] === 'profile' && request.method === 'PUT') {
+      const parsed = await bodyOrResponse(request);
+      return parsed.response || putProfile(parsed.body, request, env);
+    }
+    if (parts.length === 2 && parts[1] === 'tours' && request.method === 'GET') return listAccountTours(request, env);
     if (parts.length === 2 && parts[1] === 'snapshot' && request.method === 'GET') return getSnapshot(request, env);
     if (parts.length === 2 && parts[1] === 'snapshot' && request.method === 'PUT') {
       const parsed = await bodyOrResponse(request);
@@ -142,19 +156,29 @@ async function route(request, env) {
     if (parts.length === 2 && request.method === 'GET') return fromTourResult(await tour.getPublicState());
     if (!protocolHeaderValid(request)) return json({ error: 'Unsupported protocol version' }, 426);
     const token = bearerToken(request);
-    if (parts.length === 3 && parts[2] === 'access' && request.method === 'GET') return fromTourResult(await tour.access(token));
-    if (parts.length === 3 && parts[2] === 'manage' && request.method === 'GET') return fromTourResult(await tour.manage(token));
+    const account = env.ACCOUNTS_DB ? await userForSession(request, env) : null;
+    const accountUserId = account?.id;
+    if (parts.length === 3 && parts[2] === 'access' && request.method === 'GET') return fromTourResult(await tour.access(token, accountUserId));
+    if (parts.length === 3 && parts[2] === 'manage' && request.method === 'GET') return fromTourResult(await tour.manage(token, accountUserId));
     const parsed = await bodyOrResponse(request);
     if (parsed.response) return parsed.response;
-    if (parts.length === 3 && parts[2] === 'join' && request.method === 'POST') return fromTourResult(await tour.join(parsed.body));
-    if (parts.length === 3 && parts[2] === 'rounds' && request.method === 'POST') return fromTourResult(await tour.submitRound(parsed.body, token));
-    if (parts.length === 3 && parts[2] === 'conditions' && request.method === 'PATCH') return fromTourResult(await tour.update(token, parsed.body));
-    if (parts.length === 3 && parts[2] === 'rotate-invitation' && request.method === 'POST') return fromTourResult(await tour.rotateInvitation(token, parsed.body));
-    if (parts.length === 3 && parts[2] === 'complete' && request.method === 'POST') return fromTourResult(await tour.complete(token, parsed.body));
-    if (parts.length === 3 && parts[2] === 'cancel' && request.method === 'POST') return fromTourResult(await tour.cancel(token, parsed.body));
-    if (parts.length === 2 && request.method === 'DELETE') return fromTourResult(await tour.delete(token, parsed.body));
+    if (parts.length === 3 && parts[2] === 'join' && request.method === 'POST') {
+      const joined = await tour.join(parsed.body, accountUserId);
+      if (joined.status === 200 && accountUserId) await rememberAccountTour(env, accountUserId, code, 'contributor', joined.memberId);
+      return fromTourResult(joined);
+    }
+    if (parts.length === 3 && parts[2] === 'rounds' && request.method === 'POST') return fromTourResult(await tour.submitRound(parsed.body, token, accountUserId));
+    if (parts.length === 3 && parts[2] === 'conditions' && request.method === 'PATCH') return fromTourResult(await tour.update(token, parsed.body, accountUserId));
+    if (parts.length === 3 && parts[2] === 'rotate-invitation' && request.method === 'POST') return fromTourResult(await tour.rotateInvitation(token, parsed.body, accountUserId));
+    if (parts.length === 3 && parts[2] === 'complete' && request.method === 'POST') return fromTourResult(await tour.complete(token, parsed.body, accountUserId));
+    if (parts.length === 3 && parts[2] === 'cancel' && request.method === 'POST') return fromTourResult(await tour.cancel(token, parsed.body, accountUserId));
+    if (parts.length === 2 && request.method === 'DELETE') {
+      const deleted = await tour.delete(token, parsed.body, accountUserId);
+      if (deleted.status === 200) await env.ACCOUNTS_DB.prepare('DELETE FROM account_tours WHERE tour_code = ?').bind(code).run();
+      return fromTourResult(deleted);
+    }
     if (parts.length === 5 && parts[2] === 'contributors' && parts[4] === 'revoke' && request.method === 'POST') {
-      return fromTourResult(await tour.revokeContributor(parts[3], token, parsed.body));
+      return fromTourResult(await tour.revokeContributor(parts[3], token, parsed.body, accountUserId));
     }
     return json({ error: 'Not found' }, 404);
   }

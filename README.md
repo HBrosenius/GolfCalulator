@@ -277,6 +277,14 @@ ihop banor, rundor, spelare och lokala tourer mellan enheter.
   `login@golf.brosenius.se`.
 - Resend-nyckeln lagras endast som en Worker secret och skickas aldrig till
   webbläsaren.
+- En inloggad användare kan koppla en post i spelarregistret till sin stabila
+  spelarprofil. När en inbjudan öppnas kan profilen kopplas till rätt spelare i
+  touren; detta begränsar inte vem som får registrera en annan spelares runda.
+- Delade tourer som skapats eller accepterats med ett konto följer kontot. De
+  hämtas automatiskt efter inloggning på en annan enhet, och samma konto får
+  tillbaka sin roll utan en ny enhetsinbjudan.
+- Äldre delade tourer och anonyma inbjudningar fortsätter fungera med lokala
+  enhetstoken. Kontokopplingen är frivillig och bakåtkompatibel.
 
 ## Teknisk info
 

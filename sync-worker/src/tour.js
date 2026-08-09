@@ -53,7 +53,12 @@ export class Tour extends DurableObject {
     return tour;
   }
 
-  async actorForToken(tour, token) {
+  async actorForToken(tour, token, accountUserId = null) {
+    if (accountUserId && tour.organizerAccountUserId === accountUserId) return { role: 'organizer', id: 'organizer', accountUserId };
+    if (accountUserId) {
+      const contributor = tour.contributors.find(item => !item.revokedAt && item.accountUserId === accountUserId);
+      if (contributor) return { role: 'contributor', id: contributor.id, accountUserId, memberId: contributor.memberId || null };
+    }
     if (await tokenMatches(token, tour.organizerTokenHash)) return { role: 'organizer', id: 'organizer' };
     for (const contributor of tour.contributors) {
       if (!contributor.revokedAt && await tokenMatches(token, contributor.tokenHash)) {
@@ -87,10 +92,23 @@ export class Tour extends DurableObject {
       organizerTokenHash,
       invitationTokenHash,
       contributors: [],
+      organizerAccountUserId: null,
     };
     await this.ctx.storage.put(TOUR_KEY, tour);
     await this.scheduleLifecycle(tour);
     return result(201, { tour: publicTour(tour) });
+  }
+
+  async bindOrganizerAccount(accountUserId) {
+    const tour = await this.ctx.storage.get(TOUR_KEY);
+    if (!tour) return result(404, { error: 'Tour not found' });
+    if (!tour.organizerAccountUserId) {
+      tour.organizerAccountUserId = accountUserId;
+      tour.updatedAt = Date.now();
+      tour.revision++;
+      await this.ctx.storage.put(TOUR_KEY, tour);
+    }
+    return result(tour.organizerAccountUserId === accountUserId ? 200 : 409, { tour: publicTour(tour) });
   }
 
   async getPublicState() {
@@ -99,16 +117,25 @@ export class Tour extends DurableObject {
     return tour ? result(200, { tour: publicTour(tour) }) : result(404, { error: 'Tour not found' });
   }
 
-  async join(body) {
+  async join(body, accountUserId = null) {
     const stored = await this.ctx.storage.get(TOUR_KEY);
     const tour = stored ? await this.ensureLifecycle(stored) : null;
     if (!tour) return result(404, { error: 'Tour not found' });
     if (body?.protocolVersion !== PROTOCOL_VERSION || body?.schemaVersion !== TOUR_SCHEMA_VERSION ||
       typeof body.invitationToken !== 'string' || !/^[A-Za-z0-9_-]{40,64}$/.test(body.invitationToken) ||
-      (body.deviceLabel !== undefined && (typeof body.deviceLabel !== 'string' || body.deviceLabel.length > 50))) {
+      (body.deviceLabel !== undefined && (typeof body.deviceLabel !== 'string' || body.deviceLabel.length > 50)) ||
+      (body.memberId !== undefined && (typeof body.memberId !== 'string' || !tour.members.some(member => member.id === body.memberId))) ||
+      Object.keys(body || {}).some(key => !['protocolVersion', 'schemaVersion', 'invitationToken', 'deviceLabel', 'memberId'].includes(key))) {
       return result(400, { error: 'Invalid request' });
     }
     if (!await tokenMatches(body.invitationToken, tour.invitationTokenHash)) return result(403, { error: 'Invitation rejected' });
+    if (accountUserId) {
+      const existing = tour.contributors.find(item => !item.revokedAt && item.accountUserId === accountUserId);
+      if (existing) return result(200, { tour: publicTour(tour), contributorId: existing.id, memberId: existing.memberId || null });
+      if (body.memberId && tour.contributors.some(item => !item.revokedAt && item.memberId === body.memberId && item.accountUserId !== accountUserId)) {
+        return result(409, { error: 'Tour player is already linked to another account' });
+      }
+    }
     const contributorToken = generateToken();
     const contributor = {
       id: crypto.randomUUID(),
@@ -116,44 +143,50 @@ export class Tour extends DurableObject {
       deviceLabel: (body.deviceLabel || '').trim(),
       createdAt: Date.now(),
       revokedAt: null,
+      accountUserId: accountUserId || null,
+      memberId: body.memberId || null,
     };
     tour.contributors.push(contributor);
     tour.updatedAt = Date.now();
     tour.revision++;
     await this.ctx.storage.put(TOUR_KEY, tour);
-    return result(200, { tour: publicTour(tour), contributorId: contributor.id, contributorToken });
+    return result(200, { tour: publicTour(tour), contributorId: contributor.id, contributorToken, memberId: contributor.memberId });
   }
 
-  async access(token) {
+  async access(token, accountUserId = null) {
     const stored = await this.ctx.storage.get(TOUR_KEY);
     const tour = stored ? await this.ensureLifecycle(stored) : null;
     if (!tour) return result(404, { error: 'Tour not found' });
-    const actor = await this.actorForToken(tour, token);
+    const actor = await this.actorForToken(tour, token, accountUserId);
     if (actor?.role === 'organizer') return result(200, { role: 'organizer' });
-    if (actor) return result(200, { role: 'contributor', contributorId: actor.id });
+    if (actor) return result(200, {
+      role: 'contributor', contributorId: actor.id, ...(actor.memberId ? { memberId: actor.memberId } : {}),
+    });
     return result(403, { error: 'Not authorized' });
   }
 
-  async manage(token) {
+  async manage(token, accountUserId = null) {
     const stored = await this.ctx.storage.get(TOUR_KEY);
     const tour = stored ? await this.ensureLifecycle(stored) : null;
     if (!tour) return result(404, { error: 'Tour not found' });
-    if (!await tokenMatches(token, tour.organizerTokenHash)) return result(403, { error: 'Not authorized' });
+    const actor = await this.actorForToken(tour, token, accountUserId);
+    if (actor?.role !== 'organizer') return result(403, { error: 'Not authorized' });
     return result(200, {
       tour: publicTour(tour),
       contributors: tour.contributors.map(item => ({
         id: item.id, deviceLabel: item.deviceLabel, createdAt: item.createdAt, revokedAt: item.revokedAt,
+        accountLinked: !!item.accountUserId, memberId: item.memberId || null,
       })),
     });
   }
 
-  async rotateInvitation(token, body) {
+  async rotateInvitation(token, body, accountUserId = null) {
     const tour = await this.ctx.storage.get(TOUR_KEY);
     if (!tour) return result(404, { error: 'Tour not found' });
     if (body?.protocolVersion !== PROTOCOL_VERSION || body?.schemaVersion !== TOUR_SCHEMA_VERSION || Object.keys(body).length !== 2) {
       return result(400, { error: 'Invalid request' });
     }
-    if (!await tokenMatches(token, tour.organizerTokenHash)) return result(403, { error: 'Not authorized' });
+    if ((await this.actorForToken(tour, token, accountUserId))?.role !== 'organizer') return result(403, { error: 'Not authorized' });
     const invitationToken = generateToken();
     tour.invitationTokenHash = await hashToken(invitationToken);
     tour.updatedAt = Date.now();
@@ -162,11 +195,11 @@ export class Tour extends DurableObject {
     return result(200, { tour: publicTour(tour), invitationToken });
   }
 
-  async update(token, body) {
+  async update(token, body, accountUserId = null) {
     const stored = await this.ctx.storage.get(TOUR_KEY);
     const tour = stored ? await this.ensureLifecycle(stored) : null;
     if (!tour) return result(404, { error: 'Tour not found' });
-    if (!await tokenMatches(token, tour.organizerTokenHash)) return result(403, { error: 'Not authorized' });
+    if ((await this.actorForToken(tour, token, accountUserId))?.role !== 'organizer') return result(403, { error: 'Not authorized' });
     const invalid = validateTourUpdate(body, tour);
     if (invalid) return result(invalid.startsWith('Unsupported') ? 426 : 400, { error: invalid });
     if (body.expectedRevision !== tour.revision) return result(409, { error: 'Tour changed; refresh and try again' });
@@ -190,13 +223,13 @@ export class Tour extends DurableObject {
     return result(200, { tour: publicTour(tour) });
   }
 
-  async complete(token, body) {
+  async complete(token, body, accountUserId = null) {
     const tour = await this.ctx.storage.get(TOUR_KEY);
     if (!tour) return result(404, { error: 'Tour not found' });
     if (body?.protocolVersion !== PROTOCOL_VERSION || body?.schemaVersion !== TOUR_SCHEMA_VERSION || Object.keys(body).length !== 2) {
       return result(400, { error: 'Invalid request' });
     }
-    if (!await tokenMatches(token, tour.organizerTokenHash)) return result(403, { error: 'Not authorized' });
+    if ((await this.actorForToken(tour, token, accountUserId))?.role !== 'organizer') return result(403, { error: 'Not authorized' });
     if (tour.status !== 'completed') {
       tour.status = 'completed';
       tour.completedReason = 'manual';
@@ -207,13 +240,13 @@ export class Tour extends DurableObject {
     return result(200, { tour: publicTour(tour) });
   }
 
-  async cancel(token, body) {
+  async cancel(token, body, accountUserId = null) {
     const tour = await this.ctx.storage.get(TOUR_KEY);
     if (!tour) return result(404, { error: 'Tour not found' });
     if (body?.protocolVersion !== PROTOCOL_VERSION || body?.schemaVersion !== TOUR_SCHEMA_VERSION || Object.keys(body).length !== 2) {
       return result(400, { error: 'Invalid request' });
     }
-    if (!await tokenMatches(token, tour.organizerTokenHash)) return result(403, { error: 'Not authorized' });
+    if ((await this.actorForToken(tour, token, accountUserId))?.role !== 'organizer') return result(403, { error: 'Not authorized' });
     if (tour.status === 'open') {
       tour.status = 'cancelled';
       tour.completedReason = 'cancelled';
@@ -225,22 +258,22 @@ export class Tour extends DurableObject {
     return result(200, { tour: publicTour(tour) });
   }
 
-  async delete(token, body) {
+  async delete(token, body, accountUserId = null) {
     const tour = await this.ctx.storage.get(TOUR_KEY);
     if (!tour) return result(404, { error: 'Tour not found' });
     if (body?.protocolVersion !== PROTOCOL_VERSION || body?.schemaVersion !== TOUR_SCHEMA_VERSION || Object.keys(body).length !== 2) {
       return result(400, { error: 'Invalid request' });
     }
-    if (!await tokenMatches(token, tour.organizerTokenHash)) return result(403, { error: 'Not authorized' });
+    if ((await this.actorForToken(tour, token, accountUserId))?.role !== 'organizer') return result(403, { error: 'Not authorized' });
     await this.ctx.storage.deleteAll();
     return result(200, { deleted: true });
   }
 
-  async submitRound(body, token) {
+  async submitRound(body, token, accountUserId = null) {
     const stored = await this.ctx.storage.get(TOUR_KEY);
     const tour = stored ? await this.ensureLifecycle(stored) : null;
     if (!tour) return result(404, { error: 'Tour not found' });
-    const actor = await this.actorForToken(tour, token);
+    const actor = await this.actorForToken(tour, token, accountUserId);
     if (!actor) return result(403, { error: 'Not authorized' });
     const invalid = validateTourRoundSubmission(body, tour);
     if (invalid) return result(invalid.startsWith('Unsupported') ? 426 : 400, { error: invalid });
@@ -273,13 +306,13 @@ export class Tour extends DurableObject {
     return result(201, { tour: publicTour(tour), round, duplicate: false });
   }
 
-  async revokeContributor(contributorId, token, body) {
+  async revokeContributor(contributorId, token, body, accountUserId = null) {
     const tour = await this.ctx.storage.get(TOUR_KEY);
     if (!tour) return result(404, { error: 'Tour not found' });
     if (body?.protocolVersion !== PROTOCOL_VERSION || body?.schemaVersion !== TOUR_SCHEMA_VERSION || Object.keys(body).length !== 2) {
       return result(400, { error: 'Invalid request' });
     }
-    if (!await tokenMatches(token, tour.organizerTokenHash)) return result(403, { error: 'Not authorized' });
+    if ((await this.actorForToken(tour, token, accountUserId))?.role !== 'organizer') return result(403, { error: 'Not authorized' });
     const contributor = tour.contributors.find(item => item.id === contributorId);
     if (!contributor) return result(404, { error: 'Contributor not found' });
     if (!contributor.revokedAt) {

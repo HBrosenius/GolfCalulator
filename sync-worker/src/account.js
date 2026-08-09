@@ -45,7 +45,7 @@ async function sendMagicLink(env, email, token, idempotencyKey) {
   if (!response.ok) throw new Error(`Email delivery failed (${response.status})`);
 }
 
-async function userForSession(request, env) {
+export async function userForSession(request, env) {
   const token = bearerToken(request);
   if (!token) return null;
   const tokenHash = await hashToken(token);
@@ -58,6 +58,48 @@ async function userForSession(request, env) {
   if (!row) return null;
   await env.ACCOUNTS_DB.prepare('UPDATE sessions SET last_seen_at = ? WHERE token_hash = ?').bind(now, tokenHash).run();
   return { ...row, tokenHash };
+}
+
+export async function getProfile(request, env) {
+  const user = await userForSession(request, env);
+  if (!user) return accountJson({ error: 'Inte inloggad' }, 401);
+  const profile = await env.ACCOUNTS_DB.prepare(
+    'SELECT display_name AS displayName,handicap,updated_at AS updatedAt FROM account_profiles WHERE user_id = ?'
+  ).bind(user.id).first();
+  return accountJson({ profile: profile || null });
+}
+
+export async function putProfile(body, request, env) {
+  const user = await userForSession(request, env);
+  if (!user) return accountJson({ error: 'Inte inloggad' }, 401);
+  const displayName = typeof body?.displayName === 'string' ? body.displayName.trim() : '';
+  if (!displayName || displayName.length > 50 || typeof body?.handicap !== 'number' ||
+    !Number.isFinite(body.handicap) || body.handicap < 0 || body.handicap > 54 ||
+    Object.keys(body || {}).some(key => !['displayName', 'handicap'].includes(key))) {
+    return accountJson({ error: 'Ogiltig spelarprofil' }, 400);
+  }
+  const updatedAt = Date.now();
+  await env.ACCOUNTS_DB.prepare(`
+    INSERT INTO account_profiles (user_id,display_name,handicap,updated_at) VALUES (?,?,?,?)
+    ON CONFLICT(user_id) DO UPDATE SET display_name=excluded.display_name,handicap=excluded.handicap,updated_at=excluded.updated_at
+  `).bind(user.id, displayName, body.handicap, updatedAt).run();
+  return accountJson({ profile: { displayName, handicap: body.handicap, updatedAt } });
+}
+
+export async function listAccountTours(request, env) {
+  const user = await userForSession(request, env);
+  if (!user) return accountJson({ error: 'Inte inloggad' }, 401);
+  const rows = await env.ACCOUNTS_DB.prepare(
+    'SELECT tour_code AS code,role,member_id AS memberId,joined_at AS joinedAt FROM account_tours WHERE user_id = ? ORDER BY joined_at DESC'
+  ).bind(user.id).all();
+  return accountJson({ tours: rows.results || [] });
+}
+
+export async function rememberAccountTour(env, userId, code, role, memberId = null) {
+  await env.ACCOUNTS_DB.prepare(`
+    INSERT INTO account_tours (user_id,tour_code,role,member_id,joined_at) VALUES (?,?,?,?,?)
+    ON CONFLICT(user_id,tour_code) DO UPDATE SET role=excluded.role,member_id=COALESCE(excluded.member_id,account_tours.member_id)
+  `).bind(userId, code, role, memberId, Date.now()).run();
 }
 
 export async function requestMagicLink(body, request, env) {

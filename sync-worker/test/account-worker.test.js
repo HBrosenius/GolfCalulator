@@ -8,6 +8,8 @@ beforeAll(async () => {
     CREATE TABLE IF NOT EXISTS login_tokens (token_hash TEXT PRIMARY KEY,email TEXT NOT NULL,expires_at INTEGER NOT NULL,created_at INTEGER NOT NULL);
     CREATE TABLE IF NOT EXISTS sessions (token_hash TEXT PRIMARY KEY,user_id TEXT NOT NULL,expires_at INTEGER NOT NULL,created_at INTEGER NOT NULL,last_seen_at INTEGER NOT NULL);
     CREATE TABLE IF NOT EXISTS account_snapshots (user_id TEXT PRIMARY KEY,version INTEGER NOT NULL DEFAULT 1,payload TEXT NOT NULL,updated_at INTEGER NOT NULL);
+    CREATE TABLE IF NOT EXISTS account_profiles (user_id TEXT PRIMARY KEY,display_name TEXT NOT NULL,handicap REAL NOT NULL,updated_at INTEGER NOT NULL);
+    CREATE TABLE IF NOT EXISTS account_tours (user_id TEXT NOT NULL,tour_code TEXT NOT NULL,role TEXT NOT NULL,member_id TEXT,joined_at INTEGER NOT NULL,PRIMARY KEY(user_id,tour_code));
   `);
 });
 
@@ -51,5 +53,25 @@ describe('passwordless accounts and cloud snapshots', () => {
 
     expect((await SELF.fetch('https://worker.test/account/session', { method: 'DELETE', headers })).status).toBe(204);
     expect((await SELF.fetch('https://worker.test/account/me', { headers })).status).toBe(401);
+  });
+
+  it('stores a validated player profile for the stable account identity', async () => {
+    const userId = crypto.randomUUID();
+    const sessionToken = 'p'.repeat(43);
+    const now = Date.now();
+    await env.ACCOUNTS_DB.batch([
+      env.ACCOUNTS_DB.prepare('INSERT INTO users (id,email,created_at,last_login_at) VALUES (?,?,?,?)')
+        .bind(userId, `${userId}@example.com`, now, now),
+      env.ACCOUNTS_DB.prepare('INSERT INTO sessions (token_hash,user_id,expires_at,created_at,last_seen_at) VALUES (?,?,?,?,?)')
+        .bind(await hashToken(sessionToken), userId, now + 60_000, now, now),
+    ]);
+    const headers = { Authorization: `Bearer ${sessionToken}`, 'Content-Type': 'application/json' };
+    const saved = await SELF.fetch('https://worker.test/account/profile', {
+      method: 'PUT', headers, body: JSON.stringify({ displayName: 'Ada', handicap: 12.4 }),
+    });
+    expect(saved.status).toBe(200);
+    expect(await saved.json()).toMatchObject({ profile: { displayName: 'Ada', handicap: 12.4 } });
+    const loaded = await SELF.fetch('https://worker.test/account/profile', { headers });
+    expect(await loaded.json()).toMatchObject({ profile: { displayName: 'Ada', handicap: 12.4 } });
   });
 });

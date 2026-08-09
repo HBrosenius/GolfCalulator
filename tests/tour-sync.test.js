@@ -29,6 +29,21 @@ test('tour client keeps invitation secrets in the join body', async () => {
   assert.equal(captured.options.headers.Authorization, undefined);
 });
 
+test('tour client can bind creation and joining to an account token and tour member', async () => {
+  const requests = [];
+  const client = sync.createClient({
+    baseUrl: 'https://example.test',
+    fetchImpl: async (url, options) => {
+      requests.push({ url, options });
+      return { ok: true, json: async () => ({}) };
+    },
+  });
+  await client.create({ name: 'Tour' }, 'account-session');
+  await client.join('ABCD2345', 'A'.repeat(43), 'Telefon', 'account-session', 'member-1');
+  requests.forEach(request => assert.equal(request.options.headers.Authorization, 'Bearer account-session'));
+  assert.equal(JSON.parse(requests[1].options.body).memberId, 'member-1');
+});
+
 test('tour client exposes server errors with status', async () => {
   const client = sync.createClient({
     fetchImpl: async () => ({ ok: false, status: 403, json: async () => ({ error: 'Invitation rejected' }) }),

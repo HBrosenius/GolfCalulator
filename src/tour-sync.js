@@ -36,14 +36,14 @@
     }
 
     return Object.freeze({
-      create: payload => jsonRequest('/tour', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload),
+      create: (payload, accountToken) => jsonRequest('/tour', {
+        method: 'POST', headers: headers(accountToken), body: JSON.stringify(payload),
       }),
       get: code => jsonRequest(`/tour/${String(code).toUpperCase()}`),
-      join: (code, invitationToken, deviceLabel) => jsonRequest(`/tour/${String(code).toUpperCase()}/join`, {
-        method: 'POST', headers: headers(), body: JSON.stringify({
+      join: (code, invitationToken, deviceLabel, accountToken, memberId) => jsonRequest(`/tour/${String(code).toUpperCase()}/join`, {
+        method: 'POST', headers: headers(accountToken), body: JSON.stringify({
           protocolVersion: PROTOCOL_VERSION, schemaVersion: SCHEMA_VERSION,
-          invitationToken, deviceLabel: deviceLabel || '',
+          invitationToken, deviceLabel: deviceLabel || '', ...(memberId ? { memberId } : {}),
         }),
       }),
       access: (code, token) => jsonRequest(`/tour/${String(code).toUpperCase()}/access`, { headers: headers(token) }),

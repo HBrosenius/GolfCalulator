@@ -3482,14 +3482,52 @@ function renderAccountView() {
       <p style="font-size:0.76rem;color:var(--muted);margin-top:12px;">Appen fortsätter fungera lokalt även utan konto.</p>`;
     return;
   }
+  const players = playersLoad();
+  const profile = session.profile || null;
+  const playerOptions = players.map(player =>
+    `<option value="${escapeHtml(String(player.id))}"${profile?.localPlayerId != null && String(profile.localPlayerId) === String(player.id) ? ' selected' : ''}>${escapeHtml(player.nick || player.name)} (HCP ${player.hi})</option>`).join('');
   content.innerHTML = `
     <div style="background:#f0faf5;border-radius:10px;padding:12px;margin-bottom:14px;">
       <strong style="color:var(--heading);">${escapeHtml(session.user.email)}</strong>
       <div style="font-size:0.78rem;color:var(--muted);margin-top:3px;">Inloggad · lokal användning fungerar även offline</div>
     </div>
+    <label for="accountPlayer" style="margin-top:0;">Min spelarprofil</label>
+    <select id="accountPlayer" style="width:100%;">${playerOptions ? `<option value="">— Välj spelare —</option>${playerOptions}` : '<option value="">Skapa en spelare i spelarregistret först</option>'}</select>
+    <button class="btn secondary" style="margin:10px 0;" onclick="saveAccountPlayerProfile()"${playerOptions ? '' : ' disabled'}>Koppla spelarprofil</button>
     <button class="btn" onclick="syncAccountNow()">☁️ Synkronisera nu</button>
     <button class="btn secondary" style="margin-top:10px;" onclick="logoutAccount()">Logga ut på den här enheten</button>
     <p style="font-size:0.76rem;color:var(--muted);margin-top:12px;">Synkronisering slår ihop unika banor, rundor, spelare och lokala tourer. Data tas inte bort automatiskt.</p>`;
+}
+
+async function saveAccountPlayerProfile() {
+  const session = accountSessionLoad();
+  const playerId = document.getElementById('accountPlayer')?.value;
+  const player = playersLoad().find(item => String(item.id) === String(playerId));
+  if (!session || !player) { setAccountStatus('Välj en spelare att koppla.', 'error'); return; }
+  try {
+    const saved = await accountApi().saveProfile(session.token, player.nick || player.name, Number(player.hi));
+    accountSessionSave({ ...session, profile: { ...saved.profile, localPlayerId: player.id } });
+    setAccountStatus('Spelarprofilen är kopplad till kontot.');
+  } catch (error) { setAccountStatus(error.message || 'Kunde inte spara spelarprofilen.', 'error'); }
+}
+
+async function syncAccountTours(session = accountSessionLoad()) {
+  if (!session) return;
+  const response = await accountApi().tours(session.token);
+  for (const membership of response?.tours || []) {
+    try {
+      const access = await sharedTourClient.access(membership.code, session.token);
+      const tour = await sharedTourClient.get(membership.code);
+      const existing = sharedTourStore.find(membership.code) || {};
+      sharedTourStore.upsert({
+        ...existing, code: membership.code, role: access.role, token: session.token, accountBound: true,
+        contributorId: access.contributorId || existing.contributorId,
+        accountMemberId: access.memberId || membership.memberId || null,
+        tour, memberLinks: existing.memberLinks || automaticSharedMemberLinks(tour),
+        pendingSubmissions: existing.pendingSubmissions || [],
+      });
+    } catch (_) {}
+  }
 }
 
 async function requestAccountLink() {
@@ -3507,7 +3545,13 @@ async function exchangeAccountLink(token, apiBase) {
   try {
     const selectedBase = ACCOUNT_API_ALLOWLIST.has(apiBase) ? apiBase : liveSyncClient.baseUrl;
     const result = await accountApi(selectedBase).exchange(token);
-    accountSessionSave({ token: result.sessionToken, expiresAt: result.expiresAt, user: result.user, apiBase: selectedBase });
+    const nextSession = { token: result.sessionToken, expiresAt: result.expiresAt, user: result.user, apiBase: selectedBase };
+    try {
+      const profile = await accountApi(selectedBase).profile(result.sessionToken);
+      if (profile.profile) nextSession.profile = profile.profile;
+    } catch (_) {}
+    accountSessionSave(nextSession);
+    await syncAccountTours(nextSession);
     history.replaceState(null, '', location.pathname + location.search);
     openAccountView();
     setAccountStatus('Du är inloggad. Tryck på Synkronisera nu för att slå ihop data från dina enheter.');
@@ -3548,6 +3592,7 @@ async function syncAccountNow() {
     }
     renderSavedCourses();
     renderSavedPlayersList();
+    await syncAccountTours(session);
     renderActiveToursCard();
     setAccountStatus('Synkroniseringen är klar på den här enheten.');
   } catch (error) {
@@ -5158,11 +5203,12 @@ async function publishLocalTour(id) {
     const existing = tour.sharedCode && sharedTourStore.find(tour.sharedCode);
     if (existing) { await shareSharedTourInvitation(existing.code); return; }
     const payload = GolfTourRules.buildSharedTourCreate(tour, playersLoad(), dbLoad());
-    const created = await sharedTourClient.create(payload);
+    const account = accountSessionLoad();
+    const created = await sharedTourClient.create(payload, account?.token);
     const memberLinks = {};
     tour.roster.forEach((playerId, index) => { if (created.tour.members[index]) memberLinks[playerId] = created.tour.members[index].id; });
     sharedTourStore.upsert({
-      code: created.code, role: 'organizer', token: created.organizerToken,
+      code: created.code, role: 'organizer', token: account?.token || created.organizerToken, accountBound: !!account,
       invitationToken: created.invitationToken, tour: created.tour, memberLinks, pendingSubmissions: [],
     });
     tour.sharedCode = created.code;
@@ -5486,10 +5532,28 @@ async function acceptSharedTourInvitationIfPresent() {
         if (error.status !== 403) throw error;
       }
     }
-    const joined = await sharedTourClient.join(invitation.code, invitation.invitationToken, _getOriginLabel());
+    const account = accountSessionLoad();
+    const invitedTour = await sharedTourClient.get(invitation.code);
+    let memberId = null;
+    if (account) {
+      let profile = account.profile;
+      if (!profile) {
+        try { profile = (await accountApi().profile(account.token)).profile; } catch (_) {}
+      }
+      const normalizedName = String(profile?.displayName || '').trim().toLocaleLowerCase('sv-SE');
+      memberId = invitedTour.members.find(member => member.name.trim().toLocaleLowerCase('sv-SE') === normalizedName)?.id || null;
+      if (!memberId && invitedTour.members.length) {
+        const choice = prompt('Vilken tourspelare är du? Ange numret, eller lämna tomt om du bara registrerar rundor:\n' +
+          invitedTour.members.map((member, index) => `${index + 1}. ${member.name}`).join('\n'));
+        const index = Number(choice) - 1;
+        if (Number.isInteger(index) && invitedTour.members[index]) memberId = invitedTour.members[index].id;
+      }
+    }
+    const joined = await sharedTourClient.join(invitation.code, invitation.invitationToken, _getOriginLabel(), account?.token, memberId);
     sharedTourStore.upsert({
-      code: invitation.code, role: 'contributor', token: joined.contributorToken,
+      code: invitation.code, role: 'contributor', token: account?.token || joined.contributorToken, accountBound: !!account,
       contributorId: joined.contributorId, tour: joined.tour,
+      accountMemberId: joined.memberId || null,
       memberLinks: automaticSharedMemberLinks(joined.tour), pendingSubmissions: [],
     });
     openTourView();

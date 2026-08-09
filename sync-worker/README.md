@@ -119,6 +119,12 @@ on staging before allowing the production job to proceed.
 The Worker provides optional magic-link accounts and versioned cloud snapshots
 through D1. Anonymous and offline use remains available.
 
+Account identities can also own or join shared tours. The `account_profiles`
+table stores the user's stable player name and handicap, while `account_tours`
+lets a signed-in user discover their shared tours on another device. Durable
+Objects retain the authoritative role/member binding; legacy organizer and
+contributor tokens remain valid for anonymous clients.
+
 - D1 binding: `ACCOUNTS_DB` (configured in `wrangler.jsonc`)
 - Worker secret: `RESEND_API_KEY` in staging and production
 - Sender: `Poängbogey <login@golf.brosenius.se>`

@@ -1,5 +1,6 @@
-import { SELF } from 'cloudflare:test';
-import { describe, expect, it } from 'vitest';
+import { SELF, env } from 'cloudflare:test';
+import { beforeAll, describe, expect, it } from 'vitest';
+import { hashToken } from '../src/auth.js';
 import { PROTOCOL_VERSION } from '../src/validation.js';
 import { TOUR_SCHEMA_VERSION } from '../src/tour-validation.js';
 
@@ -7,6 +8,27 @@ function headers(token) {
   const result = { 'Content-Type': 'application/json', 'X-Golf-Protocol': String(PROTOCOL_VERSION) };
   if (token) result.Authorization = `Bearer ${token}`;
   return result;
+}
+
+beforeAll(async () => {
+  await env.ACCOUNTS_DB.exec(`
+    CREATE TABLE IF NOT EXISTS users (id TEXT PRIMARY KEY,email TEXT NOT NULL UNIQUE,created_at INTEGER NOT NULL,last_login_at INTEGER NOT NULL);
+    CREATE TABLE IF NOT EXISTS sessions (token_hash TEXT PRIMARY KEY,user_id TEXT NOT NULL,expires_at INTEGER NOT NULL,created_at INTEGER NOT NULL,last_seen_at INTEGER NOT NULL);
+    CREATE TABLE IF NOT EXISTS account_tours (user_id TEXT NOT NULL,tour_code TEXT NOT NULL,role TEXT NOT NULL,member_id TEXT,joined_at INTEGER NOT NULL,PRIMARY KEY(user_id,tour_code));
+  `);
+});
+
+async function accountSession(label) {
+  const userId = crypto.randomUUID();
+  const token = `${label}`.repeat(43).slice(0, 43);
+  const now = Date.now();
+  await env.ACCOUNTS_DB.batch([
+    env.ACCOUNTS_DB.prepare('INSERT INTO users (id,email,created_at,last_login_at) VALUES (?,?,?,?)')
+      .bind(userId, `${userId}@example.com`, now, now),
+    env.ACCOUNTS_DB.prepare('INSERT INTO sessions (token_hash,user_id,expires_at,created_at,last_seen_at) VALUES (?,?,?,?,?)')
+      .bind(await hashToken(token), userId, now + 60_000, now, now),
+  ]);
+  return { userId, token };
 }
 
 function configuration() {
@@ -84,6 +106,39 @@ function liveRound(tourCode) {
 }
 
 describe('shared tour authorization', () => {
+  it('binds organizer and participant permissions to accounts across sessions', async () => {
+    const organizer = await accountSession('o');
+    const createResponse = await SELF.fetch('https://worker.test/tour', {
+      method: 'POST', headers: { ...headers(organizer.token), 'CF-Connecting-IP': crypto.randomUUID() },
+      body: JSON.stringify(configuration()),
+    });
+    expect(createResponse.status).toBe(201);
+    const created = await createResponse.json();
+    expect((await SELF.fetch(`https://worker.test/tour/${created.code}/manage`, { headers: headers(organizer.token) })).status).toBe(200);
+
+    const participant = await accountSession('q');
+    const memberId = created.tour.members[0].id;
+    const joined = await SELF.fetch(`https://worker.test/tour/${created.code}/join`, {
+      method: 'POST', headers: headers(participant.token), body: JSON.stringify({
+        protocolVersion: PROTOCOL_VERSION, schemaVersion: TOUR_SCHEMA_VERSION,
+        invitationToken: created.invitationToken, deviceLabel: 'Ada', memberId,
+      }),
+    });
+    expect(joined.status).toBe(200);
+    const access = await SELF.fetch(`https://worker.test/tour/${created.code}/access`, { headers: headers(participant.token) });
+    expect(await access.json()).toMatchObject({ role: 'contributor', memberId });
+    const tours = await SELF.fetch('https://worker.test/account/tours', { headers: headers(participant.token) });
+    expect(await tours.json()).toMatchObject({ tours: [{ code: created.code, role: 'contributor', memberId }] });
+
+    const secondToken = 's'.repeat(43);
+    const now = Date.now();
+    await env.ACCOUNTS_DB.prepare('INSERT INTO sessions (token_hash,user_id,expires_at,created_at,last_seen_at) VALUES (?,?,?,?,?)')
+      .bind(await hashToken(secondToken), participant.userId, now + 60_000, now, now).run();
+    expect((await SELF.fetch(`https://worker.test/tour/${created.code}/access`, { headers: headers(secondToken) })).status).toBe(200);
+    expect((await SELF.fetch(`https://worker.test/tour/${created.code}/rounds`, {
+      method: 'POST', headers: headers(secondToken), body: JSON.stringify(submission(created)),
+    })).status).toBe(201);
+  });
   it('creates durable public state without leaking credentials', async () => {
     const created = await createTour();
     expect(created.code).toMatch(/^[A-HJ-KM-NP-Z2-9]{8}$/);
