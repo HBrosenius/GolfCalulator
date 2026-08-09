@@ -151,6 +151,8 @@ test('a safe pending app update activates without waiting for a banner click', a
 test('top navigation separates play, players, rounds, tours and statistics', async ({ page }) => {
   await page.goto('/index.html');
   const nav = page.getByRole('navigation', { name: 'Huvudmeny' });
+  await expect(page.locator('#step1').getByRole('button', { name: /Sparade rundor/ })).toHaveCount(0);
+  await expect(page.locator('#step1').getByRole('button', { name: /^Spelare$/ })).toHaveCount(0);
 
   await nav.getByRole('button', { name: /Spelare/ }).click();
   await expect(page.locator('#playersView')).toBeVisible();
