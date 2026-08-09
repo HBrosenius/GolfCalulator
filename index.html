@@ -6378,7 +6378,10 @@ function showPendingUpdateIfSafe() {
   // A saved in-progress snapshot means the player is between setup and a
   // completed round. Keep the update entirely out of the way until it clears.
   if (inprogressLoad()) { notice.classList.add('hidden'); return; }
-  notice.classList.remove('hidden');
+  // Outside an active round there is no user state to protect. Activate the
+  // new shell immediately so installed apps do not keep running stale code
+  // until the update banner happens to be noticed and pressed.
+  applyPwaUpdate();
 }
 
 function applyPwaUpdate() {

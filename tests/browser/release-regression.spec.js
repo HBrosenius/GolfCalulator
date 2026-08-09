@@ -125,6 +125,23 @@ test('renaming a saved player keeps ID-linked history and statistics', async ({ 
   await expect(page.locator('#playerHistoryList .player-history-pts').last()).toHaveText('18p');
 });
 
+test('a safe pending app update activates without waiting for a banner click', async ({ page }) => {
+  await page.goto('/index.html');
+  const messages = await page.evaluate(() => {
+    localStorage.removeItem('golf_inprogress');
+    const sent = [];
+    _pendingServiceWorker = { postMessage: message => sent.push(message) };
+    _applyingPwaUpdate = false;
+    showPendingUpdateIfSafe();
+    return { sent, applying: _applyingPwaUpdate };
+  });
+
+  expect(messages).toEqual({
+    sent: [{ type: 'SKIP_WAITING' }],
+    applying: true,
+  });
+});
+
 test('a live joiner can link their seat to a local saved player', async ({ page }) => {
   await page.goto('/index.html');
   const linked = await page.evaluate(() => {
