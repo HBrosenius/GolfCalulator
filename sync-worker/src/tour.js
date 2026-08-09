@@ -91,7 +91,7 @@ export class Tour extends DurableObject {
       try {
         const attachment = socket.deserializeAttachment() || {};
         const contributor = tour.contributors.find(item => item.id === attachment.actorId && !item.revokedAt);
-        const role = attachment.actorRole === 'organizer' ? 'organizer' : contributor?.isAdmin ? 'administrator' : 'contributor';
+        const role = attachment.actorRole === 'spectator' ? 'spectator' : attachment.actorRole === 'organizer' ? 'organizer' : contributor?.isAdmin ? 'administrator' : 'contributor';
         socket.send(JSON.stringify({ type: event, tour: publicTour(tour), online: this.ctx.getWebSockets().length, access: { role } }));
       } catch (_) {}
     }
@@ -100,16 +100,17 @@ export class Tour extends DurableObject {
   async fetch(request) {
     if (request.headers.get('Upgrade')?.toLowerCase() !== 'websocket') return new Response('WebSocket required', { status: 426 });
     const protocols = (request.headers.get('Sec-WebSocket-Protocol') || '').split(',').map(value => value.trim());
-    if (protocols[0] !== 'golf-v2' || !/^[A-Za-z0-9_-]{40,64}$/.test(protocols[1] || '')) return new Response('Unauthorized', { status: 401 });
+    const spectator = protocols[0] === 'golf-spectator-v1';
+    if (!spectator && (protocols[0] !== 'golf-v2' || !/^[A-Za-z0-9_-]{40,64}$/.test(protocols[1] || ''))) return new Response('Unauthorized', { status: 401 });
     const stored = await this.ctx.storage.get(TOUR_KEY);
-    const actor = stored ? await this.actorForToken(stored, protocols[1], request.headers.get('X-Account-User')) : null;
+    const actor = spectator ? { id: null, role: 'spectator' } : stored ? await this.actorForToken(stored, protocols[1], request.headers.get('X-Account-User')) : null;
     if (!stored || !actor) return new Response('Unauthorized', { status: 401 });
     const [client, server] = Object.values(new WebSocketPair());
     this.ctx.acceptWebSocket(server);
     server.serializeAttachment({ connectedAt: Date.now(), actorId: actor.id, actorRole: actor.role });
-    server.send(JSON.stringify({ type: 'connected', tour: publicTour(stored), online: this.ctx.getWebSockets().length, access: { role: actor.role === 'organizer' ? 'organizer' : actor.isAdmin ? 'administrator' : 'contributor' } }));
+    server.send(JSON.stringify({ type: 'connected', tour: publicTour(stored), online: this.ctx.getWebSockets().length, access: { role: actor.role === 'spectator' ? 'spectator' : actor.role === 'organizer' ? 'organizer' : actor.isAdmin ? 'administrator' : 'contributor' } }));
     this.broadcast(stored, 'presence');
-    return new Response(null, { status: 101, webSocket: client, headers: { 'Sec-WebSocket-Protocol': 'golf-v2' } });
+    return new Response(null, { status: 101, webSocket: client, headers: { 'Sec-WebSocket-Protocol': spectator ? 'golf-spectator-v1' : 'golf-v2' } });
   }
 
   async webSocketMessage(socket, message) {

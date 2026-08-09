@@ -18,7 +18,7 @@
 <script src="src/round-extras.js?v=20260809-2"></script>
 <script src="src/live-round.js?v=20260809-2"></script>
 <script src="src/tour-rules.js?v=20260809-2"></script>
-<script src="src/tour-sync.js?v=20260809-5"></script>
+<script src="src/tour-sync.js?v=20260809-6"></script>
 <script src="src/account-sync.js?v=20260809-7"></script>
 <script>
 // Apply saved/system theme before first paint to avoid a flash of the wrong theme.
@@ -700,6 +700,19 @@
   .tour-standing-score { text-align: right; color: var(--heading); font-size: 1.45rem; font-weight: 850; line-height: 1; }
   .tour-standing-score span { display: block; margin-top: 4px; font-size: .65rem; font-weight: 650; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; }
   .tour-standings-empty { margin: 4px 0 0; padding: 14px; text-align: center; color: var(--muted); font-size: .85rem; }
+  .tournament-live-panel {
+    margin-bottom: 12px; border: 1px solid #bad8c6; border-radius: 12px;
+    background: linear-gradient(135deg,#f4fbf7,#e5f3ea); overflow: hidden;
+  }
+  .tournament-live-panel summary { cursor: pointer; padding: 11px 13px; font-weight: 800; color: var(--heading); }
+  .tournament-live-body { padding: 0 12px 12px; }
+  .tournament-live-row { display:grid;grid-template-columns:32px minmax(0,1fr) auto;gap:8px;align-items:center;padding:7px 0;border-top:1px solid rgba(31,107,63,.12);font-size:.82rem; }
+  .tournament-move-up { color:#16823c;font-weight:800; }
+  .tournament-move-down { color:var(--danger);font-weight:800; }
+  .tour-qualification { margin:0 0 12px;padding:9px 12px;border-radius:9px;background:#fff8dc;border:1px solid #ead27b;color:#604d00;font-size:.8rem; }
+  .tournament-setup-backdrop { position:fixed;inset:0;z-index:10020;background:rgba(0,0,0,.62);display:flex;align-items:flex-end;justify-content:center;padding:12px; }
+  .tournament-setup-sheet { width:100%;max-width:520px;max-height:90vh;overflow:auto;background:var(--card);border-radius:18px 18px 10px 10px;padding:18px;box-shadow:0 18px 50px rgba(0,0,0,.32); }
+  .tournament-setup-member { display:flex;align-items:center;gap:9px;padding:9px 4px;border-bottom:1px solid var(--border);font-size:.88rem; }
   @media (max-width: 420px) {
     .tour-standings { padding: 13px; }
     .tour-standing-row { grid-template-columns: 34px 34px minmax(0, 1fr) auto; padding: 10px 8px; gap: 7px; }
@@ -1314,6 +1327,8 @@
         <div style="flex:1;font-size:0.85rem;color:var(--heading);" id="honorText"></div>
       </div>
       <div id="matchStatus" style="display:none;background:var(--green-dark);color:white;border-radius:8px;padding:10px 12px;margin-bottom:10px;font-weight:700;text-align:center;font-size:0.95rem;"></div>
+      <div id="tourQualificationNotice" class="tour-qualification hidden"></div>
+      <details id="tournamentLivePanel" class="tournament-live-panel hidden" open><summary>🏆 Live i touren</summary><div id="tournamentLiveBody" class="tournament-live-body"></div></details>
       <div class="score-table-wrap">
         <table class="score-table">
           <thead id="scoreTableHead"></thead>
@@ -2167,6 +2182,14 @@ function goToStep3Players() {
   // that entry was found and used instead of falling back to state.
   saveCurrentCourseData({ hpar, si, slope: state.slope, cr: state.cr, par: state.par });
 
+  if (state.tourContext?.dedicated && Array.isArray(state.tourContext.selectedPlayers)) {
+    const selected = state.tourContext.selectedPlayers.slice(0, 4);
+    state.numPlayers = selected.length;
+    state.players = selected.map(player => ({ name: player.name, hi: player.hi }));
+    state.playerIds = selected.map(player => player.playerId || null);
+    state.playerMemberIds = selected.map(player => player.memberId || null);
+    [1,2,3,4].forEach(number => document.getElementById(`btnP${number}`)?.classList.toggle('active', number === selected.length));
+  }
   buildPlayerCards();
   goToStep(3);
 }
@@ -2478,6 +2501,8 @@ function buildStep4State() {
 
   state.players = players;
 
+  if (!state.tourContext) detectQualifyingTours(players);
+
   if (state.gameMode === 'scramble' || state.gameMode === 'foursome') {
     // Build 2 teams
     const teamNames = { A: [], B: [] };
@@ -2504,6 +2529,7 @@ function buildStep4State() {
 
   assignRandomMarkerHoles();
   buildScoreTable();
+  renderTournamentLivePanel();
   inprogressSave();
   return true;
 }
@@ -3055,6 +3081,7 @@ function onScoreInput(p, i, el) {
   updateLiveLeader();
   updateHonorBanner();
   updateMatchStatus();
+  renderTournamentLivePanel();
   inprogressSave();
   if (state.liveRoomCode && isSeatEditableByMe(p)) liveSyncPush(p);
   if (el.value !== '') {
@@ -3101,6 +3128,92 @@ function scoreKeyDown(event, p, i) {
 // ============================================================
 // STEP 5 – Beräkna
 // ============================================================
+function detectQualifyingTours(players) {
+  const date = new Date().toLocaleDateString('sv-SE');
+  const synthetic = { id: 'preview', date, courseName: state.courseName, holes: state.holes, gameMode: state.gameMode, subjects: players.map(player => ({ playerId: player.playerId, name: player.name, totalPoints: 0 })) };
+  const localMatches = toursLoad().filter(tour => tour.status === 'open' && GolfTourRules.matchingRounds(tour, [synthetic], playersLoad()).length);
+  const sharedMatches = sharedTourStore.load().filter(record => record.tour?.status === 'open' && record.tour.startDate <= date && record.tour.endDate >= date &&
+    record.tour.courses?.some(course => course.name === state.courseName && (!course.holes || course.holes === state.holes)) &&
+    players.some(player => record.tour.members?.some(member => member.name === player.name)));
+  state._qualifyingTourNames = [...localMatches.map(tour => tour.name), ...sharedMatches.map(record => record.tour.name)];
+  if (sharedMatches.length === 1) {
+    const record = sharedMatches[0];
+    players.forEach((player, index) => {
+      const member = record.tour.members.find(item => item.name === player.name);
+      if (member) { player.memberId = member.id; state.playerMemberIds[index] = member.id; }
+    });
+    const baseline = Object.fromEntries(GolfTourRules.computeSharedStandings(record.tour).map((row, index) => [String(row.player.id), { position: index + 1, total: row.total }]));
+    state.tourContext = { kind: 'shared', code: record.code, submissionOwner: true, dedicated: false, tourName: record.tour.name, baselineStandings: baseline };
+  }
+}
+
+function tournamentProjection() {
+  const context = state.tourContext;
+  if (!context || !state.players?.length) return null;
+  const subjects = state.players.map((player, index) => {
+    const scores = Array.from({ length: state.holes }, (_, hole) => {
+      const input = document.getElementById(`score_${index}_${hole}`);
+      return input ? input.value : (state.scores[index]?.[hole] ?? '');
+    });
+    const points = scores.reduce((sum, score, hole) => sum + (Number(score) > 0 ? calcLivePts(index, hole, Number(score)) : 0), 0);
+    return { playerId: player.playerId, memberId: player.memberId, name: player.name, totalPoints: points, completed: scores.filter(score => Number(score) > 0).length };
+  });
+  const previewId = `preview-${Date.now()}`;
+  if (context.code) {
+    const record = sharedTourStore.find(context.code);
+    if (!record?.tour) return null;
+    const tour = { ...record.tour, rounds: [...(record.tour.rounds || []), { id: previewId, playedDate: new Date().toLocaleDateString('sv-SE'), courseName: state.courseName, holes: state.holes, gameMode: state.gameMode, subjects }] };
+    return { standings: GolfTourRules.computeSharedStandings(tour), subjects };
+  }
+  const tour = tourFind(context.localTourId);
+  if (!tour) return null;
+  const round = { id: previewId, date: new Date().toLocaleDateString('sv-SE'), courseName: state.courseName, holes: state.holes, gameMode: state.gameMode, subjects };
+  return { standings: GolfTourRules.computeStandings(tour, [...roundsLoad(), round], playersLoad()), subjects };
+}
+
+function renderTournamentLivePanel() {
+  const panel = document.getElementById('tournamentLivePanel');
+  const body = document.getElementById('tournamentLiveBody');
+  const notice = document.getElementById('tourQualificationNotice');
+  if (notice) {
+    const names = state._qualifyingTourNames || (state.tourContext?.tourName ? [state.tourContext.tourName] : []);
+    notice.classList.toggle('hidden', !names.length);
+    if (names.length) notice.textContent = `✓ Den här rundan kvalificerar för: ${names.join(', ')}`;
+  }
+  const projection = tournamentProjection();
+  if (!panel || !body || !projection) { panel?.classList.add('hidden'); return; }
+  panel.classList.remove('hidden');
+  const completedById = {};
+  projection.subjects.forEach(subject => {
+    completedById[String(subject.memberId || subject.playerId || subject.name)] = subject.completed;
+    completedById[`name:${subject.name}`] = subject.completed;
+  });
+  body.innerHTML = `<div style="font-size:.74rem;color:var(--muted);margin-bottom:4px;">Prognos efter inmatade hål · ${escapeHtml(state.tourContext.tourName || 'Tour')}</div>` + projection.standings.map((row, index) => {
+    const key = String(row.player.id);
+    const baseline = state.tourContext.baselineStandings?.[key];
+    const movement = baseline ? baseline.position - (index + 1) : 0;
+    const move = movement > 0 ? `<span class="tournament-move-up">▲${movement}</span>` : movement < 0 ? `<span class="tournament-move-down">▼${Math.abs(movement)}</span>` : '<span>—</span>';
+    const completed = completedById[key] ?? completedById[`name:${row.player.nick || row.player.name}`];
+    return `<div class="tournament-live-row"><strong>${index + 1}</strong><span><strong>${escapeHtml(row.player.nick || row.player.name)}</strong><br><span style="color:var(--muted);">${completed != null ? `${completed}/${state.holes} hål · ` : ''}${row.roundsCounted}/${row.roundsPlayed} rundor</span></span><span style="text-align:right;">${move}<br><strong>${row.total}p</strong></span></div>`;
+  }).join('');
+}
+
+function renderTournamentImpact() {
+  let projection = tournamentProjection();
+  if (state.tourContext?.localTourId) {
+    const tour = tourFind(state.tourContext.localTourId);
+    if (tour) projection = { standings: computeTourStandings(tour) };
+  }
+  const container = document.getElementById('rankingContainer');
+  if (!projection || !container) return;
+  const rows = projection.standings.map((row, index) => {
+    const previous = state.tourContext.baselineStandings?.[String(row.player.id)];
+    const delta = previous ? row.total - previous.total : row.total;
+    return `<div class="tournament-live-row"><strong>${index + 1}</strong><span>${escapeHtml(row.player.nick || row.player.name)}</span><span style="text-align:right;"><strong>${row.total}p</strong>${delta ? `<br><span class="tournament-move-up">+${delta}p</span>` : ''}</span></div>`;
+  }).join('');
+  container.insertAdjacentHTML('afterend', `<div class="card" style="margin-top:10px;"><div class="card-title">🏆 Tourpåverkan · ${escapeHtml(state.tourContext.tourName || 'Tour')}</div>${rows}<p style="font-size:.74rem;color:var(--muted);margin-top:8px;">Visar den nya prognosen efter rundan och vilka poäng som tillkom.</p></div>`);
+}
+
 function calculateAll() {
   const n = numColumns();
   for (let p = 0; p < n; p++) {
@@ -3146,6 +3259,7 @@ function calculateAll() {
 
   saveCurrentRound(results);
   renderResults(results, undefined, undefined, state.markers);
+  renderTournamentImpact();
   goToStep(5);
 }
 
@@ -4919,13 +5033,13 @@ function saveCurrentRound(playerResults) {
     markers: state.markers || { ctp: { hole: null, player: '' }, ld: { hole: null, player: '' } },
     bets: state.bets || [],
     liveRoomCode: state.liveRoomCode || null,
-    tourRef: state.tourContext ? { code: state.tourContext.code, syncStatus: 'pending' } : null,
+    tourRef: state.tourContext?.code ? { code: state.tourContext.code, syncStatus: 'pending' } : null,
     subjects
   };
   if (isEditing) roundUpdate(roundData);
   else {
     roundSaveNew(roundData);
-    if (state.tourContext && state.tourContext.submissionOwner !== false) queueSharedTourRound(roundData, state.tourContext.code);
+    if (state.tourContext?.code && state.tourContext.submissionOwner !== false) queueSharedTourRound(roundData, state.tourContext.code);
     inprogressClear();
   }
 }
@@ -5521,6 +5635,8 @@ let _sharedTourRefreshTimer = null;
 let _sharedTourRefreshGeneration = 0;
 let _sharedTourSocket = null;
 let _sharedTourOnline = 0;
+let _spectatorSocket = null;
+let _spectatorTour = null;
 let _editingSharedTourCode = null;
 let _retryingSharedTourCode = null;
 let _sharedTourSyncPromise = null;
@@ -5621,6 +5737,7 @@ function renderTourView() {
   if (_tourViewMode === 'create') renderTourCreateForm();
   else if (_tourViewMode === 'detail') renderTourDetail(_tourViewActiveId);
   else if (_tourViewMode === 'shared') renderSharedTourDetail(_tourViewActiveId);
+  else if (_tourViewMode === 'spectator') renderSpectatorTourDetail(_tourViewActiveId);
   else renderTourList();
 }
 
@@ -5775,6 +5892,56 @@ async function updateSharedTourContributor(code, contributorId) {
     await sharedTourClient.updateContributor(code, record.token, contributorId, player ? 'player' : 'scorekeeper', player ? selection.slice(7) : null);
     await refreshSharedTour(code);
   } catch (error) { alert('Kunde inte uppdatera medlemskapet: ' + error.message); }
+}
+
+async function shareSharedTourSpectator(code) {
+  const url = location.origin + location.pathname + sharedTourClient.spectatorFragment(code);
+  try { await navigator.clipboard.writeText(url); showShareToast('👀 Åskådarlänken är kopierad!'); }
+  catch (_) { prompt('Kopiera åskådarlänken:', url); }
+}
+
+async function openSpectatorTour(code) {
+  const normalized = String(code || '').toUpperCase();
+  if (!/^[A-HJ-KM-NP-Z2-9]{8}$/.test(normalized)) return;
+  stopSharedTourRefresh();
+  _tourViewMode = 'spectator'; _tourViewActiveId = normalized;
+  showPrimaryView('tour', 'tourView');
+  const content = document.getElementById('tourContent');
+  content.innerHTML = '<p style="text-align:center;color:var(--muted);">Hämtar tourställningen…</p>';
+  try {
+    const response = await sharedTourClient.get(normalized);
+    _spectatorTour = response.tour || response;
+    renderSpectatorTourDetail(normalized);
+    _spectatorSocket?.close();
+    _spectatorSocket = new WebSocket(sharedTourClient.liveUrl(normalized), ['golf-spectator-v1']);
+    _spectatorSocket.onmessage = event => {
+      try { const message = JSON.parse(event.data); if (message.tour) { _spectatorTour = message.tour; if (_tourViewMode === 'spectator') renderSpectatorTourDetail(normalized); } } catch (_) {}
+    };
+  } catch (_) { content.innerHTML = '<p>Touren kunde inte hittas.</p>'; }
+}
+
+function renderSpectatorTourDetail(code) {
+  const tour = _spectatorTour;
+  const el = document.getElementById('tourContent');
+  if (!tour || !el) return;
+  const standings = GolfTourRules.computeSharedStandings(tour);
+  const latest = (tour.rounds || []).slice().sort((a,b) => b.playedDate.localeCompare(a.playedDate)).slice(0, 8).map(round => `<div class="hi-row"><strong>${escapeHtml(round.courseName)}</strong> · ${escapeHtml(round.playedDate)}<br><span style="font-size:.8rem;color:var(--muted);">${round.subjects.map(subject => `${escapeHtml(subject.name)} ${GolfTourRules.subjectPoints(subject)}p`).join(', ')}</span></div>`).join('');
+  el.innerHTML = `<button class="btn secondary" style="margin-bottom:12px;" onclick="closeSpectatorTour()">← Till appen</button>
+    <div style="text-align:center;padding:8px 0 2px;"><div style="font-size:.75rem;color:var(--muted);text-transform:uppercase;letter-spacing:.08em;">Åskådarläge · live</div><strong style="font-size:1.3rem;color:var(--heading);">🏆 ${escapeHtml(tour.name)}</strong><br><span style="font-size:.8rem;color:var(--muted);">${tour.startDate} – ${tour.endDate}</span></div>
+    ${renderTourStandings(standings)}
+    <div class="card-title">Senaste rundorna</div>${latest || '<p style="color:var(--muted);font-size:.85rem;">Inga rundor ännu.</p>'}`;
+}
+
+function closeSpectatorTour() {
+  _spectatorSocket?.close(); _spectatorSocket = null; _spectatorTour = null;
+  history.replaceState(null, '', location.pathname + location.search);
+  openTourView();
+}
+
+function openSpectatorIfPresent() {
+  const code = new URLSearchParams(location.hash.slice(1)).get('spectate');
+  if (code) { history.replaceState(null, '', `${location.pathname}${location.search}#spectate=${encodeURIComponent(code)}`); openSpectatorTour(code); return true; }
+  return false;
 }
 
 async function toggleSharedTourAdministrator(code, contributorId, isAdmin) {
@@ -6102,6 +6269,7 @@ function renderSharedTourDetail(code) {
       ${tour.status === 'open' ? `<button class="btn" style="flex:1;" onclick="startSharedTourRound('${escapeHtml(record.code)}')">+ Ny tourrunda</button>` : `<span style="color:var(--muted);">${tour.status === 'cancelled' ? 'Touren är avbruten' : 'Touren är avslutad'}</span>`}
       ${record.role === 'organizer' ? `<button class="btn secondary" style="flex:1;" onclick="shareSharedTourInvitation('${escapeHtml(record.code)}')">🔗 Bjud in</button>` : ''}
     </div>
+    <button class="btn secondary" style="margin-top:8px;" onclick="shareSharedTourSpectator('${escapeHtml(record.code)}')">👀 Dela åskådarlänk</button>
 
     ${syncPanel}
     <div class="card-title" style="margin-top:16px;">Meddelanden</div>
@@ -6131,20 +6299,67 @@ function renderSharedTourDetail(code) {
 function startSharedTourRound(code) {
   const record = sharedTourStore.find(code);
   if (!record?.tour || record.tour.status !== 'open') return;
-  (record.tour.courses || []).forEach(course => (course.tees || []).forEach(tee => dbUpsert({
-    name: course.name, tee: tee.name, holes: course.holes,
-    slope: tee.slope, cr: tee.cr, par: tee.par, hpar: tee.hpar, si: tee.si,
-  })));
+  openTournamentRoundSetup('shared', record.code);
+}
+
+function tournamentSource(kind, id) {
+  if (kind === 'shared') {
+    const record = sharedTourStore.find(id);
+    if (!record?.tour) return null;
+    const inverse = Object.fromEntries(Object.entries(record.memberLinks || {}).map(([playerId, memberId]) => [String(memberId), playerId]));
+    return {
+      kind, id: record.code, record, tour: record.tour,
+      members: record.tour.members.map(member => ({ ...member, memberId: member.id, playerId: inverse[String(member.id)] || null })),
+      standings: GolfTourRules.computeSharedStandings(record.tour),
+    };
+  }
+  const tour = tourFind(id);
+  if (!tour) return null;
+  const players = playersLoad();
+  return { kind, id: tour.id, tour, members: tour.roster.map(playerId => players.find(player => player.id === playerId)).filter(Boolean).map(player => ({ id: player.id, playerId: player.id, name: player.nick || player.name, hi: player.hi })), standings: computeTourStandings(tour) };
+}
+
+function openTournamentRoundSetup(kind, id) {
+  const source = tournamentSource(kind, id);
+  if (!source || source.tour.status !== 'open') return;
+  document.getElementById('tournamentSetup')?.remove();
+  const courseOptions = (source.tour.courses || []).map((course, index) => `<option value="${index}">${escapeHtml(course.name)} · ${course.holes || 18} hål</option>`).join('');
+  const memberRows = source.members.map((member, index) => `<label class="tournament-setup-member"><input type="checkbox" value="${index}"${index < Math.min(4, source.members.length) ? ' checked' : ''}> <span><strong>${escapeHtml(member.name)}</strong><br><span style="color:var(--muted);">HCP ${member.hi}</span></span></label>`).join('');
+  const modal = document.createElement('div');
+  modal.id = 'tournamentSetup'; modal.className = 'tournament-setup-backdrop';
+  modal.innerHTML = `<div class="tournament-setup-sheet" role="dialog" aria-modal="true" aria-labelledby="tournamentSetupTitle">
+    <div class="card-title" id="tournamentSetupTitle">🏆 Starta tourrunda · ${escapeHtml(source.tour.name)}</div>
+    <p style="font-size:.82rem;color:var(--muted);">Den här genvägen begränsar rundan till tourens banor och spelare. Vanliga kvalificerade rundor fortsätter också att räknas.</p>
+    <div class="tour-condition-list" style="margin-bottom:12px;"><div class="tour-condition-row"><span>📅</span><div><strong>${source.tour.startDate} – ${source.tour.endDate}</strong><br>${source.tour.bestOfN ? `Bästa ${source.tour.bestOfN} rundor räknas` : 'Alla godkända rundor räknas'}</div></div></div>
+    <label>Tourbana<select id="tournamentSetupCourse">${courseOptions}</select></label>
+    <label>Spelare idag <span style="color:var(--muted);font-weight:400;">(1–4)</span></label><div id="tournamentSetupMembers">${memberRows}</div>
+    <div style="display:flex;gap:9px;margin-top:16px;"><button class="btn secondary" onclick="document.getElementById('tournamentSetup').remove()">Avbryt</button><button class="btn" onclick="confirmTournamentRoundSetup('${kind}','${escapeHtml(String(id))}')">Fortsätt till scorekortet</button></div>
+  </div>`;
+  document.body.appendChild(modal);
+}
+
+function confirmTournamentRoundSetup(kind, id) {
+  const source = tournamentSource(kind, kind === 'local' ? Number(id) : id);
+  const checked = [...document.querySelectorAll('#tournamentSetupMembers input:checked')].map(input => source.members[Number(input.value)]).filter(Boolean);
+  if (!checked.length || checked.length > 4) { alert('Välj mellan 1 och 4 spelare.'); return; }
+  const course = source.tour.courses[Number(document.getElementById('tournamentSetupCourse').value)];
+  if (!course) return;
+  if (kind === 'shared') (course.tees || []).forEach(tee => dbUpsert({ name: course.name, tee: tee.name, holes: course.holes, slope: tee.slope, cr: tee.cr, par: tee.par, hpar: tee.hpar, si: tee.si }));
+  const entry = dbLoad().find(item => item.name === course.name && (!course.holes || item.holes === course.holes));
+  if (!entry) { alert('Banans tee-data saknas på enheten. Öppna eller lägg till banan först.'); return; }
+  const baseline = Object.fromEntries(source.standings.map((row, index) => [String(row.player.id), { position: index + 1, total: row.total }]));
+  document.getElementById('tournamentSetup')?.remove();
   stopSharedTourRefresh();
   document.getElementById('tourView').classList.add('hidden');
   newRound();
-  state.tourContext = { code: record.code, submissionOwner: true };
-  if (record.tour.courses.length === 1) {
-    const course = record.tour.courses[0];
-    const input = document.getElementById('courseSearchInput');
-    if (input) { input.value = course.name; filterCourses(course.name); }
-    _pendingTourPlayHoles = course.holes;
-  }
+  state.tourContext = {
+    ...(kind === 'shared' ? { code: source.record.code, submissionOwner: true } : { localTourId: source.tour.id }),
+    kind, dedicated: true, tourName: source.tour.name, selectedPlayers: checked,
+    baselineStandings: baseline,
+  };
+  _pendingTourPlayHoles = course.holes || null;
+  loadSavedCourseAndAdvance(entry);
+  goToStep3Players();
 }
 
 function queueSharedTourRound(round, code) {
@@ -6420,18 +6635,7 @@ let _pendingTourPlayHoles = null;
 function startTourLeg(tourId) {
   const tour = tourFind(tourId);
   if (!tour || tour.status !== 'open') return;
-  document.getElementById('tourView').classList.add('hidden');
-  newRound();
-  if (tour.courses.length === 1) {
-    const input = document.getElementById('courseSearchInput');
-    if (input) {
-      input.value = tour.courses[0].name;
-      filterCourses(tour.courses[0].name);
-    }
-    // If the tour is configured for a specific hole count on a 9-hole
-    // course, pre-select that play mode once the course itself is loaded.
-    _pendingTourPlayHoles = tour.courses[0].holes || null;
-  }
+  openTournamentRoundSetup('local', tourId);
 }
 
 function computeCourseRecords() {
@@ -7386,7 +7590,7 @@ try { renderSavedCourses(); } catch(e) {}
 try { showResumeBannerIfAny(); } catch(e) {}
 try { _updateLastBackupLabel(); } catch(e) {}
 try { _populateOriginLabelInput(); } catch(e) {}
-try { acceptSharedTourInvitationIfPresent(); } catch(e) {}
+try { if (!openSpectatorIfPresent()) acceptSharedTourInvitationIfPresent(); } catch(e) {}
 try { syncSharedTourSubmissions(); } catch(e) {}
 try { updateAccountButton(); } catch(e) {}
 window.addEventListener('error', event => reportClientOperationalError('error', event.message, event.filename, event.lineno));

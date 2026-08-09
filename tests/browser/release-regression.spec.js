@@ -332,7 +332,7 @@ test('a shared tour invitation lets the contributor select any tour player', asy
     members: [{ id: 'member-ada', name: 'Ada', hi: 18 }, { id: 'member-bo', name: 'Bo', hi: 12 }],
     courses: [{
       id: 'course-1', name: 'Delad bana', holes: 9, maxRounds: 1,
-      tees: [{ name: 'Gul', slope: 113, cr: 36, par: 36, hpar: Array(9).fill(4), si: [1,2,3,4,5,6,7,8,9] }],
+      tees: [{ name: 'Gul', slope: 113, cr: 36, par: 36, hpar: Array(9).fill(4), si: [1,3,5,7,9,11,13,15,17] }],
     }],
   };
   await page.addInitScript(() => {
@@ -375,11 +375,9 @@ test('a shared tour invitation lets the contributor select any tour player', asy
   expect(joinCalls).toBe(1);
 
   await page.getByRole('button', { name: '+ Ny tourrunda' }).click();
-  await page.evaluate(() => {
-    buildPlayerCards();
-    document.getElementById('step3').classList.remove('hidden');
-  });
-  await page.locator('#ppicker_0').selectOption('member-bo');
+  await page.locator('#tournamentSetupMembers input[value="0"]').uncheck();
+  await page.getByRole('button', { name: 'Fortsätt till scorekortet' }).click();
+  await expect(page.locator('#step3')).toBeVisible();
   const context = await page.evaluate(() => ({
     tourCode: state.tourContext?.code,
     savedCourse: dbFind('Delad bana', 'Gul', 9),
@@ -745,12 +743,13 @@ test('first-run onboarding and shared-tour collaboration controls are visible', 
 
   await page.evaluate(() => {
     playersSave([{ id: 'local-ada', name: 'Ada Andersson', nick: 'Ace', hi: 12, photo: 'data:image/jpeg;base64,/9j/2Q==' }]);
+    dbUpsert({ name: 'Testbanan', tee: 'Gul', holes: 9, slope: 113, cr: 36, par: 36, hpar: Array(9).fill(4), si: [1,3,5,7,9,11,13,15,17] });
     const tour = {
       revision: 4, name: 'Live-tour', startDate: '2026-01-01', endDate: '2026-12-31', status: 'open',
       bestOfN: null, duplicateCourseRule: 'best', members: [{ id: 'm1', name: 'Ada', hi: 12 }],
-      courses: [{ id: 'c1', name: 'Testbanan', holes: 18, maxRounds: 3, tees: [] }],
+      courses: [{ id: 'c1', name: 'Testbanan', holes: 9, maxRounds: 3, tees: [{ name: 'Gul', slope: 113, cr: 36, par: 36, hpar: Array(9).fill(4), si: [1,3,5,7,9,11,13,15,17] }] }],
       announcements: [{ id: 'a1', author: 'Admin', message: 'Samling 09:00', at: Date.now() }],
-      rounds: [{ id: 'r1', courseName: 'Testbanan', holes: 18, gameMode: 'individual', playedDate: '2026-08-01', subjects: [{ memberId: 'm1', name: 'Ada', totalPoints: 36 }] }],
+      rounds: [{ id: 'r1', courseName: 'Testbanan', holes: 9, gameMode: 'individual', playedDate: '2026-08-01', subjects: [{ memberId: 'm1', name: 'Ada', totalPoints: 18 }] }],
     };
     sharedTourStore.upsert({ code: 'ABCD2345', role: 'administrator', token: 'A'.repeat(43), memberLinks: { 'local-ada': 'm1' }, tour, contributors: [], activity: [
       { type: 'round_corrected', actorName: 'Admin', actorRole: 'administrator', at: Date.now(), details: { courseName: 'Testbanan', reason: 'Fel datum' } },
@@ -761,11 +760,31 @@ test('first-run onboarding and shared-tour collaboration controls are visible', 
   await expect(page.locator('.tour-standings')).toContainText('Tourställning');
   await expect(page.locator('.tour-standing-row').first()).toContainText('🥇');
   await expect(page.locator('.tour-standing-row').first()).toContainText('Ada');
-  await expect(page.locator('.tour-standing-score').first()).toContainText('36');
+  await expect(page.locator('.tour-standing-score').first()).toContainText('18');
   await expect(page.locator('.tour-standing-avatar img').first()).toHaveAttribute('src', /^data:image\/jpeg/);
   await expect(page.getByLabel('Filtrera ändringslogg')).toBeVisible();
   await expect(page.locator('#tourContent')).toContainText('anledning: Fel datum');
+  await expect(page.getByRole('button', { name: /Dela åskådarlänk/ })).toBeVisible();
+  await page.getByRole('button', { name: '+ Ny tourrunda' }).click();
+  await expect(page.locator('#tournamentSetup')).toContainText('Starta tourrunda · Live-tour');
+  await expect(page.locator('#tournamentSetupMembers input')).toHaveCount(1);
+  await page.getByRole('button', { name: 'Avbryt' }).click();
+  await page.evaluate(() => { _spectatorTour = sharedTourStore.find('ABCD2345').tour; _tourViewMode = 'spectator'; _tourViewActiveId = 'ABCD2345'; renderSpectatorTourDetail('ABCD2345'); });
+  await expect(page.locator('#tourContent')).toContainText('Åskådarläge · live');
+  await expect(page.locator('#tourContent')).toContainText('18');
+  await expect(page.getByRole('button', { name: '+ Ny tourrunda' })).toHaveCount(0);
+  await page.evaluate(() => { _tourViewMode = 'shared'; renderSharedTourDetail('ABCD2345'); });
   await expect(page.getByRole('button', { name: 'Publicera' })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Korrigera datum' })).toBeVisible();
   await expect(page.getByRole('button', { name: /Skapa ny inbjudningslänk/ })).toHaveCount(0);
+  await page.getByRole('button', { name: '+ Ny tourrunda' }).click();
+  await page.getByRole('button', { name: 'Fortsätt till scorekortet' }).click();
+  await expect(page.locator('#step3')).toBeVisible();
+  await expect(page.locator('#playerCardsContainer input[id^="pname_"][readonly]')).toHaveCount(1);
+  await page.locator('#step3').getByRole('button', { name: 'Nästa →' }).click();
+  await page.locator('#score_0_0').fill('5');
+  await expect(page.locator('#tournamentLivePanel')).toContainText('Prognos efter inmatade hål');
+  await expect(page.locator('#tournamentLivePanel')).toContainText('1/9 hål');
+  await page.locator('#step4').getByRole('button', { name: /Beräkna/ }).click();
+  await expect(page.locator('#step5')).toContainText('Tourpåverkan · Live-tour');
 });

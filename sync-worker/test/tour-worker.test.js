@@ -467,6 +467,16 @@ describe('shared tour authorization', () => {
     const firstMessage = await new Promise(resolve => socketResponse.webSocket.addEventListener('message', event => resolve(JSON.parse(event.data)), { once: true }));
     expect(firstMessage.tour.announcements[0].message).toBe('Samling 09:00');
     socketResponse.webSocket.close(1000, 'done');
+
+    const spectatorResponse = await SELF.fetch(`https://worker.test/tour/${created.code}/live`, {
+      headers: { Upgrade: 'websocket', 'Sec-WebSocket-Protocol': 'golf-spectator-v1' },
+    });
+    expect(spectatorResponse.status).toBe(101);
+    spectatorResponse.webSocket.accept();
+    const spectatorMessage = await new Promise(resolve => spectatorResponse.webSocket.addEventListener('message', event => resolve(JSON.parse(event.data)), { once: true }));
+    expect(spectatorMessage.access.role).toBe('spectator');
+    expect(spectatorMessage.tour.rounds).toHaveLength(1);
+    spectatorResponse.webSocket.close(1000, 'done');
   });
 
   it('rejects unauthorized, ineligible, and internally inconsistent rounds', async () => {

@@ -98,6 +98,11 @@
         method: 'POST', headers: headers(token), body: JSON.stringify({ protocolVersion: PROTOCOL_VERSION, schemaVersion: SCHEMA_VERSION, message }),
       }),
       liveUrl: code => `${baseUrl.replace(/^http/, 'ws')}/tour/${String(code).toUpperCase()}/live`,
+      spectatorFragment: code => {
+        const normalized = String(code || '').toUpperCase();
+        if (!CODE_PATTERN.test(normalized)) throw new Error('Invalid tour code');
+        return `#spectate=${encodeURIComponent(normalized)}`;
+      },
       submitRound: (code, token, payload) => jsonRequest(`/tour/${String(code).toUpperCase()}/rounds`, {
         method: 'POST', headers: headers(token), body: JSON.stringify(payload),
       }),

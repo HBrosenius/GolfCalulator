@@ -91,7 +91,8 @@ Under Spelarregister → **📅 Säsong** kan du se en sammanlagd poängtabell f
 Under Spelarregister → **🚌 Tour** kan du sätta upp en tour för ett fast startfält (valfritt antal sparade spelare, gärna fler än 4) som spelar på en eller flera utvalda banor under en tidsperiod, och få en löpande — och till slut slutgiltig — ställning.
 
 - **Skapa en tour** med namn, start- och slutdatum, valfritt antal deltagare samt en eller flera banor (från Sparade banor) som ska räknas — plus en valfri inställning för att bara räkna spelarens bästa X rundor (annars räknas alla)
-- **Inga särskilda steg för att rapportera resultat** — deltagarna spelar helt vanliga rundor (valfritt antal spelare, valfri spelform, när som helst under turneringsperioden). Så fort en runda sparas på en av tourens banor, inom datumintervallet, och minst en av tourens deltagare är med i den, plockas den automatiskt upp av touren — övriga spelare i samma runda som inte är med i touren påverkar inte ställningen. **+ Ny runda** i tourvyn är bara en snabbgenväg som förifyller bansöket, ingen skillnad mot att starta rundan som vanligt
+- **Vanliga rundor fortsätter räknas automatiskt** när bana, datum, spelform och minst en deltagare matchar touren. Appen visar då en diskret kvalificeringsnotis; om exakt en åtkomlig delad tour matchar kopplas resultatet automatiskt till den touren.
+- **+ Ny tourrunda** öppnar ett särskilt upplägg där endast tourens banor och deltagare kan väljas. Det är en förbättrad genväg, aldrig ett krav. Under spelet visas en utfällbar tourpanel med hålprogress, prognostiserad totalställning och positionsförändringar. Resultatsidan visar sedan hur rundan påverkade touren.
 - **Poäng per runda** är spelarens vanliga poängbogey-poäng (totalPoints) från den rundan — ingen separat placeringspoäng. Scramble- och Foursome-rundor räknas inte in eftersom laget delar en gemensam score som inte går att knyta till en enskild spelare, samma princip som i Säsong/Banrekord
 - **Ställningen** visar varje spelares totalpoäng (summan av deras bästa X rundor, eller alla om inget X är satt) samt hur många av deras spelade rundor som räknades
 - **Avsluta touren** manuellt, eller låt den stänga automatiskt när slutdatumet passerats — vinnaren är den med mest totalpoäng; vid lika poäng vinner den med lägst handicapindex (svårare att nå samma poängsumma med lägre hcp)
@@ -109,6 +110,7 @@ En lokal tour kan publiceras med **Dela tour online**. Det skapar en fristående
 - Tourvyn använder en hibernationsbar WebSocket till tourens Durable Object för
   omedelbara resultat, ställningar, meddelanden och närvaro. Om WebSocket inte
   kan ansluta faller appen automatiskt tillbaka till periodisk HTTP-synk.
+- Varje delad tour har även en separat **åskådarlänk** utan redigeringsbehörighet. Den visar live-ställning och senaste rundor via en publik, skrivskyddad WebSocket och innehåller aldrig medlems-, inbjudnings- eller organisationsnycklar.
 - Servern avslutar automatiskt en delad tour när slutdatumet har passerat, även om ingen har appen öppen. Organisatören kan förlänga en automatiskt avslutad tour och öppna den igen.
 - På startsidan visas **Pågående tourer** med aktiva lokala och delade tourer. En publicerad lokal tour visas inte en extra gång bredvid sin delade kopia.
 - Organisatören kan redigera namn, datum, antal bästa rundor, regel för flera rundor per bana och banornas rundgränser efter publicering. Startfält och bansnapshots förblir låsta, och datum får inte utesluta redan registrerade rundor.

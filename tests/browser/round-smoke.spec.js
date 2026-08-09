@@ -4,6 +4,10 @@ test('select course, score two players, finish and find the saved round', async 
   await page.goto('/index.html');
   await page.evaluate(() => localStorage.clear());
   await page.reload();
+  await page.evaluate(() => {
+    playersSave([{ id: 1, name: 'Ada', hi: 10 }, { id: 2, name: 'Bo', hi: 20 }]);
+    toursSave([{ id: 99, name: 'Vanliga rundor-touren', startDate: '2026-01-01', endDate: '2026-12-31', status: 'open', roster: [1,2], courses: [{ name: 'Binga Golf', holes: 9, maxRounds: 20 }], duplicateCourseRule: 'best', bestOfN: null }]);
+  });
 
   await page.locator('#courseSearchInput').fill('Binga Golf');
   const course = page.locator('.course-group').filter({ hasText: 'Binga Golf' });
@@ -21,6 +25,7 @@ test('select course, score two players, finish and find the saved round', async 
   await page.locator('#step3 button', { hasText: 'Nästa' }).click();
 
   await expect(page.locator('#step4')).toBeVisible();
+  await expect(page.locator('#tourQualificationNotice')).toContainText('Vanliga rundor-touren');
   for (let hole = 0; hole < 9; hole++) {
     await page.locator(`#score_0_${hole}`).fill('4');
     await page.locator(`#score_1_${hole}`).fill('5');
