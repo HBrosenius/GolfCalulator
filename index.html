@@ -3530,7 +3530,9 @@ async function saveAccountPlayerProfile() {
   const player = playersLoad().find(item => String(item.id) === String(playerId));
   if (!session || !player) { setAccountStatus('Välj en spelare att koppla.', 'error'); return; }
   try {
-    const saved = await accountApi().saveProfile(session.token, player.nick || player.name, Number(player.hi));
+    const client = accountApi();
+    if (typeof client.saveProfile !== 'function') throw new Error('Appuppdateringen är inte klar. Stäng och öppna appen igen.');
+    const saved = await client.saveProfile(session.token, player.nick || player.name, Number(player.hi));
     accountSessionSave({ ...session, profile: { ...saved.profile, localPlayerId: player.id } });
     setAccountStatus('Spelarprofilen är kopplad till kontot.');
   } catch (error) { setAccountStatus(error.message || 'Kunde inte spara spelarprofilen.', 'error'); }
@@ -3538,7 +3540,11 @@ async function saveAccountPlayerProfile() {
 
 async function syncAccountTours(session = accountSessionLoad()) {
   if (!session) return;
-  const response = await accountApi().tours(session.token);
+  const client = accountApi();
+  // A newly published index can briefly run with the previous cached PWA
+  // module. Tour discovery is optional and must never invalidate login.
+  if (typeof client.tours !== 'function') return;
+  const response = await client.tours(session.token);
   for (const membership of response?.tours || []) {
     try {
       const access = await sharedTourClient.access(membership.code, session.token);
@@ -3576,7 +3582,7 @@ async function exchangeAccountLink(token, apiBase) {
       if (profile.profile) nextSession.profile = profile.profile;
     } catch (_) {}
     accountSessionSave(nextSession);
-    await syncAccountTours(nextSession);
+    try { await syncAccountTours(nextSession); } catch (_) {}
     history.replaceState(null, '', location.pathname + location.search);
     openAccountView();
     setAccountStatus('Du är inloggad. Tryck på Synkronisera nu för att slå ihop data från dina enheter.');
@@ -3617,7 +3623,7 @@ async function syncAccountNow() {
     }
     renderSavedCourses();
     renderSavedPlayersList();
-    await syncAccountTours(session);
+    try { await syncAccountTours(session); } catch (_) {}
     renderActiveToursCard();
     setAccountStatus('Synkroniseringen är klar på den här enheten.');
   } catch (error) {

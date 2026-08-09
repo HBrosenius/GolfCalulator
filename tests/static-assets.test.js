@@ -39,6 +39,12 @@ test('inline application JavaScript parses', () => {
   });
 });
 
+test('account login tolerates a previously cached account client module', () => {
+  const html = fs.readFileSync(path.join(root, 'index.html'), 'utf8');
+  assert.match(html, /typeof client\.tours !== 'function'/);
+  assert.match(html, /try \{ await syncAccountTours\(nextSession\); \} catch \(_\) \{\}/);
+});
+
 test('PWA updates use automatic cache generations and a deferred Swedish prompt', () => {
   const worker = fs.readFileSync(path.join(root, 'sw.js'), 'utf8');
   const html = fs.readFileSync(path.join(root, 'index.html'), 'utf8');
