@@ -125,6 +125,10 @@
   .account-button:hover { background: #f3fff8; }
   .account-button:focus-visible { outline: 3px solid #ffd54f; outline-offset: 2px; }
   .account-button-icon { font-size: 1.05rem; }
+  .account-button-label {
+    display: block; max-width: 130px;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
 
   .primary-nav {
     position: sticky;
@@ -3567,9 +3571,15 @@ function setAccountStatus(message, kind = 'ok') {
 function updateAccountButton() {
   const button = document.getElementById('accountButton');
   if (!button) return;
-  const signedIn = !!accountSessionLoad();
-  button.innerHTML = `<span class="account-button-icon" aria-hidden="true">${signedIn ? '☁️' : '👤'}</span><span class="account-button-label">${signedIn ? 'Konto' : 'Logga in'}</span>`;
-  button.title = signedIn ? 'Konto och molnsynk' : 'Logga in';
+  const session = accountSessionLoad();
+  const signedIn = !!session;
+  const profileName = typeof session?.profile?.displayName === 'string' ? session.profile.displayName.trim() : '';
+  const email = typeof session?.user?.email === 'string' ? session.user.email.trim() : '';
+  const label = signedIn ? (profileName || email || 'Konto') : 'Logga in';
+  button.innerHTML = '<span class="account-button-icon" aria-hidden="true"></span><span class="account-button-label"></span>';
+  button.querySelector('.account-button-icon').textContent = signedIn ? '☁️' : '👤';
+  button.querySelector('.account-button-label').textContent = label;
+  button.title = signedIn ? `Konto och molnsynk · ${label}` : 'Logga in';
   button.setAttribute('aria-label', button.title);
 }
 

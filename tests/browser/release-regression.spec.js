@@ -219,6 +219,8 @@ test('magic-link sign-in preserves local use and uploads a merged cloud snapshot
   await expect(page.locator('#accountContent')).toContainText('ada@example.com');
   await expect(page.locator('#accountDashboard')).toContainText('aktiva sessioner');
   await expect(page.locator('#accountDashboard')).toContainText('Spelarprofil: Ada · HCP 12');
+  await expect(page.locator('#accountButton .account-button-label')).toHaveText('Ada');
+  await expect(page.locator('#accountButton')).toHaveAttribute('aria-label', /Ada/);
   await expect(page.locator('#accountDashboard')).toContainText('Chrome på Windows · den här');
   await expect(page.locator('#accountDashboard')).toContainText('Kontosäkerhet (1)');
   expect(exchangeBody).toMatchObject({ deviceName: 'Chrome på Windows', deviceType: 'desktop' });
