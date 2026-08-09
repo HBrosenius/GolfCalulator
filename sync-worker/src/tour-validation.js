@@ -119,7 +119,7 @@ export function validateTourRoundSubmission(body, tour) {
   if (body.schemaVersion !== TOUR_SCHEMA_VERSION) return 'Unsupported tour schema version';
   if (!hasOnlyKeys(body, allowed) || !isText(body.clientRoundId, 80) || !isDate(body.playedDate)) return 'Invalid round submission';
   if (tour.status !== 'open' || body.playedDate < tour.startDate || body.playedDate > tour.endDate) return 'Round is outside the open tour';
-  if (!['individual', 'fourball', 'match'].includes(body.gameMode)) return 'Unsupported tour game mode';
+  if (!['individual', 'scramble', 'fourball', 'foursome', 'match'].includes(body.gameMode)) return 'Unsupported tour game mode';
   if (body.liveRoomCode !== undefined && !/^[A-HJ-KM-NP-Z2-9]{4}$/.test(body.liveRoomCode)) return 'Invalid live room code';
   const course = tour.courses.find(item => item.id === body.courseId);
   if (!course) return 'Round course is not in the tour';

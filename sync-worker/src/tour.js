@@ -173,6 +173,8 @@ export class Tour extends DurableObject {
       tour.revision++;
       await this.ctx.storage.put(TOUR_KEY, tour);
       await this.scheduleLifecycle(tour);
+      this.broadcast(tour, 'tour_completed');
+      this.ctx.waitUntil(notifyUsers(this.env, accountUsers(tour), 'announcements', pushPayload(tour, `${tour.name} är avgjord`, 'Slutresultatet och medaljörerna finns nu i touren.')));
     }
     return tour;
   }
@@ -418,6 +420,8 @@ export class Tour extends DurableObject {
       tour.updatedAt = Date.now();
       tour.revision++;
       await this.ctx.storage.put(TOUR_KEY, tour);
+      this.broadcast(tour, 'tour_completed');
+      this.ctx.waitUntil(notifyUsers(this.env, accountUsers(tour, actor.accountUserId), 'announcements', pushPayload(tour, `${tour.name} är avgjord`, 'Slutresultatet och medaljörerna finns nu i touren.')));
     }
     return result(200, { tour: publicTour(tour) });
   }
@@ -491,8 +495,29 @@ export class Tour extends DurableObject {
     tour.revision++;
     await this.ctx.storage.put(TOUR_KEY, tour);
     this.broadcast(tour, 'round_recorded');
-    this.ctx.waitUntil(notifyUsers(this.env, accountUsers(tour, actor.accountUserId), 'rounds', pushPayload(tour, `Ny runda i ${tour.name}`, `${actorName(tour, actor)} registrerade ${course.name}.`)));
+    const leader = round.subjects.slice().sort((a, b) => b.totalPoints - a.totalPoints)[0];
+    this.ctx.waitUntil(notifyUsers(this.env, accountUsers(tour, actor.accountUserId), 'rounds', pushPayload(tour, `Ställningen är uppdaterad · ${tour.name}`, `${actorName(tour, actor)} registrerade ${course.name}${leader ? ` · ${leader.name} ${leader.totalPoints}p` : ''}.`)));
     return result(201, { tour: publicTour(tour), round, duplicate: false });
+  }
+
+  async startRound(token, accountUserId, body) {
+    const stored = await this.ctx.storage.get(TOUR_KEY);
+    const tour = stored ? await this.ensureLifecycle(stored) : null;
+    if (!tour) return result(404, { error: 'Tour not found' });
+    const actor = await this.actorForToken(tour, token, accountUserId);
+    if (!actor) return result(403, { error: 'Not authorized' });
+    if (!validMembershipRequest(body, ['courseId', 'memberIds']) || tour.status !== 'open' ||
+      !tour.courses.some(course => course.id === body.courseId) || !Array.isArray(body.memberIds) ||
+      body.memberIds.length < 1 || body.memberIds.length > 4 ||
+      body.memberIds.some(id => !tour.members.some(member => member.id === id))) return result(400, { error: 'Invalid round start' });
+    const course = tour.courses.find(item => item.id === body.courseId);
+    const names = body.memberIds.map(id => tour.members.find(member => member.id === id)?.name).filter(Boolean);
+    addActivity(tour, 'round_started', actor, { courseName: course.name, playerNames: names });
+    tour.updatedAt = Date.now(); tour.revision++;
+    await this.ctx.storage.put(TOUR_KEY, tour);
+    this.broadcast(tour, 'round_started');
+    this.ctx.waitUntil(notifyUsers(this.env, accountUsers(tour, actor.accountUserId), 'rounds', pushPayload(tour, `Tourrunda startad · ${tour.name}`, `${names.join(', ')} spelar ${course.name}.`)));
+    return result(201, { tour: publicTour(tour) });
   }
 
   async setAdministrator(contributorId, token, accountUserId, body) {

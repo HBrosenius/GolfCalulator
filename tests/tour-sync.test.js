@@ -131,12 +131,14 @@ test('real-time, administrator, correction and announcement client contracts sta
   await client.setAdministrator('ABCD2345', 'token', 'member-1', true);
   await client.editRound('ABCD2345', 'token', 'round-1', 4, '2026-07-11', 'Fel datum');
   await client.announce('ABCD2345', 'token', 'Samling 09:00');
+  await client.startRound('ABCD2345', 'token', 'course-1', ['member-1']);
   assert.equal(client.liveUrl('ABCD2345'), 'wss://sync.test/tour/ABCD2345/live');
   assert.equal(client.spectatorFragment('ABCD2345'), '#spectate=ABCD2345');
   assert.deepEqual(calls.map(call => [call.options.method, call.url]), [
     ['PATCH', 'https://sync.test/tour/ABCD2345/contributors/member-1/administrator'],
     ['PATCH', 'https://sync.test/tour/ABCD2345/rounds/round-1'],
     ['POST', 'https://sync.test/tour/ABCD2345/announcements'],
+    ['POST', 'https://sync.test/tour/ABCD2345/round-starts'],
   ]);
   assert.equal(JSON.parse(calls[1].options.body).expectedRevision, 4);
 });

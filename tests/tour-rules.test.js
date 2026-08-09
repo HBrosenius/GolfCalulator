@@ -26,12 +26,19 @@ test('matching rounds require course, date, supported mode, and roster player', 
     round('mode', '2026-07-01', 'scramble', [{ playerId: 1, totalPoints: 40 }]),
     round('roster', '2026-07-01', 'individual', [{ playerId: 3, totalPoints: 40 }]),
   ];
-  assert.deepEqual(tours.matchingRounds(tour, input, players).map(item => item.id), ['ok']);
+  assert.deepEqual(tours.matchingRounds(tour, input, players).map(item => item.id), ['ok', 'mode']);
 });
 
 test('legacy subject names remain eligible but stable IDs take precedence', () => {
   assert.equal(tours.subjectMatchesPlayer({ name: 'Ace' }, players[0]), true);
   assert.equal(tours.subjectMatchesPlayer({ playerId: 99, name: 'Ace' }, players[0]), false);
+});
+
+test('local shared-score rounds count for every roster member in the team', () => {
+  const teamRound = round('team', '2026-07-01', 'scramble', [{
+    name: 'Lag A', memberIds: [1, 2], members: ['Ace', 'Bo'], totalPoints: 38,
+  }]);
+  assert.deepEqual(tours.computeStandings(tour, [teamRound], players).map(row => [row.player.id, row.total]), [[2, 38], [1, 38]]);
 });
 
 test('best duplicate rule applies per-course cap before best-of-N', () => {
@@ -119,6 +126,20 @@ test('shared rounds use authoritative member IDs without device-specific player 
   assert.equal(payload.subjects[0].memberId, 'member-2');
 });
 
+test('shared-score team rounds expand to each linked tour member', () => {
+  const rows = Array.from({ length: 18 }, (_, index) => ({
+    h: index + 1, par: 4, si: index + 1, strokes: 1, score: 5, netto: 4, pts: 2, skipped: false,
+  }));
+  const payload = tours.buildRoundSubmission({
+    id: 'team-round', date: '2026-07-01', courseName: 'Banan', holes: 18, tee: 'Gul', gameMode: 'scramble',
+    subjects: [{ name: 'Lag A', memberIds: [1, 2], totalPoints: 36, totalBrutto: 90, rows }],
+  }, {
+    memberLinks: { 1: 'm1', 2: 'm2' },
+    tour: { courses: [{ id: 'course-1', name: 'Banan', holes: 18, tees: [{ name: 'Gul' }] }] },
+  });
+  assert.deepEqual(payload.subjects.map(subject => [subject.memberId, subject.teamId]), [['m1', 'Lag A'], ['m2', 'Lag A']]);
+});
+
 test('shared server rounds feed the same standings rules', () => {
   const standings = tours.computeSharedStandings({
     startDate: '2026-06-01', endDate: '2026-08-31', bestOfN: null, duplicateCourseRule: 'best',
@@ -140,4 +161,19 @@ test('standings recover a missing total from saved hole points', () => {
   const standings = tours.computeStandings(tour, [broken], players);
   assert.equal(standings[0].total, 5);
   assert.equal(tours.subjectPoints(broken.subjects[0]), 5);
+});
+
+test('tour player profiles summarize appearances, averages, best rounds and medals', () => {
+  const shared = {
+    status: 'completed', startDate: '2026-06-01', endDate: '2026-08-31', duplicateCourseRule: 'best',
+    members: [{ id: 'm1', name: 'Ada', hi: 12 }, { id: 'm2', name: 'Bo', hi: 8 }],
+    courses: [{ id: 'c1', name: 'Banan', holes: 18, maxRounds: 3 }],
+    rounds: [
+      { id: 'r1', playedDate: '2026-07-01', courseName: 'Banan', holes: 18, gameMode: 'individual', subjects: [{ memberId: 'm1', totalPoints: 40 }, { memberId: 'm2', totalPoints: 32 }] },
+      { id: 'r2', playedDate: '2026-07-02', courseName: 'Banan', holes: 18, gameMode: 'match', subjects: [{ memberId: 'm1', totalPoints: 30 }, { memberId: 'm2', totalPoints: 34 }] },
+    ],
+  };
+  const profiles = tours.computePlayerProfiles(shared);
+  assert.deepEqual([profiles[0].member.name, profiles[0].appearances, profiles[0].averagePoints, profiles[0].bestRound.points, profiles[0].wins], ['Ada', 2, 35, 40, 1]);
+  assert.deepEqual(profiles[0].headToHead, { wins: 1, losses: 1, ties: 0 });
 });

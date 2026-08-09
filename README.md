@@ -110,7 +110,10 @@ En lokal tour kan publiceras med **Dela tour online**. Det skapar en fristående
 - Tourvyn använder en hibernationsbar WebSocket till tourens Durable Object för
   omedelbara resultat, ställningar, meddelanden och närvaro. Om WebSocket inte
   kan ansluta faller appen automatiskt tillbaka till periodisk HTTP-synk.
-- Varje delad tour har även en separat **åskådarlänk** utan redigeringsbehörighet. Den visar live-ställning och senaste rundor via en publik, skrivskyddad WebSocket och innehåller aldrig medlems-, inbjudnings- eller organisationsnycklar.
+- Varje delad tour har även en separat **åskådarlänk** utan redigeringsbehörighet. Den visar en publik resultattavla med live-ställning, senaste uppdatering, meddelanden, tidslinje och spelarprofiler via en skrivskyddad WebSocket och innehåller aldrig medlems-, inbjudnings- eller organisationsnycklar.
+- Lokala och delade tourer har en kronologisk händelsetidslinje och utfällbara spelarprofiler med starter, snittpoäng, bästa runda, placering och medaljer.
+- När en dedikerad delad tourrunda startas notifieras medlemmarna. Pushnotiser skickas även när ställningen uppdateras, ett tourmeddelande publiceras och touren avgörs.
+- Tourer accepterar samtliga spelformer som scorekortet stöder: individuellt, Scramble, bästboll, Foursome och matchspel. Lagresultat kopplas till varje deltagande tourspelare så att de kan ingå i samma tourställning.
 - Servern avslutar automatiskt en delad tour när slutdatumet har passerat, även om ingen har appen öppen. Organisatören kan förlänga en automatiskt avslutad tour och öppna den igen.
 - På startsidan visas **Pågående tourer** med aktiva lokala och delade tourer. En publicerad lokal tour visas inte en extra gång bredvid sin delade kopia.
 - Organisatören kan redigera namn, datum, antal bästa rundor, regel för flera rundor per bana och banornas rundgränser efter publicering. Startfält och bansnapshots förblir låsta, och datum får inte utesluta redan registrerade rundor.

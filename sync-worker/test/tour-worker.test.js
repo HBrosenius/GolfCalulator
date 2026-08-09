@@ -442,6 +442,16 @@ describe('shared tour authorization', () => {
     expect(announcement.status).toBe(201);
     expect((await announcement.json()).tour.announcements[0].message).toBe('Samling 09:00');
 
+    const started = await SELF.fetch(`https://worker.test/tour/${created.code}/round-starts`, {
+      method: 'POST', headers: headers(member.token), body: JSON.stringify({
+        protocolVersion: PROTOCOL_VERSION, schemaVersion: TOUR_SCHEMA_VERSION,
+        courseId: created.tour.courses[0].id, memberIds: [created.tour.members[0].id],
+      }),
+    });
+    expect(started.status).toBe(201);
+    const activity = await SELF.fetch(`https://worker.test/tour/${created.code}/activity`, { headers: headers(member.token) }).then(response => response.json());
+    expect(activity.activity.some(event => event.type === 'round_started')).toBe(true);
+
     const submitted = await SELF.fetch(`https://worker.test/tour/${created.code}/rounds`, {
       method: 'POST', headers: headers(member.token), body: JSON.stringify(submission(created)),
     });

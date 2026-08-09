@@ -243,6 +243,7 @@ async function route(request, env, ctx = null) {
       return fromTourResult(transferred);
     }
     if (parts.length === 3 && parts[2] === 'rounds' && request.method === 'POST') return fromTourResult(await tour.submitRound(parsed.body, token, accountUserId));
+    if (parts.length === 3 && parts[2] === 'round-starts' && request.method === 'POST') return fromTourResult(await tour.startRound(token, accountUserId, parsed.body));
     if (parts.length === 4 && parts[2] === 'rounds' && request.method === 'PATCH') return fromTourResult(await tour.editRound(parts[3], token, accountUserId, parsed.body));
     if (parts.length === 3 && parts[2] === 'announcements' && request.method === 'POST') return fromTourResult(await tour.announce(token, accountUserId, parsed.body));
     if (parts.length === 5 && parts[2] === 'contributors' && parts[4] === 'administrator' && request.method === 'PATCH') return fromTourResult(await tour.setAdministrator(parts[3], token, accountUserId, parsed.body));

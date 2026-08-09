@@ -349,6 +349,9 @@ test('a shared tour invitation lets the contributor select any tour player', asy
   await page.route(`**/tour/${code}/access`, route => route.fulfill({
     status: 200, contentType: 'application/json', body: JSON.stringify({ role: 'contributor', contributorId: 'contributor-1' }),
   }));
+  await page.route(`**/tour/${code}/round-starts`, route => route.fulfill({
+    status: 201, contentType: 'application/json', body: JSON.stringify({ tour }),
+  }));
   await page.route(`**/tour/${code}`, route => route.fulfill({
     status: 200, contentType: 'application/json', body: JSON.stringify(tour),
   }));
@@ -360,7 +363,7 @@ test('a shared tour invitation lets the contributor select any tour player', asy
   await expect(page.locator('#tourContent')).toContainText('2026-06-01 – 2026-08-31');
   await expect(page.locator('#tourContent')).toContainText('Spelarens bästa 2 rundor');
   await expect(page.locator('#tourContent')).toContainText('De första rundorna upp till banans gräns räknas');
-  await expect(page.locator('#tourContent')).toContainText('Individuellt, bästboll och matchspel');
+  await expect(page.locator('#tourContent')).toContainText('Individuellt, Scramble, bästboll, Foursome och matchspel');
   await expect(page.locator('#tourContent')).toContainText('Inkluderade banor');
   await expect(page.locator('#tourContent')).toContainText('Delad bana');
   await expect(page.locator('#tourContent')).toContainText('9 hål · tee Gul · högst 1 runda räknas');

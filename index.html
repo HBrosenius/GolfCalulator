@@ -17,8 +17,8 @@
 <script src="src/validation.js?v=20260809-2"></script>
 <script src="src/round-extras.js?v=20260809-2"></script>
 <script src="src/live-round.js?v=20260809-2"></script>
-<script src="src/tour-rules.js?v=20260809-2"></script>
-<script src="src/tour-sync.js?v=20260809-6"></script>
+<script src="src/tour-rules.js?v=20260809-3"></script>
+<script src="src/tour-sync.js?v=20260809-7"></script>
 <script src="src/account-sync.js?v=20260809-7"></script>
 <script>
 // Apply saved/system theme before first paint to avoid a flash of the wrong theme.
@@ -188,6 +188,19 @@
   .account-metric strong { display:block;font-size:1.2rem;color:var(--heading); }
   .activity-row { border-bottom:1px solid var(--border);padding:9px 0;font-size:.82rem; }
   .activity-row:last-child { border-bottom:0; }
+  .tour-timeline { position:relative;margin:10px 0 4px;padding-left:22px; }
+  .tour-timeline::before { content:"";position:absolute;left:7px;top:6px;bottom:8px;width:2px;background:var(--border); }
+  .tour-timeline-item { position:relative;padding:0 0 14px 8px;font-size:.84rem; }
+  .tour-timeline-item::before { content:"";position:absolute;left:-20px;top:4px;width:10px;height:10px;border-radius:50%;background:var(--accent);box-shadow:0 0 0 3px var(--card); }
+  .tour-timeline-time { display:block;color:var(--muted);font-size:.72rem;margin-top:2px; }
+  .tour-profile-grid { display:grid;grid-template-columns:repeat(auto-fit,minmax(145px,1fr));gap:8px;margin-top:8px; }
+  .tour-profile { border:1px solid var(--border);border-radius:12px;padding:10px;background:var(--card); }
+  .tour-profile summary { cursor:pointer;font-weight:800;color:var(--heading); }
+  .tour-profile-metrics { display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:9px;font-size:.76rem;color:var(--muted); }
+  .tour-profile-metrics strong { display:block;color:var(--heading);font-size:.95rem; }
+  .spectator-board { min-height:calc(100vh - 110px);background:linear-gradient(160deg,var(--card),var(--bg));border-radius:18px;padding:14px; }
+  .spectator-live-dot { display:inline-block;width:8px;height:8px;border-radius:50%;background:#2ecc71;box-shadow:0 0 0 4px rgba(46,204,113,.15);margin-right:6px; }
+  .spectator-update { text-align:center;color:var(--muted);font-size:.72rem;margin:5px 0 12px; }
 
   .app-footer {
     text-align: center;
@@ -5920,16 +5933,40 @@ async function openSpectatorTour(code) {
   } catch (_) { content.innerHTML = '<p>Touren kunde inte hittas.</p>'; }
 }
 
+function renderTournamentProfiles(tour) {
+  const profiles = GolfTourRules.computePlayerProfiles(tour);
+  return `<div class="tour-profile-grid">${profiles.map(profile => `<details class="tour-profile">
+    <summary>${profile.position ? `#${profile.position} · ` : ''}${escapeHtml(profile.member.name)}</summary>
+    <div class="tour-profile-metrics">
+      <span><strong>${profile.appearances}</strong>starter</span><span><strong>${profile.averagePoints}</strong>snittpoäng</span>
+      <span><strong>${profile.bestRound?.points ?? '–'}</strong>bästa runda</span><span><strong>${profile.wins ? '🏆' : profile.podiums ? '🏅' : '–'}</strong>medaljer</span>
+      <span style="grid-column:1/-1;"><strong>${profile.headToHead.wins}–${profile.headToHead.losses}–${profile.headToHead.ties}</strong>inbördes vinster–förluster–delade</span>
+    </div>${profile.bestRound ? `<div style="font-size:.72rem;color:var(--muted);margin-top:7px;">Bäst: ${escapeHtml(profile.bestRound.courseName)} · ${escapeHtml(profile.bestRound.playedDate)}</div>` : ''}
+  </details>`).join('')}</div>`;
+}
+
+function tournamentTimeline(tour, activity = []) {
+  const events = [
+    ...(tour.rounds || []).map(round => ({ at: new Date(`${round.playedDate}T12:00:00`).getTime(), icon: '⛳', title: `${round.courseName} · ${round.subjects.map(subject => `${subject.name} ${GolfTourRules.subjectPoints(subject)}p`).join(', ')}` })),
+    ...(tour.announcements || []).map(item => ({ at: item.at, icon: '📣', title: `${item.author}: ${item.message}` })),
+    ...(activity || []).filter(item => item.type === 'round_started').map(item => ({ at: item.at, icon: '🏌️', title: `Runda startad på ${item.details?.courseName || 'tourbanan'} · ${(item.details?.playerNames || []).join(', ')}` })),
+  ].sort((a, b) => b.at - a.at).slice(0, 30);
+  return `<div class="tour-timeline">${events.map(event => `<div class="tour-timeline-item"><strong>${event.icon} ${escapeHtml(event.title)}</strong><span class="tour-timeline-time">${new Date(event.at).toLocaleString('sv-SE')}</span></div>`).join('') || '<p style="color:var(--muted);font-size:.85rem;">Tourens händelser visas här när spelet börjar.</p>'}</div>`;
+}
+
 function renderSpectatorTourDetail(code) {
   const tour = _spectatorTour;
   const el = document.getElementById('tourContent');
   if (!tour || !el) return;
   const standings = GolfTourRules.computeSharedStandings(tour);
-  const latest = (tour.rounds || []).slice().sort((a,b) => b.playedDate.localeCompare(a.playedDate)).slice(0, 8).map(round => `<div class="hi-row"><strong>${escapeHtml(round.courseName)}</strong> · ${escapeHtml(round.playedDate)}<br><span style="font-size:.8rem;color:var(--muted);">${round.subjects.map(subject => `${escapeHtml(subject.name)} ${GolfTourRules.subjectPoints(subject)}p`).join(', ')}</span></div>`).join('');
-  el.innerHTML = `<button class="btn secondary" style="margin-bottom:12px;" onclick="closeSpectatorTour()">← Till appen</button>
-    <div style="text-align:center;padding:8px 0 2px;"><div style="font-size:.75rem;color:var(--muted);text-transform:uppercase;letter-spacing:.08em;">Åskådarläge · live</div><strong style="font-size:1.3rem;color:var(--heading);">🏆 ${escapeHtml(tour.name)}</strong><br><span style="font-size:.8rem;color:var(--muted);">${tour.startDate} – ${tour.endDate}</span></div>
+  el.innerHTML = `<button class="btn secondary" style="margin-bottom:12px;" onclick="closeSpectatorTour()">← Till appen</button><div class="spectator-board">
+    <div style="text-align:center;padding:8px 0 2px;"><div style="font-size:.75rem;color:var(--muted);text-transform:uppercase;letter-spacing:.08em;"><span class="spectator-live-dot"></span>Åskådarläge · live</div><strong style="font-size:1.45rem;color:var(--heading);">🏆 ${escapeHtml(tour.name)}</strong><br><span style="font-size:.8rem;color:var(--muted);">${tour.startDate} – ${tour.endDate}</span></div>
+    <div class="spectator-update">Uppdaterad ${new Date(tour.updatedAt || Date.now()).toLocaleTimeString('sv-SE')}</div>
     ${renderTourStandings(standings)}
-    <div class="card-title">Senaste rundorna</div>${latest || '<p style="color:var(--muted);font-size:.85rem;">Inga rundor ännu.</p>'}`;
+    <div class="card-title" style="margin-top:16px;">📣 Senaste nytt</div>${(tour.announcements || []).slice(0,3).map(item => `<div class="activity-row"><strong>${escapeHtml(item.message)}</strong><br><span style="color:var(--muted);">${escapeHtml(item.author)}</span></div>`).join('') || '<p style="color:var(--muted);font-size:.85rem;">Inga meddelanden ännu.</p>'}
+    <div class="card-title" style="margin-top:16px;">Tourens tidslinje</div>${tournamentTimeline(tour)}
+    <div class="card-title" style="margin-top:16px;">Spelarprofiler</div>${renderTournamentProfiles(tour)}
+    </div>`;
 }
 
 function closeSpectatorTour() {
@@ -6170,7 +6207,7 @@ function renderSharedTourDetail(code) {
     <div class="tour-condition-row"><span>📅</span><div><strong>Spelperiod</strong><br>${tour.startDate} – ${tour.endDate}</div></div>
     <div class="tour-condition-row"><span>⭐</span><div><strong>Rundor som räknas</strong><br>${tour.bestOfN ? `Spelarens bästa ${tour.bestOfN} rundor` : 'Alla godkända rundor'}</div></div>
     <div class="tour-condition-row"><span>🔁</span><div><strong>Fler rundor på samma bana</strong><br>${tour.duplicateCourseRule === 'first' ? 'De första rundorna upp till banans gräns räknas' : 'De bästa rundorna upp till banans gräns räknas'}</div></div>
-    <div class="tour-condition-row"><span>🏌️</span><div><strong>Godkända spelformer</strong><br>Individuellt, bästboll och matchspel</div></div>`;
+    <div class="tour-condition-row"><span>🏌️</span><div><strong>Godkända spelformer</strong><br>Individuellt, Scramble, bästboll, Foursome och matchspel</div></div>`;
   const editing = canAdmin && _editingSharedTourCode === record.code;
   const conditionEditor = editing ? `<div class="tour-condition-editor">
     <label>Namn<input id="sharedTourEditName" maxlength="80" value="${escapeHtml(tour.name)}"></label>
@@ -6230,7 +6267,7 @@ function renderSharedTourDetail(code) {
     </div>` : '';
   const activityLabels = {
     tour_created: 'skapade touren', organizer_account_linked: 'kopplade touren till sitt konto',
-    member_joined: 'gick med i touren', round_recorded: 'registrerade en runda',
+    member_joined: 'gick med i touren', round_started: 'startade en tourrunda', round_recorded: 'registrerade en runda',
     invitation_rotated: 'skapade en ny inbjudningslänk', conditions_updated: 'ändrade tourvillkoren',
     tour_completed: 'avslutade touren', tour_completed_automatically: 'Touren avslutades automatiskt',
     tour_cancelled: 'avbröt touren', member_removed: 'tog bort en medlem', member_restored: 'återställde en medlem',
@@ -6238,13 +6275,13 @@ function renderSharedTourDetail(code) {
     administrator_updated: 'ändrade en administratör', round_corrected: 'korrigerade en runda', announcement_posted: 'publicerade ett meddelande',
   };
   const activityGroups = {
-    rounds: new Set(['round_recorded', 'round_corrected']),
+    rounds: new Set(['round_started', 'round_recorded', 'round_corrected']),
     members: new Set(['member_joined', 'member_removed', 'member_restored', 'member_left', 'membership_updated']),
     administration: new Set(['tour_created', 'organizer_account_linked', 'invitation_rotated', 'conditions_updated', 'tour_completed', 'tour_completed_automatically', 'tour_cancelled', 'ownership_transferred', 'administrator_updated', 'announcement_posted']),
   };
   const filteredActivity = (record.activity || []).filter(event => _tourActivityFilter === 'all' || activityGroups[_tourActivityFilter]?.has(event.type));
   const activityRows = filteredActivity.slice(0, 50).map(event => {
-    const detail = event.type === 'round_recorded' ? ` · ${escapeHtml(event.details?.courseName || '')}` :
+    const detail = ['round_started', 'round_recorded'].includes(event.type) ? ` · ${escapeHtml(event.details?.courseName || '')}` :
       event.type === 'round_corrected' ? ` · ${escapeHtml(event.details?.courseName || '')}${event.details?.reason ? ` · anledning: ${escapeHtml(event.details.reason)}` : ''}` :
       event.type === 'ownership_transferred' ? ` · ny ägare ${escapeHtml(event.details?.newOrganizerName || '')}` :
       event.details?.memberName ? ` · ${escapeHtml(event.details.memberName)}` : '';
@@ -6280,6 +6317,8 @@ function renderSharedTourDetail(code) {
     <div class="card-title" style="margin-top:16px;">Tourspelare</div>
     ${(tour.members || []).map(member => `<div class="hi-row"><strong>${escapeHtml(member.name)}</strong><span style="float:right;color:var(--muted);">HCP ${member.hi}</span></div>`).join('') || '<p>Inga deltagare.</p>'}
     ${standingsPanel}
+    <div class="card-title" style="margin-top:16px;">Spelarprofiler</div>${renderTournamentProfiles(tour)}
+    <div class="card-title" style="margin-top:16px;">Tourens tidslinje</div>${tournamentTimeline(tour, record.activity || [])}
     <div class="card-title" style="margin-top:16px;">Rundor</div>${roundRows || '<p style="color:var(--muted);font-size:0.85rem;">Inga rundor ännu.</p>'}
     <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-top:16px;">
       <div class="card-title" style="margin:0;">Ändringslogg</div>
@@ -6348,6 +6387,11 @@ function confirmTournamentRoundSetup(kind, id) {
   const entry = dbLoad().find(item => item.name === course.name && (!course.holes || item.holes === course.holes));
   if (!entry) { alert('Banans tee-data saknas på enheten. Öppna eller lägg till banan först.'); return; }
   const baseline = Object.fromEntries(source.standings.map((row, index) => [String(row.player.id), { position: index + 1, total: row.total }]));
+  if (kind === 'shared') {
+    sharedTourClient.startRound(source.record.code, source.record.token, course.id, checked.map(member => member.memberId || member.id))
+      .then(started => sharedTourStore.upsert({ ...source.record, tour: started.tour || source.record.tour }))
+      .catch(() => showShareToast('Rundan startar, men övriga medlemmar kunde inte notifieras just nu.'));
+  }
   document.getElementById('tournamentSetup')?.remove();
   stopSharedTourRefresh();
   document.getElementById('tourView').classList.add('hidden');
@@ -6581,6 +6625,12 @@ function renderTourDetail(id) {
   const standingsPanel = renderTourStandings(standings, 'Inga rundor spelade ännu.');
 
   const rounds = tourMatchingRounds(tour).sort((a, b) => b.date.localeCompare(a.date));
+  const rosterIds = new Set(tour.roster || []);
+  const localProfileTour = {
+    ...tour,
+    members: playersLoad().filter(player => rosterIds.has(player.id)).map(player => ({ id: player.id, name: player.nick || player.name, hi: player.hi })),
+    rounds: rounds.map(round => ({ ...round, playedDate: round.date, subjects: (round.subjects || []).map(subject => ({ ...subject, memberId: subject.playerId })) })),
+  };
   const roundRows = rounds.map(r => {
     const rosterSubjects = r.subjects.filter(s =>
       standings.some(row => (row.player.nick || row.player.name) === s.name));
@@ -6599,6 +6649,8 @@ function renderTourDetail(id) {
     </div>
     ${tour.status === 'completed' && standings.length ? `<div class="info-box" style="margin:10px 0;">🏆 <strong>${escapeHtml(standings[0].player.nick || standings[0].player.name)}</strong> vann touren!</div>` : ''}
     ${standingsPanel}
+    <div class="card-title" style="margin:16px 0 8px;font-size:0.95rem;">Spelarprofiler</div>${renderTournamentProfiles(localProfileTour)}
+    <div class="card-title" style="margin:16px 0 8px;font-size:0.95rem;">Tourens tidslinje</div>${tournamentTimeline(localProfileTour)}
     <div class="card-title" style="margin:16px 0 8px;font-size:0.95rem;">Rundor</div>
     ${roundRows || '<p style="color:var(--muted);font-size:0.85rem;">Inga rundor ännu — starta en vanlig runda på en av tourens banor inom datumintervallet så räknas den automatiskt.</p>'}
     <div style="display:flex;gap:10px;margin-top:16px;">
