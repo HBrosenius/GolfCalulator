@@ -60,6 +60,41 @@ export async function userForSession(request, env) {
   return { ...row, tokenHash };
 }
 
+async function sendNewDeviceAlert(env, email, deviceName, occurredAt) {
+  if (!env.RESEND_API_KEY || !env.ACCOUNT_FROM_EMAIL) return;
+  const response = await fetch('https://api.resend.com/emails', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${env.RESEND_API_KEY}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      from: env.ACCOUNT_FROM_EMAIL, to: [email], subject: 'Ny inloggning i Poängbogey',
+      text: `En ny enhet loggade in på ditt Poängbogey-konto.\n\nEnhet: ${deviceName}\nTid: ${new Date(occurredAt).toISOString()}\n\nOm det inte var du, öppna Konto i appen och logga ut enheten.`,
+      html: `<p>En ny enhet loggade in på ditt Poängbogey-konto.</p><p><strong>Enhet:</strong> ${escapeEmailHtml(deviceName)}<br><strong>Tid:</strong> ${new Date(occurredAt).toISOString()}</p><p>Om det inte var du, öppna <strong>Konto</strong> i appen och logga ut enheten.</p>`,
+    }),
+  });
+  if (!response.ok) throw new Error('New-device email failed');
+}
+
+function escapeEmailHtml(value) {
+  return String(value).replace(/[&<>"']/g, character => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[character]);
+}
+
+function deviceMetadata(body) {
+  const name = typeof body?.deviceName === 'string' ? body.deviceName.trim().slice(0, 80) : '';
+  const type = typeof body?.deviceType === 'string' && ['mobile', 'tablet', 'desktop', 'unknown'].includes(body.deviceType)
+    ? body.deviceType : 'unknown';
+  return { deviceName: name || 'Okänd enhet', deviceType: type };
+}
+
+async function addSecurityEvent(env, userId, eventType, deviceName = null, details = null) {
+  await env.ACCOUNTS_DB.batch([
+    env.ACCOUNTS_DB.prepare('INSERT INTO account_security_events (id,user_id,event_type,created_at,device_name,details) VALUES (?,?,?,?,?,?)')
+      .bind(crypto.randomUUID(), userId, eventType, Date.now(), deviceName, details ? JSON.stringify(details) : null),
+    env.ACCOUNTS_DB.prepare(`DELETE FROM account_security_events WHERE user_id = ? AND id NOT IN (
+      SELECT id FROM account_security_events WHERE user_id = ? ORDER BY created_at DESC LIMIT 100
+    )`).bind(userId, userId),
+  ]);
+}
+
 export async function getProfile(request, env) {
   const user = await userForSession(request, env);
   if (!user) return accountJson({ error: 'Inte inloggad' }, 401);
@@ -100,10 +135,52 @@ export async function listAccountSessions(request, env) {
   if (!user) return accountJson({ error: 'Inte inloggad' }, 401);
   const currentHash = await hashToken(bearerToken(request) || '');
   const rows = await env.ACCOUNTS_DB.prepare(
-    'SELECT token_hash AS tokenHash,created_at AS createdAt,last_seen_at AS lastSeenAt,expires_at AS expiresAt FROM sessions WHERE user_id = ? AND expires_at > ? ORDER BY last_seen_at DESC LIMIT 20'
+    'SELECT token_hash AS tokenHash,session_id AS sessionId,device_name AS deviceName,device_type AS deviceType,created_at AS createdAt,last_seen_at AS lastSeenAt,expires_at AS expiresAt FROM sessions WHERE user_id = ? AND expires_at > ? ORDER BY last_seen_at DESC LIMIT 20'
   ).bind(user.id, Date.now()).all();
-  return accountJson({ sessions: (rows.results || []).map(row => ({
-    current: row.tokenHash === currentHash, createdAt: row.createdAt, lastSeenAt: row.lastSeenAt, expiresAt: row.expiresAt,
+  const values = rows.results || [];
+  const missing = values.filter(row => !row.sessionId).map(row => {
+    row.sessionId = crypto.randomUUID();
+    return env.ACCOUNTS_DB.prepare('UPDATE sessions SET session_id = ?,device_name = COALESCE(device_name,?),device_type = COALESCE(device_type,?) WHERE token_hash = ?')
+      .bind(row.sessionId, 'Äldre session', 'unknown', row.tokenHash);
+  });
+  if (missing.length) await env.ACCOUNTS_DB.batch(missing);
+  return accountJson({ sessions: values.map(row => ({
+    id: row.sessionId, current: row.tokenHash === currentHash, deviceName: row.deviceName || 'Äldre session',
+    deviceType: row.deviceType || 'unknown', createdAt: row.createdAt, lastSeenAt: row.lastSeenAt, expiresAt: row.expiresAt,
+  })) });
+}
+
+export async function revokeAccountSession(request, env, sessionId) {
+  const user = await userForSession(request, env);
+  if (!user) return accountJson({ error: 'Inte inloggad' }, 401);
+  if (!/^[0-9a-f-]{36}$/i.test(sessionId || '')) return accountJson({ error: 'Ogiltig session' }, 400);
+  const currentHash = await hashToken(bearerToken(request) || '');
+  const target = await env.ACCOUNTS_DB.prepare('SELECT token_hash AS tokenHash,device_name AS deviceName FROM sessions WHERE user_id = ? AND session_id = ?')
+    .bind(user.id, sessionId).first();
+  if (!target) return accountJson({ error: 'Sessionen finns inte' }, 404);
+  if (target.tokenHash === currentHash) return accountJson({ error: 'Använd Logga ut för den här sessionen' }, 409);
+  await env.ACCOUNTS_DB.prepare('DELETE FROM sessions WHERE user_id = ? AND session_id = ?').bind(user.id, sessionId).run();
+  await addSecurityEvent(env, user.id, 'session_revoked', target.deviceName || 'Äldre session');
+  return accountJson({ revoked: true });
+}
+
+export async function revokeOtherAccountSessions(request, env) {
+  const user = await userForSession(request, env);
+  if (!user) return accountJson({ error: 'Inte inloggad' }, 401);
+  const currentHash = await hashToken(bearerToken(request) || '');
+  const result = await env.ACCOUNTS_DB.prepare('DELETE FROM sessions WHERE user_id = ? AND token_hash <> ?').bind(user.id, currentHash).run();
+  await addSecurityEvent(env, user.id, 'other_sessions_revoked', null, { count: result.meta?.changes || 0 });
+  return accountJson({ revoked: result.meta?.changes || 0 });
+}
+
+export async function listSecurityEvents(request, env) {
+  const user = await userForSession(request, env);
+  if (!user) return accountJson({ error: 'Inte inloggad' }, 401);
+  const rows = await env.ACCOUNTS_DB.prepare(
+    'SELECT id,event_type AS type,created_at AS at,device_name AS deviceName,details FROM account_security_events WHERE user_id = ? ORDER BY created_at DESC LIMIT 100'
+  ).bind(user.id).all();
+  return accountJson({ events: (rows.results || []).map(row => ({
+    ...row, details: row.details ? JSON.parse(row.details) : null,
   })) });
 }
 
@@ -155,7 +232,7 @@ export async function requestMagicLink(body, request, env) {
   return accepted();
 }
 
-export async function exchangeMagicLink(body, env) {
+export async function exchangeMagicLink(body, env, ctx = null) {
   const rawToken = typeof body?.token === 'string' ? body.token : '';
   if (!/^[A-Za-z0-9_-]{40,64}$/.test(rawToken)) return accountJson({ error: 'Ogiltig eller utgången länk' }, 400);
   const tokenHash = await hashToken(rawToken);
@@ -166,6 +243,7 @@ export async function exchangeMagicLink(body, env) {
   if (!login) return accountJson({ error: 'Ogiltig eller utgången länk' }, 400);
 
   let user = await env.ACCOUNTS_DB.prepare('SELECT id,email,created_at AS createdAt FROM users WHERE email = ?').bind(login.email).first();
+  const existingUser = !!user;
   if (!user) {
     user = { id: crypto.randomUUID(), email: login.email, createdAt: now };
     await env.ACCOUNTS_DB.prepare('INSERT INTO users (id,email,created_at,last_login_at) VALUES (?,?,?,?)')
@@ -175,9 +253,17 @@ export async function exchangeMagicLink(body, env) {
   }
 
   const sessionToken = generateToken();
-  await env.ACCOUNTS_DB.prepare('INSERT INTO sessions (token_hash,user_id,expires_at,created_at,last_seen_at) VALUES (?,?,?,?,?)')
-    .bind(await hashToken(sessionToken), user.id, now + SESSION_TTL_MS, now, now).run();
-  return accountJson({ sessionToken, expiresAt: now + SESSION_TTL_MS, user });
+  const sessionId = crypto.randomUUID();
+  const device = deviceMetadata(body);
+  await env.ACCOUNTS_DB.prepare('INSERT INTO sessions (token_hash,user_id,expires_at,created_at,last_seen_at,session_id,device_name,device_type) VALUES (?,?,?,?,?,?,?,?)')
+    .bind(await hashToken(sessionToken), user.id, now + SESSION_TTL_MS, now, now, sessionId, device.deviceName, device.deviceType).run();
+  await addSecurityEvent(env, user.id, 'session_created', device.deviceName, { deviceType: device.deviceType });
+  if (existingUser) {
+    const alert = sendNewDeviceAlert(env, user.email, device.deviceName, now)
+      .catch(() => console.error(JSON.stringify({ level: 'error', message: 'new_device_alert_failed' })));
+    if (ctx) ctx.waitUntil(alert); else await alert;
+  }
+  return accountJson({ sessionToken, sessionId, expiresAt: now + SESSION_TTL_MS, user });
 }
 
 export async function getAccount(request, env) {

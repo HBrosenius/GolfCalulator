@@ -5,7 +5,8 @@ import { PROTOCOL_VERSION, readJson, validateCreate } from './validation.js';
 import { TOUR_SCHEMA_VERSION, validateTourCreate } from './tour-validation.js';
 import {
   accountIdentity, deleteAccount, deleteSession, exchangeMagicLink, forgetAccountTour, getAccount, getProfile,
-  getSnapshot, listAccountSessions, listAccountTours, putProfile, putSnapshot, rememberAccountTour, requestMagicLink, userForSession,
+  getSnapshot, listAccountSessions, listAccountTours, listSecurityEvents, putProfile, putSnapshot, rememberAccountTour,
+  requestMagicLink, revokeAccountSession, revokeOtherAccountSessions, userForSession,
 } from './account.js';
 
 export { GolfRoom, CreateRateLimiter, Tour };
@@ -119,7 +120,7 @@ async function createTour(request, env) {
   return json({ error: 'Tour unavailable' }, 503);
 }
 
-async function route(request, env) {
+async function route(request, env, ctx = null) {
   const url = new URL(request.url);
   if (url.pathname === '/health' && request.method === 'GET') {
     return json({ ok: true, protocolVersion: PROTOCOL_VERSION });
@@ -133,7 +134,7 @@ async function route(request, env) {
     }
     if (parts.length === 2 && parts[1] === 'exchange' && request.method === 'POST') {
       const parsed = await bodyOrResponse(request);
-      return parsed.response || exchangeMagicLink(parsed.body, env);
+      return parsed.response || exchangeMagicLink(parsed.body, env, ctx);
     }
     if (parts.length === 2 && parts[1] === 'session' && request.method === 'DELETE') return deleteSession(request, env);
     if (parts.length === 2 && parts[1] === 'me' && request.method === 'GET') return getAccount(request, env);
@@ -145,6 +146,9 @@ async function route(request, env) {
     }
     if (parts.length === 2 && parts[1] === 'tours' && request.method === 'GET') return listAccountTours(request, env);
     if (parts.length === 2 && parts[1] === 'sessions' && request.method === 'GET') return listAccountSessions(request, env);
+    if (parts.length === 2 && parts[1] === 'sessions' && request.method === 'DELETE') return revokeOtherAccountSessions(request, env);
+    if (parts.length === 3 && parts[1] === 'sessions' && request.method === 'DELETE') return revokeAccountSession(request, env, parts[2]);
+    if (parts.length === 2 && parts[1] === 'security-events' && request.method === 'GET') return listSecurityEvents(request, env);
     if (parts.length === 2 && parts[1] === 'snapshot' && request.method === 'GET') return getSnapshot(request, env);
     if (parts.length === 2 && parts[1] === 'snapshot' && request.method === 'PUT') {
       const parsed = await bodyOrResponse(request, MAX_ACCOUNT_SNAPSHOT_REQUEST_BYTES);
@@ -260,12 +264,12 @@ function logError(request, error) {
 }
 
 export default {
-  async fetch(request, env) {
+  async fetch(request, env, ctx) {
     const origin = request.headers.get('Origin');
     const cors = corsHeaders(origin);
     if (request.method === 'OPTIONS') return new Response(null, { headers: cors });
     let response;
-    try { response = await route(request, env); }
+    try { response = await route(request, env, ctx); }
     catch (error) { logError(request, error); response = json({ error: 'Service unavailable' }, 503); }
     const headers = new Headers(response.headers);
     Object.entries(cors).forEach(([key, value]) => headers.set(key, value));

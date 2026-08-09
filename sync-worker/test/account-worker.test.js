@@ -6,10 +6,11 @@ beforeAll(async () => {
   await env.ACCOUNTS_DB.exec(`
     CREATE TABLE IF NOT EXISTS users (id TEXT PRIMARY KEY,email TEXT NOT NULL UNIQUE,created_at INTEGER NOT NULL,last_login_at INTEGER NOT NULL);
     CREATE TABLE IF NOT EXISTS login_tokens (token_hash TEXT PRIMARY KEY,email TEXT NOT NULL,expires_at INTEGER NOT NULL,created_at INTEGER NOT NULL);
-    CREATE TABLE IF NOT EXISTS sessions (token_hash TEXT PRIMARY KEY,user_id TEXT NOT NULL,expires_at INTEGER NOT NULL,created_at INTEGER NOT NULL,last_seen_at INTEGER NOT NULL);
+    CREATE TABLE IF NOT EXISTS sessions (token_hash TEXT PRIMARY KEY,user_id TEXT NOT NULL,expires_at INTEGER NOT NULL,created_at INTEGER NOT NULL,last_seen_at INTEGER NOT NULL,session_id TEXT,device_name TEXT,device_type TEXT);
     CREATE TABLE IF NOT EXISTS account_snapshots (user_id TEXT PRIMARY KEY,version INTEGER NOT NULL DEFAULT 1,payload TEXT NOT NULL,updated_at INTEGER NOT NULL);
     CREATE TABLE IF NOT EXISTS account_profiles (user_id TEXT PRIMARY KEY,display_name TEXT NOT NULL,handicap REAL NOT NULL,updated_at INTEGER NOT NULL);
     CREATE TABLE IF NOT EXISTS account_tours (user_id TEXT NOT NULL,tour_code TEXT NOT NULL,role TEXT NOT NULL,member_id TEXT,joined_at INTEGER NOT NULL,PRIMARY KEY(user_id,tour_code));
+    CREATE TABLE IF NOT EXISTS account_security_events (id TEXT PRIMARY KEY,user_id TEXT NOT NULL,event_type TEXT NOT NULL,created_at INTEGER NOT NULL,device_name TEXT,details TEXT);
   `);
 });
 
@@ -116,5 +117,32 @@ describe('passwordless accounts and cloud snapshots', () => {
     })).status).toBe(204);
     expect(await env.ACCOUNTS_DB.prepare('SELECT id FROM users WHERE id = ?').bind(userId).first()).toBeNull();
     expect(await env.ACCOUNTS_DB.prepare('SELECT user_id FROM account_snapshots WHERE user_id = ?').bind(userId).first()).toBeNull();
+  });
+
+  it('names and remotely revokes sessions while keeping a security log', async () => {
+    const userId = crypto.randomUUID();
+    const currentToken = 'c'.repeat(43);
+    const otherToken = 'e'.repeat(43);
+    const currentId = crypto.randomUUID();
+    const otherId = crypto.randomUUID();
+    const now = Date.now();
+    await env.ACCOUNTS_DB.batch([
+      env.ACCOUNTS_DB.prepare('INSERT INTO users (id,email,created_at,last_login_at) VALUES (?,?,?,?)').bind(userId, `${userId}@example.com`, now, now),
+      env.ACCOUNTS_DB.prepare('INSERT INTO sessions (token_hash,user_id,expires_at,created_at,last_seen_at,session_id,device_name,device_type) VALUES (?,?,?,?,?,?,?,?)')
+        .bind(await hashToken(currentToken), userId, now + 60_000, now, now, currentId, 'Chrome på Windows', 'desktop'),
+      env.ACCOUNTS_DB.prepare('INSERT INTO sessions (token_hash,user_id,expires_at,created_at,last_seen_at,session_id,device_name,device_type) VALUES (?,?,?,?,?,?,?,?)')
+        .bind(await hashToken(otherToken), userId, now + 60_000, now, now, otherId, 'Safari på iOS', 'mobile'),
+    ]);
+    const headers = { Authorization: `Bearer ${currentToken}` };
+    const sessions = await (await SELF.fetch('https://worker.test/account/sessions', { headers })).json();
+    expect(sessions.sessions).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: currentId, current: true, deviceName: 'Chrome på Windows', deviceType: 'desktop' }),
+      expect.objectContaining({ id: otherId, current: false, deviceName: 'Safari på iOS', deviceType: 'mobile' }),
+    ]));
+    expect((await SELF.fetch(`https://worker.test/account/sessions/${currentId}`, { method: 'DELETE', headers })).status).toBe(409);
+    expect((await SELF.fetch(`https://worker.test/account/sessions/${otherId}`, { method: 'DELETE', headers })).status).toBe(200);
+    expect((await SELF.fetch('https://worker.test/account/me', { headers: { Authorization: `Bearer ${otherToken}` } })).status).toBe(401);
+    const events = await (await SELF.fetch('https://worker.test/account/security-events', { headers })).json();
+    expect(events.events[0]).toMatchObject({ type: 'session_revoked', deviceName: 'Safari på iOS' });
   });
 });

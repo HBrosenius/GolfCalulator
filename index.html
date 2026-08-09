@@ -19,7 +19,7 @@
 <script src="src/live-round.js?v=20260809-2"></script>
 <script src="src/tour-rules.js?v=20260809-2"></script>
 <script src="src/tour-sync.js?v=20260809-3"></script>
-<script src="src/account-sync.js?v=20260809-3"></script>
+<script src="src/account-sync.js?v=20260809-4"></script>
 <script>
 // Apply saved/system theme before first paint to avoid a flash of the wrong theme.
 (function() {
@@ -3591,16 +3591,18 @@ async function loadAccountDashboard() {
   const dashboard = document.getElementById('accountDashboard');
   if (!session || !dashboard) return;
   const client = accountApi();
-  const [profileResult, toursResult, sessionsResult, snapshotResult] = await Promise.allSettled([
+  const [profileResult, toursResult, sessionsResult, snapshotResult, securityResult] = await Promise.allSettled([
     client.profile(session.token), client.tours(session.token),
     typeof client.sessions === 'function' ? client.sessions(session.token) : Promise.resolve({ sessions: [] }),
     client.snapshot(session.token),
+    typeof client.securityEvents === 'function' ? client.securityEvents(session.token) : Promise.resolve({ events: [] }),
   ]);
   if (!document.getElementById('accountDashboard') || accountSessionLoad()?.token !== session.token) return;
   const profile = profileResult.status === 'fulfilled' ? profileResult.value.profile : session.profile;
   const memberships = toursResult.status === 'fulfilled' ? toursResult.value.tours || [] : [];
   const sessions = sessionsResult.status === 'fulfilled' ? sessionsResult.value.sessions || [] : [];
   const snapshot = snapshotResult.status === 'fulfilled' ? snapshotResult.value : null;
+  const securityEvents = securityResult.status === 'fulfilled' ? securityResult.value.events || [] : [];
   const data = snapshot?.data || {};
   const tourRows = memberships.map(item => {
     const local = sharedTourStore.find(item.code);
@@ -3617,9 +3619,34 @@ async function loadAccountDashboard() {
     <div style="font-size:.82rem;margin-bottom:12px;"><strong>Spelarprofil:</strong> ${profile ? `${escapeHtml(profile.displayName)} · HCP ${profile.handicap}` : 'Inte kopplad'}</div>
     <div class="card-title">Mina delade tourer</div>
     ${tourRows || '<p style="color:var(--muted);font-size:.82rem;">Inga kontokopplade tourer ännu.</p>'}
-    <details style="margin:12px 0;"><summary style="cursor:pointer;font-size:.84rem;font-weight:600;">Inloggade enheter och sessioner (${sessions.length})</summary>
-      ${sessions.map(item => `<div class="activity-row"><strong>${item.current ? 'Den här sessionen' : 'Annan session'}</strong><br><span style="color:var(--muted);">Senast aktiv ${new Date(item.lastSeenAt).toLocaleString('sv-SE')}</span></div>`).join('') || '<p style="color:var(--muted);font-size:.8rem;">Inga aktiva sessioner kunde hämtas.</p>'}
+    <details open style="margin:12px 0;"><summary style="cursor:pointer;font-size:.84rem;font-weight:600;">Inloggade enheter och sessioner (${sessions.length})</summary>
+      ${sessions.map(item => `<div class="activity-row" style="display:flex;justify-content:space-between;gap:8px;align-items:center;"><div><strong>${escapeHtml(item.deviceName || (item.current ? 'Den här sessionen' : 'Äldre session'))}${item.current ? ' · den här' : ''}</strong><br><span style="color:var(--muted);">${item.deviceType === 'mobile' ? 'Mobil' : item.deviceType === 'tablet' ? 'Surfplatta' : item.deviceType === 'desktop' ? 'Dator' : 'Okänd enhet'} · senast aktiv ${new Date(item.lastSeenAt).toLocaleString('sv-SE')}</span></div>
+        ${item.current ? '' : `<button class="btn secondary" onclick="revokeAccountDevice('${escapeHtml(item.id)}')">Logga ut</button>`}</div>`).join('') || '<p style="color:var(--muted);font-size:.8rem;">Inga aktiva sessioner kunde hämtas.</p>'}
+      ${sessions.some(item => !item.current) ? '<button class="btn secondary" style="margin-top:8px;color:var(--danger);" onclick="revokeOtherAccountDevices()">Logga ut alla andra</button>' : ''}
+    </details>
+    <details style="margin:12px 0;"><summary style="cursor:pointer;font-size:.84rem;font-weight:600;">Kontosäkerhet (${securityEvents.length})</summary>
+      ${securityEvents.slice(0, 20).map(event => `<div class="activity-row"><strong>${event.type === 'session_created' ? 'Ny inloggning' : event.type === 'session_revoked' ? 'En session loggades ut' : 'Alla andra sessioner loggades ut'}</strong>${event.deviceName ? ` · ${escapeHtml(event.deviceName)}` : ''}<br><span style="color:var(--muted);">${new Date(event.at).toLocaleString('sv-SE')}</span></div>`).join('') || '<p style="color:var(--muted);font-size:.8rem;">Inga säkerhetshändelser ännu.</p>'}
     </details>`;
+}
+
+async function revokeAccountDevice(sessionId) {
+  const session = accountSessionLoad();
+  if (!session || !confirm('Logga ut den här enheten?')) return;
+  try {
+    await accountApi().revokeSession(session.token, sessionId);
+    setAccountStatus('Enheten har loggats ut.');
+    await loadAccountDashboard();
+  } catch (error) { setAccountStatus(error.message || 'Kunde inte logga ut enheten.', 'error'); }
+}
+
+async function revokeOtherAccountDevices() {
+  const session = accountSessionLoad();
+  if (!session || !confirm('Logga ut alla andra enheter? Den här enheten förblir inloggad.')) return;
+  try {
+    const result = await accountApi().revokeOtherSessions(session.token);
+    setAccountStatus(`${result.revoked} andra sessioner loggades ut.`);
+    await loadAccountDashboard();
+  } catch (error) { setAccountStatus(error.message || 'Kunde inte logga ut de andra enheterna.', 'error'); }
 }
 
 async function openAccountSharedTour(code) {
@@ -3681,7 +3708,11 @@ async function requestAccountLink() {
 async function exchangeAccountLink(token, apiBase) {
   try {
     const selectedBase = ACCOUNT_API_ALLOWLIST.has(apiBase) ? apiBase : liveSyncClient.baseUrl;
-    const result = await accountApi(selectedBase).exchange(token);
+    const ua = navigator.userAgent || '';
+    const deviceType = /iPad|Tablet/i.test(ua) ? 'tablet' : /Android|iPhone|Mobile/i.test(ua) ? 'mobile' : 'desktop';
+    const browser = /Edg\//.test(ua) ? 'Edge' : /Firefox\//.test(ua) ? 'Firefox' : /Chrome\//.test(ua) ? 'Chrome' : /Safari\//.test(ua) ? 'Safari' : 'Webbläsare';
+    const platform = /Windows/i.test(ua) ? 'Windows' : /Android/i.test(ua) ? 'Android' : /iPhone|iPad/i.test(ua) ? 'iOS' : /Mac/i.test(ua) ? 'Mac' : /Linux/i.test(ua) ? 'Linux' : 'okänd plattform';
+    const result = await accountApi(selectedBase).exchange(token, { deviceName: `${browser} på ${platform}`, deviceType });
     const nextSession = { token: result.sessionToken, expiresAt: result.expiresAt, user: result.user, apiBase: selectedBase };
     try {
       const profile = await accountApi(selectedBase).profile(result.sessionToken);

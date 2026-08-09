@@ -183,12 +183,14 @@ test('top navigation separates play, players, rounds, tours and statistics', asy
 test('magic-link sign-in preserves local use and uploads a merged cloud snapshot', async ({ page }) => {
   let uploaded = null;
   let uploadCount = 0;
+  let exchangeBody = null;
   await page.addInitScript(() => {
     localStorage.setItem('golf_players_db', JSON.stringify([{ id: 'local-player', name: 'Ada', hi: 12 }]));
   });
   await page.route('https://golfcalc-sync.golfcalc-sync.workers.dev/account/**', async route => {
     const url = new URL(route.request().url());
     if (url.pathname === '/account/exchange') {
+      exchangeBody = JSON.parse(route.request().postData());
       await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({
         sessionToken: 's'.repeat(43), expiresAt: Date.now() + 60_000,
         user: { id: 'user-1', email: 'ada@example.com', createdAt: Date.now() },
@@ -198,7 +200,9 @@ test('magic-link sign-in preserves local use and uploads a merged cloud snapshot
     } else if (url.pathname === '/account/tours') {
       await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ tours: [] }) });
     } else if (url.pathname === '/account/sessions') {
-      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ sessions: [{ current: true, lastSeenAt: Date.now() }] }) });
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ sessions: [{ id: 'session-1', current: true, deviceName: 'Chrome på Windows', deviceType: 'desktop', lastSeenAt: Date.now() }] }) });
+    } else if (url.pathname === '/account/security-events') {
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ events: [{ id: 'event-1', type: 'session_created', at: Date.now(), deviceName: 'Chrome på Windows' }] }) });
     } else if (url.pathname === '/account/snapshot' && route.request().method() === 'GET') {
       await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({
         version: 0, updatedAt: null, data: { courses: [], rounds: [], players: [], tours: [] },
@@ -215,6 +219,9 @@ test('magic-link sign-in preserves local use and uploads a merged cloud snapshot
   await expect(page.locator('#accountContent')).toContainText('ada@example.com');
   await expect(page.locator('#accountDashboard')).toContainText('aktiva sessioner');
   await expect(page.locator('#accountDashboard')).toContainText('Spelarprofil: Ada · HCP 12');
+  await expect(page.locator('#accountDashboard')).toContainText('Chrome på Windows · den här');
+  await expect(page.locator('#accountDashboard')).toContainText('Kontosäkerhet (1)');
+  expect(exchangeBody).toMatchObject({ deviceName: 'Chrome på Windows', deviceType: 'desktop' });
   await expect.poll(() => uploaded).not.toBeNull();
   await expect(page.locator('#accountSyncSummary')).toContainText('Senast synkroniserad');
   const initialUploadCount = uploadCount;

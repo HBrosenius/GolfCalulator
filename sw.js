@@ -12,7 +12,7 @@ const SHELL = [
   './src/live-round.js?v=20260809-2',
   './src/tour-rules.js?v=20260809-2',
   './src/tour-sync.js?v=20260809-3',
-  './src/account-sync.js?v=20260809-3',
+  './src/account-sync.js?v=20260809-4',
   './manifest.json',
   './icon-192.png',
   './icon-512.png',

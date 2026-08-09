@@ -52,3 +52,21 @@ test('account dashboard endpoints use authenticated reads', async () => {
   assert.equal(calls[0].url, 'https://sync.test/account/sessions');
   assert.equal(calls[0].options.headers.Authorization, 'Bearer session-token');
 });
+
+test('account session controls address only public session IDs', async () => {
+  const calls = [];
+  const client = createClient('https://sync.test', async (url, options) => {
+    calls.push({ url, options });
+    return new Response(JSON.stringify({ revoked: 1 }), { headers: { 'Content-Type': 'application/json' } });
+  });
+  await client.revokeSession('session-token', 'public-session-id');
+  await client.revokeOtherSessions('session-token');
+  await client.securityEvents('session-token');
+  assert.deepEqual(calls.map(call => call.url), [
+    'https://sync.test/account/sessions/public-session-id',
+    'https://sync.test/account/sessions',
+    'https://sync.test/account/security-events',
+  ]);
+  assert.deepEqual(calls.map(call => call.options.method), ['DELETE', 'DELETE', undefined]);
+  calls.forEach(call => assert.equal(call.options.headers.Authorization, 'Bearer session-token'));
+});

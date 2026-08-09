@@ -22,13 +22,16 @@
     };
     return Object.freeze({
       requestLink: email => call('/account/login', { method: 'POST', body: { email } }),
-      exchange: token => call('/account/exchange', { method: 'POST', body: { token } }),
+      exchange: (token, device = {}) => call('/account/exchange', { method: 'POST', body: { token, ...device } }),
       me: token => call('/account/me', {}, token),
       deleteAccount: token => call('/account/me', { method: 'DELETE' }, token),
       profile: token => call('/account/profile', {}, token),
       saveProfile: (token, displayName, handicap) => call('/account/profile', { method: 'PUT', body: { displayName, handicap } }, token),
       tours: token => call('/account/tours', {}, token),
       sessions: token => call('/account/sessions', {}, token),
+      revokeSession: (token, sessionId) => call(`/account/sessions/${encodeURIComponent(sessionId)}`, { method: 'DELETE' }, token),
+      revokeOtherSessions: token => call('/account/sessions', { method: 'DELETE' }, token),
+      securityEvents: token => call('/account/security-events', {}, token),
       logout: token => call('/account/session', { method: 'DELETE' }, token),
       snapshot: token => call('/account/snapshot', {}, token),
       saveSnapshot: (token, baseVersion, data) => call('/account/snapshot', { method: 'PUT', body: { baseVersion, data } }, token),

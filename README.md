@@ -294,6 +294,14 @@ ihop banor, rundor, spelare och lokala tourer mellan enheter.
 - Kontovyn visar en samlad översikt över molnrundor, banor, delade tourer,
   spelarprofil och aktiva inloggningssessioner. Kontokopplade tourer kan öppnas
   direkt från översikten.
+- Varje ny session får ett begränsat enhetsnamn och enhetstyp. I kontovyn kan
+  användaren logga ut en annan session individuellt eller logga ut alla andra
+  sessioner på en gång; den aktuella sessionen kan inte råka återkallas med
+  fjärrkontrollen.
+- Kontosäkerhetsloggen sparar de senaste 100 inloggningarna och
+  sessionsåterkallelserna utan att lagra eller visa sessionsnycklar. Vid en ny
+  inloggning på ett befintligt konto skickas även ett transaktionsmejl med
+  enhetsnamn och tidpunkt.
 - Varje delad tour har en serverlagrad aktivitetslogg över bland annat nya
   medlemmar, registrerade rundor, villkorsändringar, borttagning/återställning
   av medlemmar och överfört ägarskap. Loggen är begränsad till de 100 senaste
