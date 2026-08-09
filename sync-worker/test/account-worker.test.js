@@ -11,6 +11,7 @@ beforeAll(async () => {
     CREATE TABLE IF NOT EXISTS account_profiles (user_id TEXT PRIMARY KEY,display_name TEXT NOT NULL,handicap REAL NOT NULL,updated_at INTEGER NOT NULL);
     CREATE TABLE IF NOT EXISTS account_tours (user_id TEXT NOT NULL,tour_code TEXT NOT NULL,role TEXT NOT NULL,member_id TEXT,joined_at INTEGER NOT NULL,PRIMARY KEY(user_id,tour_code));
     CREATE TABLE IF NOT EXISTS account_security_events (id TEXT PRIMARY KEY,user_id TEXT NOT NULL,event_type TEXT NOT NULL,created_at INTEGER NOT NULL,device_name TEXT,details TEXT);
+    CREATE TABLE IF NOT EXISTS push_subscriptions (id TEXT PRIMARY KEY,user_id TEXT NOT NULL,session_id TEXT,endpoint TEXT NOT NULL UNIQUE,p256dh TEXT NOT NULL,auth TEXT NOT NULL,preferences TEXT NOT NULL,created_at INTEGER NOT NULL,updated_at INTEGER NOT NULL);
   `);
 });
 
@@ -144,5 +145,26 @@ describe('passwordless accounts and cloud snapshots', () => {
     expect((await SELF.fetch('https://worker.test/account/me', { headers: { Authorization: `Bearer ${otherToken}` } })).status).toBe(401);
     const events = await (await SELF.fetch('https://worker.test/account/security-events', { headers })).json();
     expect(events.events[0]).toMatchObject({ type: 'session_revoked', deviceName: 'Safari på iOS' });
+  });
+
+  it('stores per-session push subscriptions and notification preferences', async () => {
+    const userId = crypto.randomUUID();
+    const token = 'w'.repeat(43);
+    const sessionId = crypto.randomUUID();
+    const now = Date.now();
+    await env.ACCOUNTS_DB.batch([
+      env.ACCOUNTS_DB.prepare('INSERT INTO users (id,email,created_at,last_login_at) VALUES (?,?,?,?)').bind(userId, `${userId}@example.com`, now, now),
+      env.ACCOUNTS_DB.prepare('INSERT INTO sessions (token_hash,user_id,expires_at,created_at,last_seen_at,session_id,device_name,device_type) VALUES (?,?,?,?,?,?,?,?)')
+        .bind(await hashToken(token), userId, now + 60_000, now, now, sessionId, 'Chrome', 'desktop'),
+    ]);
+    const headers = { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' };
+    const saved = await SELF.fetch('https://worker.test/account/push', { method: 'PUT', headers, body: JSON.stringify({
+      subscription: { endpoint: 'https://push.example.test/subscription', keys: { p256dh: 'A'.repeat(65), auth: 'B'.repeat(22) } },
+      preferences: { rounds: false, reminders: true },
+    }) });
+    expect(saved.status).toBe(200);
+    expect(await saved.json()).toMatchObject({ enabled: true, preferences: { rounds: false, reminders: true } });
+    expect(await (await SELF.fetch('https://worker.test/account/push', { headers })).json()).toMatchObject({ enabled: true, preferences: { rounds: false } });
+    expect((await SELF.fetch('https://worker.test/account/push', { method: 'DELETE', headers })).status).toBe(200);
   });
 });

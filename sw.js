@@ -12,7 +12,7 @@ const SHELL = [
   './src/live-round.js?v=20260809-2',
   './src/tour-rules.js?v=20260809-2',
   './src/tour-sync.js?v=20260809-3',
-  './src/account-sync.js?v=20260809-4',
+  './src/account-sync.js?v=20260809-5',
   './manifest.json',
   './icon-192.png',
   './icon-512.png',
@@ -60,6 +60,28 @@ self.addEventListener('activate', event => {
 
 self.addEventListener('message', event => {
   if (event.data && event.data.type === 'SKIP_WAITING') self.skipWaiting();
+});
+
+self.addEventListener('push', event => {
+  event.waitUntil((async () => {
+    let data = {};
+    try { data = event.data ? event.data.json() : {}; } catch (_) {}
+    await self.registration.showNotification(data.title || 'Poängbogey', {
+      body: data.body || 'En delad tour har uppdaterats.', icon: './icon-192.png', badge: './icon-192.png',
+      tag: data.tag || 'golf-tour', data: { url: data.url || './index.html' },
+    });
+  })());
+});
+
+self.addEventListener('notificationclick', event => {
+  event.notification.close();
+  event.waitUntil((async () => {
+    const url = new URL(event.notification.data?.url || './index.html', self.location.href).href;
+    const windows = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+    const existing = windows[0];
+    if (existing) { await existing.navigate(url); return existing.focus(); }
+    return self.clients.openWindow(url);
+  })());
 });
 
 async function currentCache() {

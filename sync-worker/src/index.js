@@ -3,6 +3,7 @@ import { GolfRoom, CreateRateLimiter } from './room.js';
 import { Tour } from './tour.js';
 import { PROTOCOL_VERSION, readJson, validateCreate } from './validation.js';
 import { TOUR_SCHEMA_VERSION, validateTourCreate } from './tour-validation.js';
+import { deletePushSubscription, getPushKey, getPushSettings, notifyUsers, savePushSubscription } from './push.js';
 import {
   accountIdentity, deleteAccount, deleteSession, exchangeMagicLink, forgetAccountTour, getAccount, getProfile,
   getSnapshot, listAccountSessions, listAccountTours, listSecurityEvents, putProfile, putSnapshot, rememberAccountTour,
@@ -102,7 +103,7 @@ async function createTour(request, env) {
   const invitationTokenHash = await hashToken(invitationToken);
   for (let attempt = 0; attempt < 8; attempt++) {
     const code = randomCode(8);
-    const created = await env.GOLF_TOURS.getByName(code).create(parsed.body, organizerTokenHash, invitationTokenHash);
+    const created = await env.GOLF_TOURS.getByName(code).create({ ...parsed.body, code }, organizerTokenHash, invitationTokenHash);
     if (created.status === 201) {
       const account = env.ACCOUNTS_DB ? await userForSession(request, env) : null;
       if (account) {
@@ -127,6 +128,7 @@ async function route(request, env, ctx = null) {
   }
   const parts = url.pathname.split('/').filter(Boolean);
   if (parts[0] === 'account') {
+    if (parts.length === 2 && parts[1] === 'push-key' && request.method === 'GET') return getPushKey(env);
     if (!env.ACCOUNTS_DB) return json({ error: 'Accounts are not configured' }, 503);
     if (parts.length === 2 && parts[1] === 'login' && request.method === 'POST') {
       const parsed = await bodyOrResponse(request);
@@ -149,6 +151,12 @@ async function route(request, env, ctx = null) {
     if (parts.length === 2 && parts[1] === 'sessions' && request.method === 'DELETE') return revokeOtherAccountSessions(request, env);
     if (parts.length === 3 && parts[1] === 'sessions' && request.method === 'DELETE') return revokeAccountSession(request, env, parts[2]);
     if (parts.length === 2 && parts[1] === 'security-events' && request.method === 'GET') return listSecurityEvents(request, env);
+    if (parts.length === 2 && parts[1] === 'push' && request.method === 'GET') return getPushSettings(request, env);
+    if (parts.length === 2 && parts[1] === 'push' && request.method === 'PUT') {
+      const parsed = await bodyOrResponse(request);
+      return parsed.response || savePushSubscription(parsed.body, request, env);
+    }
+    if (parts.length === 2 && parts[1] === 'push' && request.method === 'DELETE') return deletePushSubscription(request, env);
     if (parts.length === 2 && parts[1] === 'snapshot' && request.method === 'GET') return getSnapshot(request, env);
     if (parts.length === 2 && parts[1] === 'snapshot' && request.method === 'PUT') {
       const parsed = await bodyOrResponse(request, MAX_ACCOUNT_SNAPSHOT_REQUEST_BYTES);
@@ -161,6 +169,7 @@ async function route(request, env, ctx = null) {
     if (parts.length < 2 || !/^[A-HJ-KM-NP-Z2-9]{8}$/.test(parts[1].toUpperCase())) return json({ error: 'Tour not found' }, 404);
     const code = parts[1].toUpperCase();
     const tour = env.GOLF_TOURS.getByName(code);
+    await tour.bindCode(code);
     if (parts.length === 2 && request.method === 'GET') return fromTourResult(await tour.getPublicState());
     if (!protocolHeaderValid(request)) return json({ error: 'Unsupported protocol version' }, 426);
     const token = bearerToken(request);
@@ -274,5 +283,16 @@ export default {
     const headers = new Headers(response.headers);
     Object.entries(cors).forEach(([key, value]) => headers.set(key, value));
     return new Response(response.body, { status: response.status, headers });
+  },
+  async scheduled(_controller, env, ctx) {
+    ctx.waitUntil((async () => {
+      const rows = await env.ACCOUNTS_DB.prepare('SELECT DISTINCT tour_code AS code FROM account_tours').all();
+      for (const row of rows.results || []) {
+        const tour = env.GOLF_TOURS.getByName(row.code);
+        await tour.bindCode(row.code);
+        const due = await tour.endReminderDue(Date.now());
+        if (due?.userIds?.length) await notifyUsers(env, due.userIds, 'reminders', due.payload);
+      }
+    })());
   },
 };

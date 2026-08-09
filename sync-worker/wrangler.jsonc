@@ -29,6 +29,7 @@
     "logs": { "enabled": true, "head_sampling_rate": 1 },
     "traces": { "enabled": true, "head_sampling_rate": 0.05 }
   },
+  "triggers": { "crons": ["0 7 * * *"] },
   "env": {
     "production": {
       "name": "golfcalc-sync",
@@ -51,7 +52,8 @@
           { "name": "GOLF_TOURS", "class_name": "Tour" },
           { "name": "CREATE_LIMITER", "class_name": "CreateRateLimiter" }
         ]
-      }
+      },
+      "triggers": { "crons": ["0 7 * * *"] }
     },
     "staging": {
       "name": "golfcalc-sync-staging",

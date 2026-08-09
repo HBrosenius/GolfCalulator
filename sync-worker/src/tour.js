@@ -3,6 +3,7 @@ import { generateToken, hashToken, tokenMatches } from './auth.js';
 import { PROTOCOL_VERSION } from './validation.js';
 import { TOUR_SCHEMA_VERSION } from './tour-validation.js';
 import { validateTourRoundSubmission, validateTourUpdate } from './tour-validation.js';
+import { notifyUsers } from './push.js';
 
 const TOUR_KEY = 'tour';
 const RETENTION_MS = 365 * 24 * 60 * 60 * 1000;
@@ -42,6 +43,15 @@ function addActivity(tour, type, actor, details = {}) {
   if (tour.activity.length > MAX_ACTIVITY_EVENTS) tour.activity.splice(0, tour.activity.length - MAX_ACTIVITY_EVENTS);
 }
 
+function accountUsers(tour, excludeUserId = null) {
+  return [...new Set([tour.organizerAccountUserId, ...tour.contributors.filter(item => !item.revokedAt).map(item => item.accountUserId)]
+    .filter(userId => userId && userId !== excludeUserId))];
+}
+
+function pushPayload(tour, title, body) {
+  return { title, body, url: `./index.html#shared_tour=${encodeURIComponent(tour.code || '')}`, tag: `tour-${tour.code || 'shared'}` };
+}
+
 function validMembershipRequest(body, extraKeys = []) {
   const allowed = new Set(['protocolVersion', 'schemaVersion', ...extraKeys]);
   return body?.protocolVersion === PROTOCOL_VERSION && body?.schemaVersion === TOUR_SCHEMA_VERSION &&
@@ -71,6 +81,11 @@ function publicTour(tour) {
 }
 
 export class Tour extends DurableObject {
+  async bindCode(code) {
+    const tour = await this.ctx.storage.get(TOUR_KEY);
+    if (tour && !tour.code) { tour.code = code; await this.ctx.storage.put(TOUR_KEY, tour); }
+  }
+
   completionAt(tour) {
     return new Date(`${tour.endDate}T23:59:59.999Z`).getTime() + 1;
   }
@@ -142,6 +157,7 @@ export class Tour extends DurableObject {
       invitationRevision: 1,
       invitationRotatedAt: null,
       activity: [],
+      code: config.code || null,
     };
     addActivity(tour, 'tour_created', { role: 'organizer' });
     await this.ctx.storage.put(TOUR_KEY, tour);
@@ -216,6 +232,7 @@ export class Tour extends DurableObject {
     tour.updatedAt = Date.now();
     tour.revision++;
     await this.ctx.storage.put(TOUR_KEY, tour);
+    if (tour.organizerAccountUserId) this.ctx.waitUntil(notifyUsers(this.env, [tour.organizerAccountUserId], 'membership', pushPayload(tour, tour.name, `${actorName(tour, { role: 'contributor', id: contributor.id })} gick med i touren.`)));
     return result(200, {
       tour: publicTour(tour), contributorId: contributor.id, contributorToken,
       memberId: contributor.memberId, membershipRole: contributor.role,
@@ -400,6 +417,7 @@ export class Tour extends DurableObject {
     tour.updatedAt = submittedAt;
     tour.revision++;
     await this.ctx.storage.put(TOUR_KEY, tour);
+    this.ctx.waitUntil(notifyUsers(this.env, accountUsers(tour, actor.accountUserId), 'rounds', pushPayload(tour, `Ny runda i ${tour.name}`, `${actorName(tour, actor)} registrerade ${course.name}.`)));
     return result(201, { tour: publicTour(tour), round, duplicate: false });
   }
 
@@ -501,6 +519,7 @@ export class Tour extends DurableObject {
     tour.updatedAt = contributor.revokedAt;
     tour.revision++;
     await this.ctx.storage.put(TOUR_KEY, tour);
+    if (tour.organizerAccountUserId) this.ctx.waitUntil(notifyUsers(this.env, [tour.organizerAccountUserId], 'membership', pushPayload(tour, tour.name, `${actorName(tour, actor)} lämnade touren.`)));
     return result(200, { left: true });
   }
 
@@ -555,6 +574,7 @@ export class Tour extends DurableObject {
     tour.updatedAt = Date.now();
     tour.revision++;
     await this.ctx.storage.put(TOUR_KEY, tour);
+    this.ctx.waitUntil(notifyUsers(this.env, accountUsers(tour), 'ownership', pushPayload(tour, tour.name, `${target.displayName || 'En medlem'} är nu ägare.`)));
     return result(200, {
       tour: publicTour(tour), newOrganizerAccountUserId: target.accountUserId, memberId: target.memberId || null,
     });
@@ -569,5 +589,17 @@ export class Tour extends DurableObject {
     }
     await this.ensureLifecycle(tour);
     await this.scheduleLifecycle(tour);
+  }
+
+  async endReminderDue(now) {
+    const stored = await this.ctx.storage.get(TOUR_KEY);
+    const tour = stored ? await this.ensureLifecycle(stored) : null;
+    if (!tour || tour.status !== 'open' || tour.endReminderSentAt) return null;
+    normalizeMembership(tour);
+    const tomorrow = new Date(now + 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+    if (tour.endDate !== tomorrow) return null;
+    tour.endReminderSentAt = now;
+    await this.ctx.storage.put(TOUR_KEY, tour);
+    return { userIds: accountUsers(tour), payload: pushPayload(tour, `${tour.name} avslutas i morgon`, 'Registrera eventuella återstående rundor innan touren stängs.') };
   }
 }

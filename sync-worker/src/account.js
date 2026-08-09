@@ -159,7 +159,10 @@ export async function revokeAccountSession(request, env, sessionId) {
     .bind(user.id, sessionId).first();
   if (!target) return accountJson({ error: 'Sessionen finns inte' }, 404);
   if (target.tokenHash === currentHash) return accountJson({ error: 'Använd Logga ut för den här sessionen' }, 409);
-  await env.ACCOUNTS_DB.prepare('DELETE FROM sessions WHERE user_id = ? AND session_id = ?').bind(user.id, sessionId).run();
+  await env.ACCOUNTS_DB.batch([
+    env.ACCOUNTS_DB.prepare('DELETE FROM push_subscriptions WHERE user_id = ? AND session_id = ?').bind(user.id, sessionId),
+    env.ACCOUNTS_DB.prepare('DELETE FROM sessions WHERE user_id = ? AND session_id = ?').bind(user.id, sessionId),
+  ]);
   await addSecurityEvent(env, user.id, 'session_revoked', target.deviceName || 'Äldre session');
   return accountJson({ revoked: true });
 }
@@ -168,6 +171,8 @@ export async function revokeOtherAccountSessions(request, env) {
   const user = await userForSession(request, env);
   if (!user) return accountJson({ error: 'Inte inloggad' }, 401);
   const currentHash = await hashToken(bearerToken(request) || '');
+  const current = await env.ACCOUNTS_DB.prepare('SELECT session_id AS sessionId FROM sessions WHERE user_id = ? AND token_hash = ?').bind(user.id, currentHash).first();
+  await env.ACCOUNTS_DB.prepare('DELETE FROM push_subscriptions WHERE user_id = ? AND (session_id IS NULL OR session_id <> ?)').bind(user.id, current?.sessionId || '').run();
   const result = await env.ACCOUNTS_DB.prepare('DELETE FROM sessions WHERE user_id = ? AND token_hash <> ?').bind(user.id, currentHash).run();
   await addSecurityEvent(env, user.id, 'other_sessions_revoked', null, { count: result.meta?.changes || 0 });
   return accountJson({ revoked: result.meta?.changes || 0 });
@@ -273,7 +278,12 @@ export async function getAccount(request, env) {
 
 export async function deleteSession(request, env) {
   const token = bearerToken(request);
-  if (token) await env.ACCOUNTS_DB.prepare('DELETE FROM sessions WHERE token_hash = ?').bind(await hashToken(token)).run();
+  if (token) {
+    const tokenHash = await hashToken(token);
+    const session = await env.ACCOUNTS_DB.prepare('SELECT session_id AS sessionId FROM sessions WHERE token_hash = ?').bind(tokenHash).first();
+    if (session?.sessionId) await env.ACCOUNTS_DB.prepare('DELETE FROM push_subscriptions WHERE session_id = ?').bind(session.sessionId).run();
+    await env.ACCOUNTS_DB.prepare('DELETE FROM sessions WHERE token_hash = ?').bind(tokenHash).run();
+  }
   return new Response(null, { status: 204, headers: { 'Cache-Control': 'no-store' } });
 }
 

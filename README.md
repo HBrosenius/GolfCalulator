@@ -302,6 +302,14 @@ ihop banor, rundor, spelare och lokala tourer mellan enheter.
   sessionsåterkallelserna utan att lagra eller visa sessionsnycklar. Vid en ny
   inloggning på ett befintligt konto skickas även ett transaktionsmejl med
   enhetsnamn och tidpunkt.
+- Inloggade användare kan aktivera Web Push per enhet och välja notiser för
+  nya tourrundor, medlemsändringar, ägarbyten och slutpåminnelser. Notiser
+  öppnar rätt delad tour direkt. Prenumerationer kopplas till sessionen och
+  raderas automatiskt när enheten loggas ut eller push-tjänsten meddelar att
+  prenumerationen har upphört.
+- En daglig Worker-trigger skickar en påminnelse till aktiva medlemmar när en
+  delad tour avslutas följande dag. VAPID-privatnyckeln lagras endast som en
+  Worker-hemlighet och finns aldrig i källkod, D1 eller klienten.
 - Varje delad tour har en serverlagrad aktivitetslogg över bland annat nya
   medlemmar, registrerade rundor, villkorsändringar, borttagning/återställning
   av medlemmar och överfört ägarskap. Loggen är begränsad till de 100 senaste

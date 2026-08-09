@@ -19,7 +19,7 @@
 <script src="src/live-round.js?v=20260809-2"></script>
 <script src="src/tour-rules.js?v=20260809-2"></script>
 <script src="src/tour-sync.js?v=20260809-3"></script>
-<script src="src/account-sync.js?v=20260809-4"></script>
+<script src="src/account-sync.js?v=20260809-5"></script>
 <script>
 // Apply saved/system theme before first paint to avoid a flash of the wrong theme.
 (function() {
@@ -3616,6 +3616,7 @@ async function loadAccountDashboard() {
       <div class="account-metric"><strong>${memberships.length}</strong><span>delade tourer</span></div>
       <div class="account-metric"><strong>${sessions.length}</strong><span>aktiva sessioner</span></div>
     </div>
+    <div id="accountPushSettings" class="tour-condition-row"><span>🔔</span><div><strong>Pushnotiser</strong><br><span style="color:var(--muted);font-size:.8rem;">Hämtar inställningar…</span></div></div>
     <div style="font-size:.82rem;margin-bottom:12px;"><strong>Spelarprofil:</strong> ${profile ? `${escapeHtml(profile.displayName)} · HCP ${profile.handicap}` : 'Inte kopplad'}</div>
     <div class="card-title">Mina delade tourer</div>
     ${tourRows || '<p style="color:var(--muted);font-size:.82rem;">Inga kontokopplade tourer ännu.</p>'}
@@ -3627,6 +3628,67 @@ async function loadAccountDashboard() {
     <details style="margin:12px 0;"><summary style="cursor:pointer;font-size:.84rem;font-weight:600;">Kontosäkerhet (${securityEvents.length})</summary>
       ${securityEvents.slice(0, 20).map(event => `<div class="activity-row"><strong>${event.type === 'session_created' ? 'Ny inloggning' : event.type === 'session_revoked' ? 'En session loggades ut' : 'Alla andra sessioner loggades ut'}</strong>${event.deviceName ? ` · ${escapeHtml(event.deviceName)}` : ''}<br><span style="color:var(--muted);">${new Date(event.at).toLocaleString('sv-SE')}</span></div>`).join('') || '<p style="color:var(--muted);font-size:.8rem;">Inga säkerhetshändelser ännu.</p>'}
     </details>`;
+  renderAccountPushSettings();
+}
+
+function pushPreferenceValues() {
+  return Object.fromEntries(['rounds', 'membership', 'ownership', 'reminders'].map(key => [key, document.getElementById(`push-${key}`)?.checked !== false]));
+}
+
+async function renderAccountPushSettings() {
+  const element = document.getElementById('accountPushSettings');
+  const session = accountSessionLoad();
+  if (!element || !session) return;
+  if (!('serviceWorker' in navigator) || !('PushManager' in window) || !('Notification' in window)) {
+    element.innerHTML = '<span>🔕</span><div><strong>Pushnotiser stöds inte</strong><br><span style="color:var(--muted);font-size:.8rem;">Den här webbläsaren kan inte ta emot pushnotiser.</span></div>';
+    return;
+  }
+  let settings = { enabled: false, preferences: { rounds: true, membership: true, ownership: true, reminders: true } };
+  try { settings = await accountApi().pushSettings(session.token); } catch (_) {}
+  if (!settings) settings = { enabled: false, preferences: { rounds: true, membership: true, ownership: true, reminders: true } };
+  const pref = settings.preferences || {};
+  element.innerHTML = `<span>${settings.enabled ? '🔔' : '🔕'}</span><div style="width:100%;"><strong>Pushnotiser ${settings.enabled ? 'är aktiva' : 'är avstängda'}</strong>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:5px;margin:8px 0;font-size:.8rem;">
+      <label><input id="push-rounds" type="checkbox" ${pref.rounds !== false ? 'checked' : ''}> Nya rundor</label>
+      <label><input id="push-membership" type="checkbox" ${pref.membership !== false ? 'checked' : ''}> Medlemmar</label>
+      <label><input id="push-ownership" type="checkbox" ${pref.ownership !== false ? 'checked' : ''}> Ägarskap</label>
+      <label><input id="push-reminders" type="checkbox" ${pref.reminders !== false ? 'checked' : ''}> Slutpåminnelser</label>
+    </div>
+    <button class="btn secondary" onclick="enableAccountPush()">${settings.enabled ? 'Spara notisinställningar' : 'Aktivera pushnotiser'}</button>
+    ${settings.enabled ? '<button class="btn secondary" style="margin-top:6px;color:var(--danger);" onclick="disableAccountPush()">Stäng av på den här enheten</button>' : ''}</div>`;
+}
+
+function base64UrlBytes(value) {
+  const padded = value + '='.repeat((4 - value.length % 4) % 4);
+  const binary = atob(padded.replace(/-/g, '+').replace(/_/g, '/'));
+  return Uint8Array.from(binary, char => char.charCodeAt(0));
+}
+
+async function enableAccountPush() {
+  const session = accountSessionLoad();
+  try {
+    if (await Notification.requestPermission() !== 'granted') throw new Error('Tillåt notiser i webbläsaren för att aktivera funktionen.');
+    const key = await accountApi().pushKey();
+    const registration = await navigator.serviceWorker.ready;
+    const subscription = await registration.pushManager.getSubscription() || await registration.pushManager.subscribe({
+      userVisibleOnly: true, applicationServerKey: base64UrlBytes(key.publicKey),
+    });
+    await accountApi().savePush(session.token, subscription.toJSON(), pushPreferenceValues());
+    setAccountStatus('Pushnotiser är aktiverade på den här enheten.');
+    await renderAccountPushSettings();
+  } catch (error) { setAccountStatus(error.message || 'Kunde inte aktivera pushnotiser.', 'error'); }
+}
+
+async function disableAccountPush() {
+  const session = accountSessionLoad();
+  try {
+    await accountApi().deletePush(session.token);
+    const registration = await navigator.serviceWorker.ready;
+    const subscription = await registration.pushManager.getSubscription();
+    if (subscription) await subscription.unsubscribe();
+    setAccountStatus('Pushnotiser är avstängda på den här enheten.');
+    await renderAccountPushSettings();
+  } catch (error) { setAccountStatus(error.message || 'Kunde inte stänga av pushnotiser.', 'error'); }
 }
 
 async function revokeAccountDevice(sessionId) {
@@ -7087,6 +7149,14 @@ if ('serviceWorker' in navigator) {
     .catch(() => {});
 }
 goToStep(1);
+try {
+  const notificationTour = new URLSearchParams(location.hash.slice(1)).get('shared_tour');
+  if (notificationTour) setTimeout(async () => {
+    history.replaceState(null, '', location.pathname + location.search);
+    if (!sharedTourStore.find(notificationTour) && accountSessionLoad()) await syncAccountTours();
+    if (sharedTourStore.find(notificationTour)) { openTourView(); openSharedTourDetail(notificationTour); }
+  }, 0);
+} catch (_) {}
 </script>
 </body>
 </html>

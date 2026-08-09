@@ -70,3 +70,18 @@ test('account session controls address only public session IDs', async () => {
   assert.deepEqual(calls.map(call => call.options.method), ['DELETE', 'DELETE', undefined]);
   calls.forEach(call => assert.equal(call.options.headers.Authorization, 'Bearer session-token'));
 });
+
+test('push subscription methods keep keys in authenticated request bodies', async () => {
+  const calls = [];
+  const client = createClient('https://sync.test', async (url, options) => {
+    calls.push({ url, options }); return new Response(JSON.stringify({ enabled: true }), { headers: { 'Content-Type': 'application/json' } });
+  });
+  const subscription = { endpoint: 'https://push.test/sub', keys: { p256dh: 'public', auth: 'auth' } };
+  await client.pushKey();
+  await client.savePush('session', subscription, { rounds: true });
+  await client.deletePush('session');
+  assert.deepEqual(calls.map(call => call.url), ['https://sync.test/account/push-key', 'https://sync.test/account/push', 'https://sync.test/account/push']);
+  assert.equal(JSON.parse(calls[1].options.body).subscription.endpoint, subscription.endpoint);
+  assert.equal(calls[1].options.headers.Authorization, 'Bearer session');
+  assert.equal(calls[2].options.method, 'DELETE');
+});
