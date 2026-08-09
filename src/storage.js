@@ -93,7 +93,13 @@
         const memberIds = Array.isArray(subject.members)
           ? subject.members.map((name, index) => subject.memberIds?.[index] ?? uniquePlayerIdForName(name, players))
           : subject.memberIds;
-        return { ...subject, playerId, ...(Array.isArray(subject.members) ? { memberIds } : {}) };
+        const rowPoints = Array.isArray(subject.rows)
+          ? subject.rows.filter(row => Number.isFinite(row?.pts)).map(row => row.pts)
+          : [];
+        const totalPoints = Number.isFinite(subject.totalPoints)
+          ? subject.totalPoints
+          : (rowPoints.length ? rowPoints.reduce((sum, points) => sum + points, 0) : subject.totalPoints);
+        return { ...subject, totalPoints, playerId, ...(Array.isArray(subject.members) ? { memberIds } : {}) };
       }) : [];
       return { ...round, schemaVersion: 2, subjects };
     });

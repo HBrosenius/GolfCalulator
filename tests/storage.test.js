@@ -84,3 +84,10 @@ test('legacy rounds gain IDs only from unambiguous player names', () => {
   assert.equal(round.subjects[1].playerId, null);
   assert.deepEqual(round.subjects[2].memberIds, [1, null]);
 });
+
+test('round migration repairs a null point total from hole rows', () => {
+  const [round] = storage.migrateRounds([{ id: 1, subjects: [{
+    name: 'Ada', totalPoints: null, rows: [{ pts: 2 }, { pts: 1 }, { pts: null }],
+  }] }], []);
+  assert.equal(round.subjects[0].totalPoints, 3);
+});

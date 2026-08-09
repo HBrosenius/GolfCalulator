@@ -744,14 +744,19 @@ test('first-run onboarding and shared-tour collaboration controls are visible', 
   await page.evaluate(() => {
     const tour = {
       revision: 4, name: 'Live-tour', startDate: '2026-01-01', endDate: '2026-12-31', status: 'open',
-      bestOfN: null, duplicateCourseRule: 'best', members: [{ id: 'm1', name: 'Ada', hi: 12 }], courses: [],
+      bestOfN: null, duplicateCourseRule: 'best', members: [{ id: 'm1', name: 'Ada', hi: 12 }],
+      courses: [{ id: 'c1', name: 'Testbanan', holes: 18, maxRounds: 3, tees: [] }],
       announcements: [{ id: 'a1', author: 'Admin', message: 'Samling 09:00', at: Date.now() }],
-      rounds: [{ id: 'r1', courseName: 'Testbanan', playedDate: '2026-08-01', subjects: [{ name: 'Ada', totalPoints: 36 }] }],
+      rounds: [{ id: 'r1', courseName: 'Testbanan', holes: 18, gameMode: 'individual', playedDate: '2026-08-01', subjects: [{ memberId: 'm1', name: 'Ada', totalPoints: 36 }] }],
     };
     sharedTourStore.upsert({ code: 'ABCD2345', role: 'administrator', token: 'A'.repeat(43), tour, contributors: [], activity: [], pendingSubmissions: [] });
     _tourViewMode = 'shared'; _tourViewActiveId = 'ABCD2345'; renderSharedTourDetail('ABCD2345'); showPrimaryView('tour', 'tourView');
   });
   await expect(page.locator('#tourContent')).toContainText('Samling 09:00');
+  await expect(page.locator('.tour-standings')).toContainText('Tourställning');
+  await expect(page.locator('.tour-standing-row').first()).toContainText('🥇');
+  await expect(page.locator('.tour-standing-row').first()).toContainText('Ada');
+  await expect(page.locator('.tour-standing-score').first()).toContainText('36');
   await expect(page.getByRole('button', { name: 'Publicera' })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Korrigera datum' })).toBeVisible();
   await expect(page.getByRole('button', { name: /Skapa ny inbjudningslänk/ })).toHaveCount(0);

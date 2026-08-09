@@ -131,3 +131,13 @@ test('shared server rounds feed the same standings rules', () => {
   });
   assert.deepEqual(standings.map(row => [row.player.name, row.total]), [['Ada', 36], ['Bo', 35]]);
 });
+
+test('standings recover a missing total from saved hole points', () => {
+  const broken = round('legacy-null', '2026-07-01', 'individual', [{
+    playerId: 1, name: 'Ada', totalPoints: null,
+    rows: [{ pts: 2 }, { pts: 3 }, { pts: null }],
+  }]);
+  const standings = tours.computeStandings(tour, [broken], players);
+  assert.equal(standings[0].total, 5);
+  assert.equal(tours.subjectPoints(broken.subjects[0]), 5);
+});

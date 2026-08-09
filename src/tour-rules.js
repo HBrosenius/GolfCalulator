@@ -36,6 +36,14 @@
     );
   }
 
+  function subjectPoints(subject) {
+    if (Number.isFinite(subject?.totalPoints)) return subject.totalPoints;
+    const points = Array.isArray(subject?.rows)
+      ? subject.rows.filter(row => Number.isFinite(row?.pts)).map(row => row.pts)
+      : [];
+    return points.length ? points.reduce((sum, value) => sum + value, 0) : 0;
+  }
+
   function computeStandings(tour, rounds, players) {
     const roster = rosterPlayers(tour, players);
     const eligible = matchingRounds(tour, rounds, players);
@@ -44,7 +52,7 @@
       (round.subjects || []).forEach(subject => {
         const player = roster.find(candidate => subjectMatchesPlayer(subject, candidate));
         if (player) perPlayer.get(player.id).push({
-          points: subject.totalPoints,
+          points: subjectPoints(subject),
           date: round.date,
           courseName: round.courseName,
           holes: round.holes,
@@ -184,6 +192,7 @@
         playerId: subject.memberId,
         name: subject.name,
         totalPoints: subject.totalPoints,
+        rows: subject.rows,
       })),
     }));
     return computeStandings(localTour, rounds, players);
@@ -198,6 +207,7 @@
     courseMatches,
     matchingRounds,
     computeStandings,
+    subjectPoints,
     subjectMatchesPlayer,
   });
 }));
