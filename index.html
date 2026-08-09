@@ -5712,25 +5712,43 @@ function triggerPlayerPhotoEdit(id) {
   inp.click();
 }
 
+let _renderedSavedPlayers = [];
+
 function renderSavedPlayersList() {
   const players = playersLoad();
+  _renderedSavedPlayers = players;
   const el = document.getElementById('savedPlayersList');
   if (players.length === 0) {
     el.innerHTML = '<p style="font-size:0.85rem;color:var(--muted);text-align:center;padding:8px 0;">Inga sparade spelare.</p>';
     return;
   }
-  el.innerHTML = players.map(p => `
-    <div class="saved-player-row" style="cursor:pointer;" data-player-id="${p.id}" onclick="openPlayerHistory(${p.id})">
+  el.innerHTML = players.map((p, index) => `
+    <div class="saved-player-row" style="cursor:pointer;" data-player-index="${index}">
       ${avatarHtml(p.photo || null, 'avatar')}
       <div class="saved-player-info">
         <div class="saved-player-name">${escapeHtml(p.name)}${p.lastName ? ' ' + escapeHtml(p.lastName) : ''}${p.nick ? ` <span style="font-weight:400;color:var(--muted);">"${escapeHtml(p.nick)}"</span>` : ''}</div>
         <div class="saved-player-hi">HCP-index: ${p.hi}</div>
       </div>
-      <button class="avatar-edit-btn" onclick="event.stopPropagation();triggerPlayerPhotoEdit(${p.id})" title="Byt bild">📷</button>
-      <button class="avatar-edit-btn" onclick="event.stopPropagation();editSavedPlayer(${p.id})" title="Redigera">✏️</button>
-      <button class="saved-player-del" onclick="event.stopPropagation();if(confirm('Ta bort spelaren? Går inte att ångra.'))deleteSavedPlayer(${p.id})" title="Ta bort">🗑</button>
+      <button class="avatar-edit-btn" data-player-action="photo" title="Byt bild">📷</button>
+      <button class="avatar-edit-btn" data-player-action="edit" title="Redigera">✏️</button>
+      <button class="saved-player-del" data-player-action="delete" title="Ta bort">🗑</button>
       <span style="color:var(--muted);font-size:0.9rem;">›</span>
     </div>`).join('');
+  el.querySelectorAll('.saved-player-row').forEach(row => {
+    const player = players[Number(row.dataset.playerIndex)];
+    if (!player) return;
+    row.addEventListener('click', () => openPlayerHistory(player.id));
+    row.querySelector('[data-player-action="photo"]').addEventListener('click', event => {
+      event.stopPropagation(); triggerPlayerPhotoEdit(player.id);
+    });
+    row.querySelector('[data-player-action="edit"]').addEventListener('click', event => {
+      event.stopPropagation(); editSavedPlayer(player.id);
+    });
+    row.querySelector('[data-player-action="delete"]').addEventListener('click', event => {
+      event.stopPropagation();
+      if (confirm('Ta bort spelaren? Går inte att ångra.')) deleteSavedPlayer(player.id);
+    });
+  });
 }
 
 function addSavedPlayer() {
@@ -5761,7 +5779,8 @@ function addSavedPlayer() {
 function editSavedPlayer(id) {
   const p = playersLoad().find(x => x.id === id);
   if (!p) return;
-  const row = document.querySelector(`#savedPlayersList [data-player-id="${id}"]`);
+  const index = _renderedSavedPlayers.findIndex(player => player.id === id);
+  const row = document.querySelector(`#savedPlayersList [data-player-index="${index}"]`);
   if (!row) return;
   row.outerHTML = `
     <div class="saved-player-edit-form" data-player-id="${id}">

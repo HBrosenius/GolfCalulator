@@ -99,22 +99,23 @@ test('renaming a saved player keeps ID-linked history and statistics', async ({ 
       h: i + 1, par: 4, si: i + 1, strokes: 1,
       score: 5, netto: 4, pts: 2, skipped: false,
     }));
-    const player = { id: 42, name: 'Henrik', nick: 'Henk', hi: 12.3 };
+    const player = { id: 'player-42', name: 'Henrik', nick: 'Henk', hi: 12.3 };
     localStorage.setItem('golf_players_db', JSON.stringify([player]));
     localStorage.setItem('golf_rounds_db', JSON.stringify([{
       id: 1001, date: '2026-08-01', courseName: 'Testbanan', tee: 'Gul',
       holes: 9, gameMode: 'individual',
       subjects: [{
-        name: 'Henk', hi: 12.3, ph: 6,
+        playerId: 'player-42', name: 'Henk', hi: 12.3, ph: 6,
         totalPoints: 18, totalBrutto: 45, rows,
       }],
     }]));
-    roundsLoad(); // migrates the unambiguous legacy name to playerId 42
+    roundsLoad();
     localStorage.setItem('golf_players_db', JSON.stringify([
       { ...player, nick: 'Nya smeknamnet' },
     ]));
-    openPlayerHistory(42);
+    openPlayersView();
   });
+  await page.getByText('Nya smeknamnet', { exact: false }).click();
 
   await expect(page.locator('#playerHistoryView')).toBeVisible();
   await expect(page.locator('#playerHistoryHeader')).toContainText('Henrik');
