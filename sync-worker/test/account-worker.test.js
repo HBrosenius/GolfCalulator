@@ -74,4 +74,27 @@ describe('passwordless accounts and cloud snapshots', () => {
     const loaded = await SELF.fetch('https://worker.test/account/profile', { headers });
     expect(await loaded.json()).toMatchObject({ profile: { displayName: 'Ada', handicap: 12.4 } });
   });
+
+  it('accepts authenticated snapshots above the live-mutation 16 KB limit', async () => {
+    const userId = crypto.randomUUID();
+    const sessionToken = 'z'.repeat(43);
+    const now = Date.now();
+    await env.ACCOUNTS_DB.batch([
+      env.ACCOUNTS_DB.prepare('INSERT INTO users (id,email,created_at,last_login_at) VALUES (?,?,?,?)')
+        .bind(userId, `${userId}@example.com`, now, now),
+      env.ACCOUNTS_DB.prepare('INSERT INTO sessions (token_hash,user_id,expires_at,created_at,last_seen_at) VALUES (?,?,?,?,?)')
+        .bind(await hashToken(sessionToken), userId, now + 60_000, now, now),
+    ]);
+    const largeName = 'A'.repeat(24_000);
+    const response = await SELF.fetch('https://worker.test/account/snapshot', {
+      method: 'PUT',
+      headers: { Authorization: `Bearer ${sessionToken}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        baseVersion: 0,
+        data: { courses: [], rounds: [], players: [{ id: 'large', name: largeName }], tours: [] },
+      }),
+    });
+    expect(response.status).toBe(200);
+    expect((await response.json()).version).toBe(1);
+  });
 });

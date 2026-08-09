@@ -20,9 +20,9 @@ function hasOnlyKeys(value, keys) {
     Object.keys(value).every(key => keys.has(key));
 }
 
-export async function readJson(request) {
+export async function readJson(request, maxBytes = MAX_BODY_BYTES) {
   const contentLength = Number(request.headers.get('Content-Length') || 0);
-  if (contentLength > MAX_BODY_BYTES) return { error: 'Request body is too large', status: 413 };
+  if (contentLength > maxBytes) return { error: 'Request body is too large', status: 413 };
   if (!request.body) return { error: 'Invalid request', status: 400 };
 
   const reader = request.body.getReader();
@@ -32,7 +32,7 @@ export async function readJson(request) {
     const { done, value } = await reader.read();
     if (done) break;
     length += value.byteLength;
-    if (length > MAX_BODY_BYTES) {
+    if (length > maxBytes) {
       await reader.cancel();
       return { error: 'Request body is too large', status: 413 };
     }

@@ -11,6 +11,7 @@ import {
 export { GolfRoom, CreateRateLimiter, Tour };
 
 const CODE_CHARS = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
+const MAX_ACCOUNT_SNAPSHOT_REQUEST_BYTES = 1_550_000;
 const ALLOWED_ORIGINS = new Set([
   'https://hbrosenius.github.io',
   'http://localhost:5500',
@@ -49,8 +50,8 @@ function fromTourResult(tourResult) {
   return json(data.tour && Object.keys(data).length === 1 ? data.tour : data, status);
 }
 
-async function bodyOrResponse(request) {
-  const parsed = await readJson(request);
+async function bodyOrResponse(request, maxBytes) {
+  const parsed = await readJson(request, maxBytes);
   return parsed.error ? { response: json({ error: parsed.error }, parsed.status) } : { body: parsed.value };
 }
 
@@ -143,7 +144,7 @@ async function route(request, env) {
     if (parts.length === 2 && parts[1] === 'tours' && request.method === 'GET') return listAccountTours(request, env);
     if (parts.length === 2 && parts[1] === 'snapshot' && request.method === 'GET') return getSnapshot(request, env);
     if (parts.length === 2 && parts[1] === 'snapshot' && request.method === 'PUT') {
-      const parsed = await bodyOrResponse(request);
+      const parsed = await bodyOrResponse(request, MAX_ACCOUNT_SNAPSHOT_REQUEST_BYTES);
       return parsed.response || putSnapshot(parsed.body, request, env);
     }
     return json({ error: 'Not found' }, 404);
