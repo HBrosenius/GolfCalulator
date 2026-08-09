@@ -28,6 +28,7 @@
       profile: token => call('/account/profile', {}, token),
       saveProfile: (token, displayName, handicap) => call('/account/profile', { method: 'PUT', body: { displayName, handicap } }, token),
       tours: token => call('/account/tours', {}, token),
+      sessions: token => call('/account/sessions', {}, token),
       logout: token => call('/account/session', { method: 'DELETE' }, token),
       snapshot: token => call('/account/snapshot', {}, token),
       saveSnapshot: (token, baseVersion, data) => call('/account/snapshot', { method: 'PUT', body: { baseVersion, data } }, token),

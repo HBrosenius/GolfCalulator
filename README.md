@@ -291,6 +291,13 @@ ihop banor, rundor, spelare och lokala tourer mellan enheter.
 - Delade tourer som skapats eller accepterats med ett konto följer kontot. De
   hämtas automatiskt efter inloggning på en annan enhet, och samma konto får
   tillbaka sin roll utan en ny enhetsinbjudan.
+- Kontovyn visar en samlad översikt över molnrundor, banor, delade tourer,
+  spelarprofil och aktiva inloggningssessioner. Kontokopplade tourer kan öppnas
+  direkt från översikten.
+- Varje delad tour har en serverlagrad aktivitetslogg över bland annat nya
+  medlemmar, registrerade rundor, villkorsändringar, borttagning/återställning
+  av medlemmar och överfört ägarskap. Loggen är begränsad till de 100 senaste
+  händelserna och kan bara läsas av behöriga tourmedlemmar.
 - Äldre delade tourer och anonyma inbjudningar fortsätter fungera med lokala
   enhetstoken. Kontokopplingen är frivillig och bakåtkompatibel.
 

@@ -41,3 +41,14 @@ test('account deletion uses authenticated DELETE without a request body', async 
   assert.equal(captured.options.headers.Authorization, 'Bearer session-token');
   assert.equal(captured.options.body, undefined);
 });
+
+test('account dashboard endpoints use authenticated reads', async () => {
+  const calls = [];
+  const client = createClient('https://sync.test', async (url, options) => {
+    calls.push({ url, options });
+    return new Response(JSON.stringify({ sessions: [] }), { headers: { 'Content-Type': 'application/json' } });
+  });
+  await client.sessions('session-token');
+  assert.equal(calls[0].url, 'https://sync.test/account/sessions');
+  assert.equal(calls[0].options.headers.Authorization, 'Bearer session-token');
+});

@@ -5,7 +5,7 @@ import { PROTOCOL_VERSION, readJson, validateCreate } from './validation.js';
 import { TOUR_SCHEMA_VERSION, validateTourCreate } from './tour-validation.js';
 import {
   accountIdentity, deleteAccount, deleteSession, exchangeMagicLink, forgetAccountTour, getAccount, getProfile,
-  getSnapshot, listAccountTours, putProfile, putSnapshot, rememberAccountTour, requestMagicLink, userForSession,
+  getSnapshot, listAccountSessions, listAccountTours, putProfile, putSnapshot, rememberAccountTour, requestMagicLink, userForSession,
 } from './account.js';
 
 export { GolfRoom, CreateRateLimiter, Tour };
@@ -144,6 +144,7 @@ async function route(request, env) {
       return parsed.response || putProfile(parsed.body, request, env);
     }
     if (parts.length === 2 && parts[1] === 'tours' && request.method === 'GET') return listAccountTours(request, env);
+    if (parts.length === 2 && parts[1] === 'sessions' && request.method === 'GET') return listAccountSessions(request, env);
     if (parts.length === 2 && parts[1] === 'snapshot' && request.method === 'GET') return getSnapshot(request, env);
     if (parts.length === 2 && parts[1] === 'snapshot' && request.method === 'PUT') {
       const parsed = await bodyOrResponse(request, MAX_ACCOUNT_SNAPSHOT_REQUEST_BYTES);
@@ -164,6 +165,7 @@ async function route(request, env) {
     const identity = accountUserId ? await accountIdentity(env, accountUserId) : null;
     if (parts.length === 3 && parts[2] === 'access' && request.method === 'GET') return fromTourResult(await tour.access(token, accountUserId));
     if (parts.length === 3 && parts[2] === 'manage' && request.method === 'GET') return fromTourResult(await tour.manage(token, accountUserId));
+    if (parts.length === 3 && parts[2] === 'activity' && request.method === 'GET') return fromTourResult(await tour.getActivity(token, accountUserId));
     const parsed = await bodyOrResponse(request);
     if (parsed.response) return parsed.response;
     if (parts.length === 3 && parts[2] === 'join' && request.method === 'POST') {

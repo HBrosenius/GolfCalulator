@@ -18,8 +18,8 @@
 <script src="src/round-extras.js?v=20260809-2"></script>
 <script src="src/live-round.js?v=20260809-2"></script>
 <script src="src/tour-rules.js?v=20260809-2"></script>
-<script src="src/tour-sync.js?v=20260809-2"></script>
-<script src="src/account-sync.js?v=20260809-2"></script>
+<script src="src/tour-sync.js?v=20260809-3"></script>
+<script src="src/account-sync.js?v=20260809-3"></script>
 <script>
 // Apply saved/system theme before first paint to avoid a flash of the wrong theme.
 (function() {
@@ -179,6 +179,11 @@
   .account-status { padding: 10px 12px; border-radius: 8px; font-size: 0.84rem; margin-top: 12px; }
   .account-status.ok { background: #e8f5e9; color: var(--heading); }
   .account-status.error { background: #fdecea; color: var(--danger); }
+  .account-dashboard-grid { display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin:12px 0; }
+  .account-metric { background:var(--bg);border:1px solid var(--border);border-radius:10px;padding:11px; }
+  .account-metric strong { display:block;font-size:1.2rem;color:var(--heading); }
+  .activity-row { border-bottom:1px solid var(--border);padding:9px 0;font-size:.82rem; }
+  .activity-row:last-child { border-bottom:0; }
 
   .app-footer {
     text-align: center;
@@ -3568,6 +3573,8 @@ function renderAccountView() {
       <div style="font-size:0.78rem;color:var(--muted);margin-top:3px;">Inloggad · lokal användning fungerar även offline</div>
       <div id="accountSyncSummary" style="font-size:0.78rem;color:var(--muted);margin-top:3px;">${escapeHtml(accountSyncLabel())}</div>
     </div>
+    <div class="card-title">Översikt</div>
+    <div id="accountDashboard"><p style="color:var(--muted);font-size:.82rem;">Hämtar kontouppgifter…</p></div>
     <label for="accountPlayer" style="margin-top:0;">Min spelarprofil</label>
     <select id="accountPlayer" style="width:100%;">${playerOptions ? `<option value="">— Välj spelare —</option>${playerOptions}` : '<option value="">Skapa en spelare i spelarregistret först</option>'}</select>
     <button class="btn secondary" style="margin:10px 0;" onclick="saveAccountPlayerProfile()"${playerOptions ? '' : ' disabled'}>Koppla spelarprofil</button>
@@ -3576,6 +3583,50 @@ function renderAccountView() {
     <button class="btn secondary" style="margin-top:10px;" onclick="logoutAccount()">Logga ut på den här enheten</button>
     <button class="btn danger" style="margin-top:10px;" onclick="deleteCloudAccount()">Radera konto och molndata</button>
     <p style="font-size:0.76rem;color:var(--muted);margin-top:12px;">Synkronisering slår ihop unika banor, rundor, spelare och lokala tourer. Data tas inte bort automatiskt.</p>`;
+  loadAccountDashboard();
+}
+
+async function loadAccountDashboard() {
+  const session = accountSessionLoad();
+  const dashboard = document.getElementById('accountDashboard');
+  if (!session || !dashboard) return;
+  const client = accountApi();
+  const [profileResult, toursResult, sessionsResult, snapshotResult] = await Promise.allSettled([
+    client.profile(session.token), client.tours(session.token),
+    typeof client.sessions === 'function' ? client.sessions(session.token) : Promise.resolve({ sessions: [] }),
+    client.snapshot(session.token),
+  ]);
+  if (!document.getElementById('accountDashboard') || accountSessionLoad()?.token !== session.token) return;
+  const profile = profileResult.status === 'fulfilled' ? profileResult.value.profile : session.profile;
+  const memberships = toursResult.status === 'fulfilled' ? toursResult.value.tours || [] : [];
+  const sessions = sessionsResult.status === 'fulfilled' ? sessionsResult.value.sessions || [] : [];
+  const snapshot = snapshotResult.status === 'fulfilled' ? snapshotResult.value : null;
+  const data = snapshot?.data || {};
+  const tourRows = memberships.map(item => {
+    const local = sharedTourStore.find(item.code);
+    const role = item.role === 'organizer' ? 'Ägare' : (item.memberId ? 'Spelare' : 'Poängregistrerare');
+    return `<button class="hi-row" style="width:100%;text-align:left;background:none;border-width:0 0 1px;cursor:pointer;color:var(--text);" onclick="openAccountSharedTour('${escapeHtml(item.code)}')"><strong>${escapeHtml(local?.tour?.name || `Delad tour ${item.code}`)}</strong><span style="float:right;color:var(--muted);">${role}</span></button>`;
+  }).join('');
+  dashboard.innerHTML = `
+    <div class="account-dashboard-grid">
+      <div class="account-metric"><strong>${(data.rounds || []).length}</strong><span>molnrundor</span></div>
+      <div class="account-metric"><strong>${(data.courses || []).length}</strong><span>banor</span></div>
+      <div class="account-metric"><strong>${memberships.length}</strong><span>delade tourer</span></div>
+      <div class="account-metric"><strong>${sessions.length}</strong><span>aktiva sessioner</span></div>
+    </div>
+    <div style="font-size:.82rem;margin-bottom:12px;"><strong>Spelarprofil:</strong> ${profile ? `${escapeHtml(profile.displayName)} · HCP ${profile.handicap}` : 'Inte kopplad'}</div>
+    <div class="card-title">Mina delade tourer</div>
+    ${tourRows || '<p style="color:var(--muted);font-size:.82rem;">Inga kontokopplade tourer ännu.</p>'}
+    <details style="margin:12px 0;"><summary style="cursor:pointer;font-size:.84rem;font-weight:600;">Inloggade enheter och sessioner (${sessions.length})</summary>
+      ${sessions.map(item => `<div class="activity-row"><strong>${item.current ? 'Den här sessionen' : 'Annan session'}</strong><br><span style="color:var(--muted);">Senast aktiv ${new Date(item.lastSeenAt).toLocaleString('sv-SE')}</span></div>`).join('') || '<p style="color:var(--muted);font-size:.8rem;">Inga aktiva sessioner kunde hämtas.</p>'}
+    </details>`;
+}
+
+async function openAccountSharedTour(code) {
+  await syncAccountTours();
+  if (!sharedTourStore.find(code)) { setAccountStatus('Touren kunde inte öppnas just nu.', 'error'); return; }
+  openTourView();
+  openSharedTourDetail(code);
 }
 
 async function saveAccountPlayerProfile() {
@@ -5396,11 +5447,15 @@ async function refreshSharedTour(code) {
       ? await sharedTourClient.manage(code, record.token)
       : { tour: await sharedTourClient.get(code),
         ...(record.accountBound ? { access: await sharedTourClient.access(code, record.token) } : {}) };
+    if (!response.activity) {
+      try { response.activity = (await sharedTourClient.activity(code, record.token)).activity || []; } catch (_) {}
+    }
     const latest = sharedTourStore.find(code);
     if (!latest || (response.tour?.revision || 0) < (latest.tour?.revision || 0)) return;
     sharedTourStore.upsert({
       ...latest, tour: response.tour, contributors: response.contributors || latest.contributors || [],
       organizer: response.organizer || latest.organizer, invitation: response.invitation || latest.invitation,
+      activity: response.activity || latest.activity || [],
       ...(response.access ? { role: response.access.role, contributorId: response.access.contributorId || null,
         accountMemberId: response.access.memberId || null, membershipRole: response.access.membershipRole || latest.membershipRole } : {}),
     });
@@ -5659,6 +5714,22 @@ function renderSharedTourDetail(code) {
       ${tour.status === 'open' ? `<button class="btn secondary" style="color:var(--danger);" onclick="cancelSharedTour('${escapeHtml(record.code)}')">× Avbryt touren</button>` : ''}
       <button class="btn secondary" style="color:var(--danger);" onclick="removeSharedTour('${escapeHtml(record.code)}')">🗑 Ta bort touren permanent</button>
     </div>` : '';
+  const activityLabels = {
+    tour_created: 'skapade touren', organizer_account_linked: 'kopplade touren till sitt konto',
+    member_joined: 'gick med i touren', round_recorded: 'registrerade en runda',
+    invitation_rotated: 'skapade en ny inbjudningslänk', conditions_updated: 'ändrade tourvillkoren',
+    tour_completed: 'avslutade touren', tour_completed_automatically: 'Touren avslutades automatiskt',
+    tour_cancelled: 'avbröt touren', member_removed: 'tog bort en medlem', member_restored: 'återställde en medlem',
+    member_left: 'lämnade touren', membership_updated: 'ändrade ett medlemskap', ownership_transferred: 'överförde ägarskapet',
+  };
+  const activityRows = (record.activity || []).slice(0, 12).map(event => {
+    const detail = event.type === 'round_recorded' ? ` · ${escapeHtml(event.details?.courseName || '')}` :
+      event.type === 'ownership_transferred' ? ` · ny ägare ${escapeHtml(event.details?.newOrganizerName || '')}` :
+      event.details?.memberName ? ` · ${escapeHtml(event.details.memberName)}` : '';
+    const system = event.actorRole === 'system';
+    return `<div class="activity-row"><strong>${system ? '' : `${escapeHtml(event.actorName)} `}${escapeHtml(activityLabels[event.type] || 'uppdaterade touren')}</strong>${detail}<br>
+      <span style="color:var(--muted);">${new Date(event.at).toLocaleString('sv-SE')}</span></div>`;
+  }).join('');
   const myMembership = record.role !== 'organizer' && record.accountBound ? `
     <div class="card-title" style="margin-top:16px;">Ditt medlemskap</div>
     <div class="tour-condition-row"><span>👤</span><div style="width:100%;"><strong>${record.accountMemberId ? `Spelare · ${escapeHtml(memberName(record.accountMemberId) || '')}` : 'Poängregistrerare'}</strong><br>
@@ -5684,6 +5755,7 @@ function renderSharedTourDetail(code) {
     ${(tour.members || []).map(member => `<div class="hi-row"><strong>${escapeHtml(member.name)}</strong><span style="float:right;color:var(--muted);">HCP ${member.hi}</span></div>`).join('') || '<p>Inga deltagare.</p>'}
     <table style="width:100%;font-size:0.88rem;margin-top:16px;"><thead><tr><th></th><th style="text-align:left;">Spelare</th><th style="text-align:right;">Poäng</th><th style="text-align:right;">Räknade/spelade</th></tr></thead><tbody>${standingsRows || '<tr><td colspan="4">Inga rundor ännu.</td></tr>'}</tbody></table>
     <div class="card-title" style="margin-top:16px;">Rundor</div>${roundRows || '<p style="color:var(--muted);font-size:0.85rem;">Inga rundor ännu.</p>'}
+    <div class="card-title" style="margin-top:16px;">Aktivitet</div>${activityRows || '<p style="color:var(--muted);font-size:0.85rem;">Ingen aktivitet har registrerats ännu.</p>'}
     ${myMembership}
     ${organizerControls}
     ${record.role !== 'organizer' ? `<button class="btn secondary" style="margin-top:16px;color:var(--danger);" onclick="removeSharedTour('${escapeHtml(record.code)}')">Ta bort från den här enheten</button>` : ''}

@@ -95,6 +95,18 @@ export async function listAccountTours(request, env) {
   return accountJson({ tours: rows.results || [] });
 }
 
+export async function listAccountSessions(request, env) {
+  const user = await userForSession(request, env);
+  if (!user) return accountJson({ error: 'Inte inloggad' }, 401);
+  const currentHash = await hashToken(bearerToken(request) || '');
+  const rows = await env.ACCOUNTS_DB.prepare(
+    'SELECT token_hash AS tokenHash,created_at AS createdAt,last_seen_at AS lastSeenAt,expires_at AS expiresAt FROM sessions WHERE user_id = ? AND expires_at > ? ORDER BY last_seen_at DESC LIMIT 20'
+  ).bind(user.id, Date.now()).all();
+  return accountJson({ sessions: (rows.results || []).map(row => ({
+    current: row.tokenHash === currentHash, createdAt: row.createdAt, lastSeenAt: row.lastSeenAt, expiresAt: row.expiresAt,
+  })) });
+}
+
 export async function rememberAccountTour(env, userId, code, role, memberId = null) {
   await env.ACCOUNTS_DB.prepare(`
     INSERT INTO account_tours (user_id,tour_code,role,member_id,joined_at) VALUES (?,?,?,?,?)

@@ -198,6 +198,20 @@ describe('shared tour authorization', () => {
     expect((await SELF.fetch(`https://worker.test/tour/${created.code}/manage`, { headers: headers(organizer.token) })).status).toBe(403);
     expect(await (await SELF.fetch(`https://worker.test/tour/${created.code}/access`, { headers: headers(organizer.token) })).json())
       .toMatchObject({ role: 'contributor', membershipRole: 'scorekeeper' });
+    const activity = await (await SELF.fetch(`https://worker.test/tour/${created.code}/activity`, { headers: headers(participant.token) })).json();
+    expect(activity.activity.map(item => item.type)).toEqual(expect.arrayContaining([
+      'member_joined', 'membership_updated', 'member_removed', 'member_restored', 'ownership_transferred',
+    ]));
+    expect(activity.activity[0]).toMatchObject({ type: 'ownership_transferred', actorName: 'Maja' });
+  });
+
+  it('lists active account sessions without exposing token hashes', async () => {
+    const account = await accountSession('d', 'Dashboard');
+    const response = await SELF.fetch('https://worker.test/account/sessions', { headers: headers(account.token) });
+    expect(response.status).toBe(200);
+    const body = await response.json();
+    expect(body.sessions[0]).toMatchObject({ current: true });
+    expect(JSON.stringify(body)).not.toContain('tokenHash');
   });
   it('creates durable public state without leaking credentials', async () => {
     const created = await createTour();

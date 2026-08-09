@@ -8,6 +8,7 @@ const TOUR_KEY = 'tour';
 const RETENTION_MS = 365 * 24 * 60 * 60 * 1000;
 const result = (status, data = {}) => ({ status, ...data });
 const MEMBERSHIP_ROLES = new Set(['player', 'scorekeeper']);
+const MAX_ACTIVITY_EVENTS = 100;
 
 function normalizeMembership(tour) {
   tour.contributors = (tour.contributors || []).map(item => ({
@@ -21,7 +22,24 @@ function normalizeMembership(tour) {
   tour.organizerDisplayName ??= null;
   tour.invitationRevision ??= 1;
   tour.invitationRotatedAt ??= null;
+  tour.activity ??= [];
   return tour;
+}
+
+function actorName(tour, actor) {
+  if (actor?.role === 'organizer') return tour.organizerDisplayName || 'Organisatör';
+  const contributor = tour.contributors.find(item => item.id === actor?.id);
+  const member = contributor?.memberId && tour.members.find(item => item.id === contributor.memberId);
+  return contributor?.displayName || member?.name || contributor?.deviceLabel || 'Deltagare';
+}
+
+function addActivity(tour, type, actor, details = {}) {
+  tour.activity ??= [];
+  tour.activity.push({
+    id: crypto.randomUUID(), type, at: Date.now(), actorName: actorName(tour, actor),
+    actorRole: actor?.role || 'system', details,
+  });
+  if (tour.activity.length > MAX_ACTIVITY_EVENTS) tour.activity.splice(0, tour.activity.length - MAX_ACTIVITY_EVENTS);
 }
 
 function validMembershipRequest(body, extraKeys = []) {
@@ -67,6 +85,7 @@ export class Tour extends DurableObject {
     if (tour.status === 'open' && tour.endDate < today) {
       tour.status = 'completed';
       tour.completedReason = 'expired';
+      addActivity(tour, 'tour_completed_automatically', null);
       tour.updatedAt = Date.now();
       tour.revision++;
       await this.ctx.storage.put(TOUR_KEY, tour);
@@ -122,7 +141,9 @@ export class Tour extends DurableObject {
       organizerDisplayName: null,
       invitationRevision: 1,
       invitationRotatedAt: null,
+      activity: [],
     };
+    addActivity(tour, 'tour_created', { role: 'organizer' });
     await this.ctx.storage.put(TOUR_KEY, tour);
     await this.scheduleLifecycle(tour);
     return result(201, { tour: publicTour(tour) });
@@ -137,6 +158,7 @@ export class Tour extends DurableObject {
     if (!tour.organizerAccountUserId) {
       tour.organizerAccountUserId = accountUserId;
       tour.organizerDisplayName = identity.displayName || null;
+      addActivity(tour, 'organizer_account_linked', { role: 'organizer' });
       tour.updatedAt = Date.now();
       tour.revision++;
       await this.ctx.storage.put(TOUR_KEY, tour);
@@ -188,6 +210,9 @@ export class Tour extends DurableObject {
       removedAt: null,
     };
     tour.contributors.push(contributor);
+    addActivity(tour, 'member_joined', { role: 'contributor', id: contributor.id }, {
+      membershipRole: contributor.role, memberName: tour.members.find(item => item.id === contributor.memberId)?.name || null,
+    });
     tour.updatedAt = Date.now();
     tour.revision++;
     await this.ctx.storage.put(TOUR_KEY, tour);
@@ -222,12 +247,22 @@ export class Tour extends DurableObject {
         displayName: tour.organizerDisplayName || 'Organisatör', accountLinked: !!tour.organizerAccountUserId,
       },
       invitation: { revision: tour.invitationRevision, rotatedAt: tour.invitationRotatedAt, active: true },
+      activity: tour.activity.slice().reverse(),
       contributors: tour.contributors.filter(item => !tour.organizerAccountUserId || item.accountUserId !== tour.organizerAccountUserId).map(item => ({
         id: item.id, deviceLabel: item.deviceLabel, createdAt: item.createdAt, revokedAt: item.revokedAt,
         accountLinked: !!item.accountUserId, memberId: item.memberId || null, role: item.role,
         displayName: item.displayName || null, leftAt: item.leftAt || null, removedAt: item.removedAt || null,
       })),
     });
+  }
+
+  async getActivity(token, accountUserId = null) {
+    const stored = await this.ctx.storage.get(TOUR_KEY);
+    const tour = stored ? await this.ensureLifecycle(stored) : null;
+    if (!tour) return result(404, { error: 'Tour not found' });
+    normalizeMembership(tour);
+    if (!await this.actorForToken(tour, token, accountUserId)) return result(403, { error: 'Not authorized' });
+    return result(200, { activity: tour.activity.slice().reverse() });
   }
 
   async rotateInvitation(token, body, accountUserId = null) {
@@ -241,6 +276,7 @@ export class Tour extends DurableObject {
     tour.invitationTokenHash = await hashToken(invitationToken);
     tour.invitationRevision = (tour.invitationRevision || 1) + 1;
     tour.invitationRotatedAt = Date.now();
+    addActivity(tour, 'invitation_rotated', { role: 'organizer' }, { revision: tour.invitationRevision });
     tour.updatedAt = Date.now();
     tour.revision++;
     await this.ctx.storage.put(TOUR_KEY, tour);
@@ -251,7 +287,8 @@ export class Tour extends DurableObject {
     const stored = await this.ctx.storage.get(TOUR_KEY);
     const tour = stored ? await this.ensureLifecycle(stored) : null;
     if (!tour) return result(404, { error: 'Tour not found' });
-    if ((await this.actorForToken(tour, token, accountUserId))?.role !== 'organizer') return result(403, { error: 'Not authorized' });
+    const actor = await this.actorForToken(tour, token, accountUserId);
+    if (actor?.role !== 'organizer') return result(403, { error: 'Not authorized' });
     const invalid = validateTourUpdate(body, tour);
     if (invalid) return result(invalid.startsWith('Unsupported') ? 426 : 400, { error: invalid });
     if (body.expectedRevision !== tour.revision) return result(409, { error: 'Tour changed; refresh and try again' });
@@ -262,6 +299,7 @@ export class Tour extends DurableObject {
     tour.duplicateCourseRule = body.duplicateCourseRule;
     const limits = new Map(body.courseLimits.map(item => [item.courseId, item.maxRounds]));
     tour.courses.forEach(course => { course.maxRounds = limits.get(course.id); });
+    addActivity(tour, 'conditions_updated', actor);
     tour.retentionUntil = this.completionAt(tour) + RETENTION_MS;
     const today = new Date().toISOString().slice(0, 10);
     if (tour.completedReason === 'expired' || tour.status === 'open') {
@@ -281,10 +319,12 @@ export class Tour extends DurableObject {
     if (body?.protocolVersion !== PROTOCOL_VERSION || body?.schemaVersion !== TOUR_SCHEMA_VERSION || Object.keys(body).length !== 2) {
       return result(400, { error: 'Invalid request' });
     }
-    if ((await this.actorForToken(tour, token, accountUserId))?.role !== 'organizer') return result(403, { error: 'Not authorized' });
+    const actor = await this.actorForToken(tour, token, accountUserId);
+    if (actor?.role !== 'organizer') return result(403, { error: 'Not authorized' });
     if (tour.status !== 'completed') {
       tour.status = 'completed';
       tour.completedReason = 'manual';
+      addActivity(tour, 'tour_completed', actor);
       tour.updatedAt = Date.now();
       tour.revision++;
       await this.ctx.storage.put(TOUR_KEY, tour);
@@ -298,10 +338,12 @@ export class Tour extends DurableObject {
     if (body?.protocolVersion !== PROTOCOL_VERSION || body?.schemaVersion !== TOUR_SCHEMA_VERSION || Object.keys(body).length !== 2) {
       return result(400, { error: 'Invalid request' });
     }
-    if ((await this.actorForToken(tour, token, accountUserId))?.role !== 'organizer') return result(403, { error: 'Not authorized' });
+    const actor = await this.actorForToken(tour, token, accountUserId);
+    if (actor?.role !== 'organizer') return result(403, { error: 'Not authorized' });
     if (tour.status === 'open') {
       tour.status = 'cancelled';
       tour.completedReason = 'cancelled';
+      addActivity(tour, 'tour_cancelled', actor);
       tour.updatedAt = Date.now();
       tour.revision++;
       await this.ctx.storage.put(TOUR_KEY, tour);
@@ -352,6 +394,9 @@ export class Tour extends DurableObject {
       })),
     };
     tour.rounds.push(round);
+    addActivity(tour, 'round_recorded', actor, {
+      courseName: course.name, playerNames: round.subjects.map(subject => subject.name), playedDate: round.playedDate,
+    });
     tour.updatedAt = submittedAt;
     tour.revision++;
     await this.ctx.storage.put(TOUR_KEY, tour);
@@ -364,13 +409,15 @@ export class Tour extends DurableObject {
     if (body?.protocolVersion !== PROTOCOL_VERSION || body?.schemaVersion !== TOUR_SCHEMA_VERSION || Object.keys(body).length !== 2) {
       return result(400, { error: 'Invalid request' });
     }
-    if ((await this.actorForToken(tour, token, accountUserId))?.role !== 'organizer') return result(403, { error: 'Not authorized' });
+    const actor = await this.actorForToken(tour, token, accountUserId);
+    if (actor?.role !== 'organizer') return result(403, { error: 'Not authorized' });
     const contributor = tour.contributors.find(item => item.id === contributorId);
     if (!contributor) return result(404, { error: 'Contributor not found' });
     if (!contributor.revokedAt) {
       contributor.revokedAt = Date.now();
       contributor.removedAt = contributor.revokedAt;
       contributor.leftAt = null;
+      addActivity(tour, 'member_removed', actor, { memberName: actorName(tour, { role: 'contributor', id: contributor.id }) });
       tour.updatedAt = contributor.revokedAt;
       tour.revision++;
       await this.ctx.storage.put(TOUR_KEY, tour);
@@ -397,6 +444,9 @@ export class Tour extends DurableObject {
     }
     contributor.memberId = memberId;
     contributor.role = memberId ? 'player' : 'scorekeeper';
+    addActivity(tour, 'membership_updated', { role: 'contributor', id: contributor.id }, {
+      membershipRole: contributor.role, memberName: tour.members.find(item => item.id === memberId)?.name || null,
+    });
     tour.updatedAt = Date.now();
     tour.revision++;
     await this.ctx.storage.put(TOUR_KEY, tour);
@@ -407,7 +457,8 @@ export class Tour extends DurableObject {
     const tour = await this.ctx.storage.get(TOUR_KEY);
     if (!tour) return result(404, { error: 'Tour not found' });
     normalizeMembership(tour);
-    if ((await this.actorForToken(tour, token, accountUserId))?.role !== 'organizer') return result(403, { error: 'Not authorized' });
+    const actor = await this.actorForToken(tour, token, accountUserId);
+    if (actor?.role !== 'organizer') return result(403, { error: 'Not authorized' });
     if (!validMembershipRequest(body, ['memberId', 'role']) || !MEMBERSHIP_ROLES.has(body.role)) {
       return result(400, { error: 'Invalid request' });
     }
@@ -423,6 +474,10 @@ export class Tour extends DurableObject {
     }
     contributor.role = body.role;
     contributor.memberId = memberId;
+    addActivity(tour, 'membership_updated', actor, {
+      memberName: actorName(tour, { role: 'contributor', id: contributor.id }), membershipRole: contributor.role,
+      linkedPlayerName: tour.members.find(item => item.id === memberId)?.name || null,
+    });
     tour.updatedAt = Date.now();
     tour.revision++;
     await this.ctx.storage.put(TOUR_KEY, tour);
@@ -442,6 +497,7 @@ export class Tour extends DurableObject {
     contributor.revokedAt = Date.now();
     contributor.leftAt = contributor.revokedAt;
     contributor.removedAt = null;
+    addActivity(tour, 'member_left', actor, { memberName: actorName(tour, actor) });
     tour.updatedAt = contributor.revokedAt;
     tour.revision++;
     await this.ctx.storage.put(TOUR_KEY, tour);
@@ -453,7 +509,8 @@ export class Tour extends DurableObject {
     if (!tour) return result(404, { error: 'Tour not found' });
     normalizeMembership(tour);
     if (!validMembershipRequest(body)) return result(400, { error: 'Invalid request' });
-    if ((await this.actorForToken(tour, token, accountUserId))?.role !== 'organizer') return result(403, { error: 'Not authorized' });
+    const actor = await this.actorForToken(tour, token, accountUserId);
+    if (actor?.role !== 'organizer') return result(403, { error: 'Not authorized' });
     const contributor = tour.contributors.find(item => item.id === contributorId);
     if (!contributor) return result(404, { error: 'Contributor not found' });
     if (contributor.memberId && tour.contributors.some(item => item.id !== contributor.id && !item.revokedAt && item.memberId === contributor.memberId)) {
@@ -463,6 +520,7 @@ export class Tour extends DurableObject {
     contributor.revokedAt = null;
     contributor.leftAt = null;
     contributor.removedAt = null;
+    addActivity(tour, 'member_restored', actor, { memberName: actorName(tour, { role: 'contributor', id: contributor.id }) });
     tour.updatedAt = Date.now();
     tour.revision++;
     await this.ctx.storage.put(TOUR_KEY, tour);
@@ -475,8 +533,9 @@ export class Tour extends DurableObject {
     const tour = await this.ctx.storage.get(TOUR_KEY);
     if (!tour) return result(404, { error: 'Tour not found' });
     normalizeMembership(tour);
-    if (!validMembershipRequest(body, ['contributorId']) ||
-      (await this.actorForToken(tour, token, accountUserId))?.role !== 'organizer') return result(403, { error: 'Not authorized' });
+    if (!validMembershipRequest(body, ['contributorId'])) return result(400, { error: 'Invalid request' });
+    const actor = await this.actorForToken(tour, token, accountUserId);
+    if (actor?.role !== 'organizer') return result(403, { error: 'Not authorized' });
     const target = tour.contributors.find(item => item.id === body.contributorId && !item.revokedAt && item.accountUserId);
     if (!target) return result(400, { error: 'New organizer must have an active account' });
     const previousAccountUserId = tour.organizerAccountUserId;
@@ -487,6 +546,7 @@ export class Tour extends DurableObject {
         displayName: tour.organizerDisplayName || null, leftAt: null, removedAt: null,
       });
     }
+    addActivity(tour, 'ownership_transferred', actor, { newOrganizerName: target.displayName || actorName(tour, { role: 'contributor', id: target.id }) });
     tour.organizerAccountUserId = target.accountUserId;
     tour.organizerDisplayName = target.displayName || null;
     target.revokedAt = Date.now();

@@ -48,6 +48,7 @@
       }),
       access: (code, token) => jsonRequest(`/tour/${String(code).toUpperCase()}/access`, { headers: headers(token) }),
       manage: (code, token) => jsonRequest(`/tour/${String(code).toUpperCase()}/manage`, { headers: headers(token) }),
+      activity: (code, token) => jsonRequest(`/tour/${String(code).toUpperCase()}/activity`, { headers: headers(token) }),
       updateConditions: (code, token, payload) => jsonRequest(`/tour/${String(code).toUpperCase()}/conditions`, {
         method: 'PATCH', headers: headers(token), body: JSON.stringify(payload),
       }),

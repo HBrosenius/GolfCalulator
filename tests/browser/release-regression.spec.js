@@ -193,6 +193,12 @@ test('magic-link sign-in preserves local use and uploads a merged cloud snapshot
         sessionToken: 's'.repeat(43), expiresAt: Date.now() + 60_000,
         user: { id: 'user-1', email: 'ada@example.com', createdAt: Date.now() },
       }) });
+    } else if (url.pathname === '/account/profile') {
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ profile: { displayName: 'Ada', handicap: 12 } }) });
+    } else if (url.pathname === '/account/tours') {
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ tours: [] }) });
+    } else if (url.pathname === '/account/sessions') {
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ sessions: [{ current: true, lastSeenAt: Date.now() }] }) });
     } else if (url.pathname === '/account/snapshot' && route.request().method() === 'GET') {
       await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({
         version: 0, updatedAt: null, data: { courses: [], rounds: [], players: [], tours: [] },
@@ -207,6 +213,8 @@ test('magic-link sign-in preserves local use and uploads a merged cloud snapshot
   await page.goto(`/index.html#account_token=${'t'.repeat(43)}&account_api=${encodeURIComponent('https://golfcalc-sync.golfcalc-sync.workers.dev')}`);
   await expect(page.locator('#accountView')).toBeVisible();
   await expect(page.locator('#accountContent')).toContainText('ada@example.com');
+  await expect(page.locator('#accountDashboard')).toContainText('aktiva sessioner');
+  await expect(page.locator('#accountDashboard')).toContainText('Spelarprofil: Ada · HCP 12');
   await expect.poll(() => uploaded).not.toBeNull();
   await expect(page.locator('#accountSyncSummary')).toContainText('Senast synkroniserad');
   const initialUploadCount = uploadCount;

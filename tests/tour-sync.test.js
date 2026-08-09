@@ -111,6 +111,17 @@ test('membership client operations use account authorization and explicit roles'
   assert.equal(JSON.parse(requests[4].options.body).contributorId, 'person-1');
 });
 
+test('tour activity uses an authenticated read without secrets in the URL', async () => {
+  let captured;
+  const client = sync.createClient({ baseUrl: 'https://example.test', fetchImpl: async (url, options) => {
+    captured = { url, options }; return { ok: true, json: async () => ({ activity: [] }) };
+  } });
+  await client.activity('abcd2345', 'account-token');
+  assert.equal(captured.url, 'https://example.test/tour/ABCD2345/activity');
+  assert.equal(captured.options.headers.Authorization, 'Bearer account-token');
+  assert.doesNotMatch(captured.url, /account-token/);
+});
+
 test('pending submission retry can be limited to one tour', async () => {
   const store = sync.createStore(memoryStorage());
   store.upsert({ code: 'ABCD2345', token: 'one', pendingSubmissions: [] });
