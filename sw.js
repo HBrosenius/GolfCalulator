@@ -5,6 +5,7 @@ const NOTIFICATION_HISTORY_KEY = META_BASE + 'notification-history';
 const SHELL = [
   './',
   './index.html',
+  './src/vendor/dompurify.min.js?v=3.4.13',
   './src/scoring.js?v=20260809-2',
   './src/storage.js?v=20260809-2',
   './src/live-sync.js?v=20260809-2',

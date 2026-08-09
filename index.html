@@ -11,6 +11,7 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Poängbogey">
+<script src="src/vendor/dompurify.min.js?v=3.4.13"></script>
 <script src="src/scoring.js?v=20260809-2"></script>
 <script src="src/storage.js?v=20260809-2"></script>
 <script src="src/live-sync.js?v=20260809-2"></script>
@@ -6117,8 +6118,11 @@ async function restoreSharedTourContributor(code, contributorId) {
   } catch (error) { alert('Kunde inte återställa medlemmen: ' + error.message); }
 }
 
-async function transferSharedTourOwnership(code, contributorId, displayName) {
+async function transferSharedTourOwnership(code, contributorId) {
   const record = sharedTourStore.find(code);
+  const contributor = (record?.contributors || []).find(item => item.id === contributorId);
+  const member = (record?.tour?.members || []).find(item => item.id === contributor?.memberId);
+  const displayName = contributor?.displayName || member?.name || contributor?.deviceLabel || 'den valda medlemmen';
   if (!confirm(`Överföra ägarskapet till ${displayName}? Du blir poängregistrerare och kan inte längre administrera touren.`)) return;
   try {
     const response = await sharedTourClient.transferOwnership(code, record.token, contributorId);
@@ -6343,7 +6347,7 @@ function renderSharedTourDetail(code) {
       <div style="display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end;">
         ${inactive ? `<button class="btn secondary" onclick="restoreSharedTourContributor('${escapeHtml(record.code)}','${escapeHtml(contributor.id)}')">Återställ</button>` : `
           ${contributor.accountLinked ? `<button class="btn secondary" onclick="updateSharedTourContributor('${escapeHtml(record.code)}','${escapeHtml(contributor.id)}')">Spara roll</button>
-          ${record.role === 'organizer' ? `<button class="btn secondary" onclick="toggleSharedTourAdministrator('${escapeHtml(record.code)}','${escapeHtml(contributor.id)}',${!contributor.isAdmin})">${contributor.isAdmin ? 'Ta bort admin' : 'Gör till admin'}</button><button class="btn secondary" onclick="transferSharedTourOwnership('${escapeHtml(record.code)}','${escapeHtml(contributor.id)}','${escapeHtml(name)}')">Gör till ägare</button>` : ''}` : ''}
+          ${record.role === 'organizer' ? `<button class="btn secondary" onclick="toggleSharedTourAdministrator('${escapeHtml(record.code)}','${escapeHtml(contributor.id)}',${!contributor.isAdmin})">${contributor.isAdmin ? 'Ta bort admin' : 'Gör till admin'}</button><button class="btn secondary" onclick="transferSharedTourOwnership('${escapeHtml(record.code)}','${escapeHtml(contributor.id)}')">Gör till ägare</button>` : ''}` : ''}
           <button class="tour-revoke-btn" onclick="revokeSharedTourContributor('${escapeHtml(record.code)}','${escapeHtml(contributor.id)}')">Ta bort</button>`}
       </div>
     </div>`;
@@ -6393,7 +6397,7 @@ function renderSharedTourDetail(code) {
       <button class="btn secondary" style="margin-top:7px;" onclick="updateMySharedTourMembership('${escapeHtml(record.code)}')">Spara min koppling</button>
     </div></div>
     <button class="btn secondary" style="margin-top:10px;color:var(--danger);" onclick="leaveSharedTour('${escapeHtml(record.code)}')">Lämna touren</button>` : '';
-  el.innerHTML = `
+  const sharedTourMarkup = `
     <button class="btn secondary" style="margin-bottom:12px;" onclick="backToSharedTourList()">← Alla tourer</button>
     <strong style="font-size:1.1rem;">🌐 ${escapeHtml(tour.name)}</strong><br>
     <span style="font-size:0.8rem;color:var(--muted);">${tour.startDate} – ${tour.endDate} · kod ${escapeHtml(record.code)} · ${_sharedTourSocket?.readyState === WebSocket.OPEN ? `live · ${_sharedTourOnline} online` : 'automatisk reservsynk'}</span>
@@ -6428,6 +6432,11 @@ function renderSharedTourDetail(code) {
     ${organizerControls}
     ${record.role !== 'organizer' ? `<button class="btn secondary" style="margin-top:16px;color:var(--danger);" onclick="removeSharedTour('${escapeHtml(record.code)}')">Ta bort från den här enheten</button>` : ''}
   `;
+  const sanitizedMarkup = DOMPurify.sanitize(sharedTourMarkup, {
+    ADD_ATTR: ['onclick', 'onchange'],
+    ALLOW_DATA_ATTR: true,
+  });
+  el.innerHTML = sanitizedMarkup;
 }
 
 function startSharedTourRound(code) {

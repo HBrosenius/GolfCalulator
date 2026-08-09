@@ -57,6 +57,16 @@ test('live-room seat renderer does not reinterpret player names as HTML', () => 
   assert.match(renderer[1], /playerSelect\.replaceChildren\(\)/);
 });
 
+test('shared-tour administration sanitizes assembled markup before insertion', () => {
+  const html = fs.readFileSync(path.join(root, 'index.html'), 'utf8');
+  const renderer = html.match(/function renderSharedTourDetail\(code\) \{([\s\S]*?)\r?\n\}\r?\n\r?\nfunction startSharedTourRound/);
+  assert.ok(renderer, 'shared-tour renderer was not found');
+  assert.match(renderer[1], /DOMPurify\.sanitize\(sharedTourMarkup/);
+  assert.match(renderer[1], /el\.innerHTML = sanitizedMarkup/);
+  assert.doesNotMatch(renderer[1], /el\.innerHTML = `/);
+  assert.match(html, /src\/vendor\/dompurify\.min\.js\?v=3\.4\.13/);
+});
+
 test('account login tolerates a previously cached account client module', () => {
   const html = fs.readFileSync(path.join(root, 'index.html'), 'utf8');
   assert.match(html, /typeof client\.tours !== 'function'/);
