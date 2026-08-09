@@ -5394,10 +5394,16 @@ async function refreshSharedTour(code) {
   try {
     const response = record.role === 'organizer'
       ? await sharedTourClient.manage(code, record.token)
-      : { tour: await sharedTourClient.get(code) };
+      : { tour: await sharedTourClient.get(code),
+        ...(record.accountBound ? { access: await sharedTourClient.access(code, record.token) } : {}) };
     const latest = sharedTourStore.find(code);
     if (!latest || (response.tour?.revision || 0) < (latest.tour?.revision || 0)) return;
-    sharedTourStore.upsert({ ...latest, tour: response.tour, contributors: response.contributors || latest.contributors || [] });
+    sharedTourStore.upsert({
+      ...latest, tour: response.tour, contributors: response.contributors || latest.contributors || [],
+      organizer: response.organizer || latest.organizer, invitation: response.invitation || latest.invitation,
+      ...(response.access ? { role: response.access.role, contributorId: response.access.contributorId || null,
+        accountMemberId: response.access.memberId || null, membershipRole: response.access.membershipRole || latest.membershipRole } : {}),
+    });
     if (_tourViewMode === 'shared' && _tourViewActiveId === String(code).toUpperCase() &&
       _editingSharedTourCode !== String(code).toUpperCase()) renderSharedTourDetail(code);
   } catch (_) {}
@@ -5423,6 +5429,57 @@ async function revokeSharedTourContributor(code, contributorId) {
     await sharedTourClient.revokeContributor(code, record.token, contributorId);
     await refreshSharedTour(code);
   } catch (error) { alert('Kunde inte återkalla åtkomsten: ' + error.message); }
+}
+
+async function updateSharedTourContributor(code, contributorId) {
+  const record = sharedTourStore.find(code);
+  const selection = document.getElementById(`tourMember-${contributorId}`)?.value || 'scorekeeper';
+  const player = selection.startsWith('player:');
+  try {
+    await sharedTourClient.updateContributor(code, record.token, contributorId, player ? 'player' : 'scorekeeper', player ? selection.slice(7) : null);
+    await refreshSharedTour(code);
+  } catch (error) { alert('Kunde inte uppdatera medlemskapet: ' + error.message); }
+}
+
+async function restoreSharedTourContributor(code, contributorId) {
+  const record = sharedTourStore.find(code);
+  try {
+    await sharedTourClient.restoreContributor(code, record.token, contributorId);
+    await refreshSharedTour(code);
+  } catch (error) { alert('Kunde inte återställa medlemmen: ' + error.message); }
+}
+
+async function transferSharedTourOwnership(code, contributorId, displayName) {
+  const record = sharedTourStore.find(code);
+  if (!confirm(`Överföra ägarskapet till ${displayName}? Du blir poängregistrerare och kan inte längre administrera touren.`)) return;
+  try {
+    const response = await sharedTourClient.transferOwnership(code, record.token, contributorId);
+    sharedTourStore.upsert({ ...record, role: 'contributor', contributorId: null, accountMemberId: null,
+      membershipRole: 'scorekeeper', tour: response.tour, contributors: [], organizer: null, invitation: null });
+    await refreshSharedTour(code);
+  } catch (error) { alert('Kunde inte överföra ägarskapet: ' + error.message); }
+}
+
+async function updateMySharedTourMembership(code) {
+  const record = sharedTourStore.find(code);
+  const memberId = document.getElementById('mySharedTourMember')?.value || null;
+  try {
+    const response = await sharedTourClient.updateMembership(code, record.token, memberId);
+    sharedTourStore.upsert({ ...record, tour: response.tour, accountMemberId: response.memberId || null,
+      membershipRole: response.membershipRole });
+    renderSharedTourDetail(code);
+  } catch (error) { alert('Kunde inte ändra din koppling: ' + error.message); }
+}
+
+async function leaveSharedTour(code) {
+  const record = sharedTourStore.find(code);
+  if (!record || !confirm('Lämna touren? Du behöver en ny inbjudan för att gå med igen.')) return;
+  try {
+    await sharedTourClient.leave(code, record.token);
+    sharedTourStore.remove(code);
+    backToSharedTourList();
+    renderActiveToursCard();
+  } catch (error) { alert('Kunde inte lämna touren: ' + error.message); }
 }
 
 async function completeSharedTour(code) {
@@ -5564,21 +5621,37 @@ function renderSharedTourDetail(code) {
     }).join('')}
     <button class="btn" ${_retryingSharedTourCode === record.code ? 'disabled' : ''} onclick="retrySharedTourSubmissions('${escapeHtml(record.code)}')">${_retryingSharedTourCode === record.code ? 'Försöker synka…' : 'Försök synka igen'}</button>
   </div>` : '';
-  const activeContributors = (record.contributors || []).filter(contributor => !contributor.revokedAt)
-    .sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
-  const contributorRows = activeContributors.map(contributor => {
+  const contributors = (record.contributors || []).slice().sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+  const memberName = memberId => (tour.members || []).find(member => member.id === memberId)?.name || null;
+  const contributorRows = contributors.map(contributor => {
     const joinedDate = contributor.createdAt ? new Date(contributor.createdAt).toLocaleString('sv-SE', { dateStyle: 'short', timeStyle: 'short' }) : '';
+    const name = contributor.displayName || memberName(contributor.memberId) || contributor.deviceLabel || 'Äldre enhet';
+    const inactive = !!contributor.revokedAt;
+    const status = contributor.leftAt ? 'Har lämnat' : contributor.removedAt ? 'Borttagen' : 'Aktiv';
+    const memberOptions = `<option value="scorekeeper"${!contributor.memberId ? ' selected' : ''}>Poängregistrerare</option>` +
+      (tour.members || []).map(member => `<option value="player:${escapeHtml(member.id)}"${contributor.memberId === member.id ? ' selected' : ''}>Spelare · ${escapeHtml(member.name)}</option>`).join('');
     return `<div class="tour-contributor-row">
       <div class="tour-contributor-info">
-        <span class="tour-contributor-name">${escapeHtml(contributor.deviceLabel || 'Namnlös enhet')}</span>
-        <span class="tour-contributor-meta">Behörig enhet${joinedDate ? ` · ansluten ${joinedDate}` : ''}</span>
+        <span class="tour-contributor-name">${escapeHtml(name)}</span>
+        <span class="tour-contributor-meta">${status}${contributor.accountLinked ? ' · konto' : ' · äldre enhetsåtkomst'}${joinedDate ? ` · ansluten ${joinedDate}` : ''}</span>
+        ${!inactive && contributor.accountLinked ? `<select id="tourMember-${escapeHtml(contributor.id)}" style="margin-top:7px;">${memberOptions}</select>` : ''}
       </div>
-      <button class="tour-revoke-btn" onclick="revokeSharedTourContributor('${escapeHtml(record.code)}','${escapeHtml(contributor.id)}')">Återkalla</button>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end;">
+        ${inactive ? `<button class="btn secondary" onclick="restoreSharedTourContributor('${escapeHtml(record.code)}','${escapeHtml(contributor.id)}')">Återställ</button>` : `
+          ${contributor.accountLinked ? `<button class="btn secondary" onclick="updateSharedTourContributor('${escapeHtml(record.code)}','${escapeHtml(contributor.id)}')">Spara roll</button>
+          <button class="btn secondary" onclick="transferSharedTourOwnership('${escapeHtml(record.code)}','${escapeHtml(contributor.id)}','${escapeHtml(name)}')">Gör till ägare</button>` : ''}
+          <button class="tour-revoke-btn" onclick="revokeSharedTourContributor('${escapeHtml(record.code)}','${escapeHtml(contributor.id)}')">Ta bort</button>`}
+      </div>
     </div>`;
   }).join('');
+  const acceptedCount = contributors.filter(item => !item.revokedAt).length;
+  const inactiveCount = contributors.length - acceptedCount;
   const organizerControls = record.role === 'organizer' ? `
     <div class="card-title" style="margin-top:16px;">Administration</div>
-    ${contributorRows ? `<div class="tour-contributor-list">${contributorRows}</div>` : '<p style="color:var(--muted);font-size:0.85rem;">Inga inbjudna enheter ännu.</p>'}
+    <div class="tour-condition-row"><span>🔗</span><div><strong>Inbjudningslänk ${record.invitation?.active === false ? 'inaktiv' : 'aktiv'}</strong><br>
+      ${acceptedCount} aktiva medlemmar${inactiveCount ? ` · ${inactiveCount} har lämnat eller tagits bort` : ''} · version ${record.invitation?.revision || 1}</div></div>
+    <p style="color:var(--muted);font-size:.8rem;margin:8px 0;">Alla aktiva medlemmar kan registrera rundor för alla tourspelare.</p>
+    ${contributorRows ? `<div class="tour-contributor-list">${contributorRows}</div>` : '<p style="color:var(--muted);font-size:0.85rem;">Ingen har accepterat inbjudan ännu.</p>'}
     <div class="tour-admin-actions">
       <button class="btn secondary" onclick="beginSharedTourEdit('${escapeHtml(record.code)}')">✎ Redigera villkor</button>
       <button class="btn tour-admin-invite" onclick="rotateSharedTourInvitation('${escapeHtml(record.code)}')">🔄 Skapa ny inbjudningslänk</button>
@@ -5586,6 +5659,15 @@ function renderSharedTourDetail(code) {
       ${tour.status === 'open' ? `<button class="btn secondary" style="color:var(--danger);" onclick="cancelSharedTour('${escapeHtml(record.code)}')">× Avbryt touren</button>` : ''}
       <button class="btn secondary" style="color:var(--danger);" onclick="removeSharedTour('${escapeHtml(record.code)}')">🗑 Ta bort touren permanent</button>
     </div>` : '';
+  const myMembership = record.role !== 'organizer' && record.accountBound ? `
+    <div class="card-title" style="margin-top:16px;">Ditt medlemskap</div>
+    <div class="tour-condition-row"><span>👤</span><div style="width:100%;"><strong>${record.accountMemberId ? `Spelare · ${escapeHtml(memberName(record.accountMemberId) || '')}` : 'Poängregistrerare'}</strong><br>
+      <span style="color:var(--muted);font-size:.8rem;">Du kan registrera rundor för alla tourspelare.</span>
+      <select id="mySharedTourMember" style="margin-top:8px;"><option value=""${!record.accountMemberId ? ' selected' : ''}>Jag registrerar bara poäng</option>
+        ${(tour.members || []).map(member => `<option value="${escapeHtml(member.id)}"${record.accountMemberId === member.id ? ' selected' : ''}>Jag är ${escapeHtml(member.name)}</option>`).join('')}</select>
+      <button class="btn secondary" style="margin-top:7px;" onclick="updateMySharedTourMembership('${escapeHtml(record.code)}')">Spara min koppling</button>
+    </div></div>
+    <button class="btn secondary" style="margin-top:10px;color:var(--danger);" onclick="leaveSharedTour('${escapeHtml(record.code)}')">Lämna touren</button>` : '';
   el.innerHTML = `
     <button class="btn secondary" style="margin-bottom:12px;" onclick="backToSharedTourList()">← Alla tourer</button>
     <strong style="font-size:1.1rem;">🌐 ${escapeHtml(tour.name)}</strong><br>
@@ -5602,6 +5684,7 @@ function renderSharedTourDetail(code) {
     ${(tour.members || []).map(member => `<div class="hi-row"><strong>${escapeHtml(member.name)}</strong><span style="float:right;color:var(--muted);">HCP ${member.hi}</span></div>`).join('') || '<p>Inga deltagare.</p>'}
     <table style="width:100%;font-size:0.88rem;margin-top:16px;"><thead><tr><th></th><th style="text-align:left;">Spelare</th><th style="text-align:right;">Poäng</th><th style="text-align:right;">Räknade/spelade</th></tr></thead><tbody>${standingsRows || '<tr><td colspan="4">Inga rundor ännu.</td></tr>'}</tbody></table>
     <div class="card-title" style="margin-top:16px;">Rundor</div>${roundRows || '<p style="color:var(--muted);font-size:0.85rem;">Inga rundor ännu.</p>'}
+    ${myMembership}
     ${organizerControls}
     ${record.role !== 'organizer' ? `<button class="btn secondary" style="margin-top:16px;color:var(--danger);" onclick="removeSharedTour('${escapeHtml(record.code)}')">Ta bort från den här enheten</button>` : ''}
   `;
@@ -5700,6 +5783,7 @@ async function acceptSharedTourInvitationIfPresent() {
       code: invitation.code, role: 'contributor', token: account?.token || joined.contributorToken, accountBound: !!account,
       contributorId: joined.contributorId, tour: joined.tour,
       accountMemberId: joined.memberId || null,
+      membershipRole: joined.membershipRole || (joined.memberId ? 'player' : 'scorekeeper'),
       memberLinks: automaticSharedMemberLinks(joined.tour), pendingSubmissions: [],
     });
     openTourView();

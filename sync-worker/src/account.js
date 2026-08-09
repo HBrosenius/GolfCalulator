@@ -98,8 +98,21 @@ export async function listAccountTours(request, env) {
 export async function rememberAccountTour(env, userId, code, role, memberId = null) {
   await env.ACCOUNTS_DB.prepare(`
     INSERT INTO account_tours (user_id,tour_code,role,member_id,joined_at) VALUES (?,?,?,?,?)
-    ON CONFLICT(user_id,tour_code) DO UPDATE SET role=excluded.role,member_id=COALESCE(excluded.member_id,account_tours.member_id)
+    ON CONFLICT(user_id,tour_code) DO UPDATE SET role=excluded.role,member_id=excluded.member_id
   `).bind(userId, code, role, memberId, Date.now()).run();
+}
+
+export async function accountIdentity(env, userId) {
+  if (!userId) return null;
+  const profile = await env.ACCOUNTS_DB.prepare(
+    'SELECT display_name AS displayName FROM account_profiles WHERE user_id = ?'
+  ).bind(userId).first();
+  return { userId, displayName: profile?.displayName || null };
+}
+
+export async function forgetAccountTour(env, userId, code) {
+  if (!userId) return;
+  await env.ACCOUNTS_DB.prepare('DELETE FROM account_tours WHERE user_id = ? AND tour_code = ?').bind(userId, code).run();
 }
 
 export async function requestMagicLink(body, request, env) {

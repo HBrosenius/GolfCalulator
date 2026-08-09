@@ -7,6 +7,28 @@ import { validateTourRoundSubmission, validateTourUpdate } from './tour-validati
 const TOUR_KEY = 'tour';
 const RETENTION_MS = 365 * 24 * 60 * 60 * 1000;
 const result = (status, data = {}) => ({ status, ...data });
+const MEMBERSHIP_ROLES = new Set(['player', 'scorekeeper']);
+
+function normalizeMembership(tour) {
+  tour.contributors = (tour.contributors || []).map(item => ({
+    role: item.memberId ? 'player' : 'scorekeeper',
+    displayName: null,
+    leftAt: null,
+    removedAt: item.revokedAt || null,
+    ...item,
+  }));
+  tour.organizerAccountUserId ??= null;
+  tour.organizerDisplayName ??= null;
+  tour.invitationRevision ??= 1;
+  tour.invitationRotatedAt ??= null;
+  return tour;
+}
+
+function validMembershipRequest(body, extraKeys = []) {
+  const allowed = new Set(['protocolVersion', 'schemaVersion', ...extraKeys]);
+  return body?.protocolVersion === PROTOCOL_VERSION && body?.schemaVersion === TOUR_SCHEMA_VERSION &&
+    Object.keys(body).every(key => allowed.has(key));
+}
 
 function publicTour(tour) {
   return {
@@ -54,10 +76,14 @@ export class Tour extends DurableObject {
   }
 
   async actorForToken(tour, token, accountUserId = null) {
+    normalizeMembership(tour);
     if (accountUserId && tour.organizerAccountUserId === accountUserId) return { role: 'organizer', id: 'organizer', accountUserId };
     if (accountUserId) {
       const contributor = tour.contributors.find(item => !item.revokedAt && item.accountUserId === accountUserId);
-      if (contributor) return { role: 'contributor', id: contributor.id, accountUserId, memberId: contributor.memberId || null };
+      if (contributor) return {
+        role: 'contributor', id: contributor.id, accountUserId, memberId: contributor.memberId || null,
+        membershipRole: contributor.role,
+      };
     }
     if (await tokenMatches(token, tour.organizerTokenHash)) return { role: 'organizer', id: 'organizer' };
     for (const contributor of tour.contributors) {
@@ -93,17 +119,24 @@ export class Tour extends DurableObject {
       invitationTokenHash,
       contributors: [],
       organizerAccountUserId: null,
+      organizerDisplayName: null,
+      invitationRevision: 1,
+      invitationRotatedAt: null,
     };
     await this.ctx.storage.put(TOUR_KEY, tour);
     await this.scheduleLifecycle(tour);
     return result(201, { tour: publicTour(tour) });
   }
 
-  async bindOrganizerAccount(accountUserId) {
+  async bindOrganizerAccount(identity) {
     const tour = await this.ctx.storage.get(TOUR_KEY);
     if (!tour) return result(404, { error: 'Tour not found' });
+    normalizeMembership(tour);
+    const accountUserId = identity?.userId;
+    if (!accountUserId) return result(400, { error: 'Invalid account identity' });
     if (!tour.organizerAccountUserId) {
       tour.organizerAccountUserId = accountUserId;
+      tour.organizerDisplayName = identity.displayName || null;
       tour.updatedAt = Date.now();
       tour.revision++;
       await this.ctx.storage.put(TOUR_KEY, tour);
@@ -117,10 +150,12 @@ export class Tour extends DurableObject {
     return tour ? result(200, { tour: publicTour(tour) }) : result(404, { error: 'Tour not found' });
   }
 
-  async join(body, accountUserId = null) {
+  async join(body, identity = null) {
     const stored = await this.ctx.storage.get(TOUR_KEY);
     const tour = stored ? await this.ensureLifecycle(stored) : null;
     if (!tour) return result(404, { error: 'Tour not found' });
+    normalizeMembership(tour);
+    const accountUserId = identity?.userId || null;
     if (body?.protocolVersion !== PROTOCOL_VERSION || body?.schemaVersion !== TOUR_SCHEMA_VERSION ||
       typeof body.invitationToken !== 'string' || !/^[A-Za-z0-9_-]{40,64}$/.test(body.invitationToken) ||
       (body.deviceLabel !== undefined && (typeof body.deviceLabel !== 'string' || body.deviceLabel.length > 50)) ||
@@ -131,7 +166,9 @@ export class Tour extends DurableObject {
     if (!await tokenMatches(body.invitationToken, tour.invitationTokenHash)) return result(403, { error: 'Invitation rejected' });
     if (accountUserId) {
       const existing = tour.contributors.find(item => !item.revokedAt && item.accountUserId === accountUserId);
-      if (existing) return result(200, { tour: publicTour(tour), contributorId: existing.id, memberId: existing.memberId || null });
+      if (existing) return result(200, {
+        tour: publicTour(tour), contributorId: existing.id, memberId: existing.memberId || null, membershipRole: existing.role,
+      });
       if (body.memberId && tour.contributors.some(item => !item.revokedAt && item.memberId === body.memberId && item.accountUserId !== accountUserId)) {
         return result(409, { error: 'Tour player is already linked to another account' });
       }
@@ -145,12 +182,19 @@ export class Tour extends DurableObject {
       revokedAt: null,
       accountUserId: accountUserId || null,
       memberId: body.memberId || null,
+      role: body.memberId ? 'player' : 'scorekeeper',
+      displayName: identity?.displayName || null,
+      leftAt: null,
+      removedAt: null,
     };
     tour.contributors.push(contributor);
     tour.updatedAt = Date.now();
     tour.revision++;
     await this.ctx.storage.put(TOUR_KEY, tour);
-    return result(200, { tour: publicTour(tour), contributorId: contributor.id, contributorToken, memberId: contributor.memberId });
+    return result(200, {
+      tour: publicTour(tour), contributorId: contributor.id, contributorToken,
+      memberId: contributor.memberId, membershipRole: contributor.role,
+    });
   }
 
   async access(token, accountUserId = null) {
@@ -161,6 +205,7 @@ export class Tour extends DurableObject {
     if (actor?.role === 'organizer') return result(200, { role: 'organizer' });
     if (actor) return result(200, {
       role: 'contributor', contributorId: actor.id, ...(actor.memberId ? { memberId: actor.memberId } : {}),
+      ...(actor.accountUserId ? { membershipRole: actor.membershipRole || 'scorekeeper' } : {}),
     });
     return result(403, { error: 'Not authorized' });
   }
@@ -173,9 +218,14 @@ export class Tour extends DurableObject {
     if (actor?.role !== 'organizer') return result(403, { error: 'Not authorized' });
     return result(200, {
       tour: publicTour(tour),
-      contributors: tour.contributors.map(item => ({
+      organizer: {
+        displayName: tour.organizerDisplayName || 'Organisatör', accountLinked: !!tour.organizerAccountUserId,
+      },
+      invitation: { revision: tour.invitationRevision, rotatedAt: tour.invitationRotatedAt, active: true },
+      contributors: tour.contributors.filter(item => !tour.organizerAccountUserId || item.accountUserId !== tour.organizerAccountUserId).map(item => ({
         id: item.id, deviceLabel: item.deviceLabel, createdAt: item.createdAt, revokedAt: item.revokedAt,
-        accountLinked: !!item.accountUserId, memberId: item.memberId || null,
+        accountLinked: !!item.accountUserId, memberId: item.memberId || null, role: item.role,
+        displayName: item.displayName || null, leftAt: item.leftAt || null, removedAt: item.removedAt || null,
       })),
     });
   }
@@ -189,6 +239,8 @@ export class Tour extends DurableObject {
     if ((await this.actorForToken(tour, token, accountUserId))?.role !== 'organizer') return result(403, { error: 'Not authorized' });
     const invitationToken = generateToken();
     tour.invitationTokenHash = await hashToken(invitationToken);
+    tour.invitationRevision = (tour.invitationRevision || 1) + 1;
+    tour.invitationRotatedAt = Date.now();
     tour.updatedAt = Date.now();
     tour.revision++;
     await this.ctx.storage.put(TOUR_KEY, tour);
@@ -317,11 +369,135 @@ export class Tour extends DurableObject {
     if (!contributor) return result(404, { error: 'Contributor not found' });
     if (!contributor.revokedAt) {
       contributor.revokedAt = Date.now();
+      contributor.removedAt = contributor.revokedAt;
+      contributor.leftAt = null;
       tour.updatedAt = contributor.revokedAt;
       tour.revision++;
       await this.ctx.storage.put(TOUR_KEY, tour);
     }
-    return result(200, { tour: publicTour(tour) });
+    return result(200, {
+      tour: publicTour(tour), ...(contributor.accountUserId ? { accountUserId: contributor.accountUserId } : {}),
+    });
+  }
+
+  async updateMyMembership(body, accountUserId) {
+    const stored = await this.ctx.storage.get(TOUR_KEY);
+    const tour = stored ? await this.ensureLifecycle(stored) : null;
+    if (!tour) return result(404, { error: 'Tour not found' });
+    normalizeMembership(tour);
+    if (!accountUserId || !validMembershipRequest(body, ['memberId'])) return result(400, { error: 'Invalid request' });
+    const contributor = tour.contributors.find(item => !item.revokedAt && item.accountUserId === accountUserId);
+    if (!contributor) return result(403, { error: 'Not authorized' });
+    const memberId = body.memberId === null ? null : body.memberId;
+    if (memberId !== null && (typeof memberId !== 'string' || !tour.members.some(member => member.id === memberId))) {
+      return result(400, { error: 'Invalid tour player' });
+    }
+    if (memberId && tour.contributors.some(item => item.id !== contributor.id && !item.revokedAt && item.memberId === memberId)) {
+      return result(409, { error: 'Tour player is already linked to another account' });
+    }
+    contributor.memberId = memberId;
+    contributor.role = memberId ? 'player' : 'scorekeeper';
+    tour.updatedAt = Date.now();
+    tour.revision++;
+    await this.ctx.storage.put(TOUR_KEY, tour);
+    return result(200, { tour: publicTour(tour), memberId, membershipRole: contributor.role });
+  }
+
+  async updateContributor(contributorId, token, accountUserId, body) {
+    const tour = await this.ctx.storage.get(TOUR_KEY);
+    if (!tour) return result(404, { error: 'Tour not found' });
+    normalizeMembership(tour);
+    if ((await this.actorForToken(tour, token, accountUserId))?.role !== 'organizer') return result(403, { error: 'Not authorized' });
+    if (!validMembershipRequest(body, ['memberId', 'role']) || !MEMBERSHIP_ROLES.has(body.role)) {
+      return result(400, { error: 'Invalid request' });
+    }
+    const contributor = tour.contributors.find(item => item.id === contributorId);
+    if (!contributor) return result(404, { error: 'Contributor not found' });
+    const memberId = body.memberId === null ? null : body.memberId;
+    if (body.role === 'player' && (typeof memberId !== 'string' || !tour.members.some(member => member.id === memberId))) {
+      return result(400, { error: 'Player role requires a tour player' });
+    }
+    if (body.role === 'scorekeeper' && memberId !== null) return result(400, { error: 'Scorekeeper cannot claim a tour player' });
+    if (memberId && tour.contributors.some(item => item.id !== contributor.id && !item.revokedAt && item.memberId === memberId)) {
+      return result(409, { error: 'Tour player is already linked to another account' });
+    }
+    contributor.role = body.role;
+    contributor.memberId = memberId;
+    tour.updatedAt = Date.now();
+    tour.revision++;
+    await this.ctx.storage.put(TOUR_KEY, tour);
+    return result(200, {
+      tour: publicTour(tour), accountUserId: contributor.accountUserId || null, memberId: contributor.memberId || null,
+    });
+  }
+
+  async leave(token, accountUserId, body) {
+    const tour = await this.ctx.storage.get(TOUR_KEY);
+    if (!tour) return result(404, { error: 'Tour not found' });
+    normalizeMembership(tour);
+    if (!validMembershipRequest(body)) return result(400, { error: 'Invalid request' });
+    const actor = await this.actorForToken(tour, token, accountUserId);
+    if (!actor || actor.role === 'organizer') return result(403, { error: 'Organizer cannot leave the tour' });
+    const contributor = tour.contributors.find(item => item.id === actor.id);
+    contributor.revokedAt = Date.now();
+    contributor.leftAt = contributor.revokedAt;
+    contributor.removedAt = null;
+    tour.updatedAt = contributor.revokedAt;
+    tour.revision++;
+    await this.ctx.storage.put(TOUR_KEY, tour);
+    return result(200, { left: true });
+  }
+
+  async restoreContributor(contributorId, token, accountUserId, body) {
+    const tour = await this.ctx.storage.get(TOUR_KEY);
+    if (!tour) return result(404, { error: 'Tour not found' });
+    normalizeMembership(tour);
+    if (!validMembershipRequest(body)) return result(400, { error: 'Invalid request' });
+    if ((await this.actorForToken(tour, token, accountUserId))?.role !== 'organizer') return result(403, { error: 'Not authorized' });
+    const contributor = tour.contributors.find(item => item.id === contributorId);
+    if (!contributor) return result(404, { error: 'Contributor not found' });
+    if (contributor.memberId && tour.contributors.some(item => item.id !== contributor.id && !item.revokedAt && item.memberId === contributor.memberId)) {
+      contributor.memberId = null;
+      contributor.role = 'scorekeeper';
+    }
+    contributor.revokedAt = null;
+    contributor.leftAt = null;
+    contributor.removedAt = null;
+    tour.updatedAt = Date.now();
+    tour.revision++;
+    await this.ctx.storage.put(TOUR_KEY, tour);
+    return result(200, {
+      tour: publicTour(tour), accountUserId: contributor.accountUserId || null, memberId: contributor.memberId || null,
+    });
+  }
+
+  async transferOwnership(token, accountUserId, body) {
+    const tour = await this.ctx.storage.get(TOUR_KEY);
+    if (!tour) return result(404, { error: 'Tour not found' });
+    normalizeMembership(tour);
+    if (!validMembershipRequest(body, ['contributorId']) ||
+      (await this.actorForToken(tour, token, accountUserId))?.role !== 'organizer') return result(403, { error: 'Not authorized' });
+    const target = tour.contributors.find(item => item.id === body.contributorId && !item.revokedAt && item.accountUserId);
+    if (!target) return result(400, { error: 'New organizer must have an active account' });
+    const previousAccountUserId = tour.organizerAccountUserId;
+    if (previousAccountUserId && previousAccountUserId !== target.accountUserId) {
+      tour.contributors.push({
+        id: crypto.randomUUID(), tokenHash: '', deviceLabel: '', createdAt: Date.now(), revokedAt: null,
+        accountUserId: previousAccountUserId, memberId: null, role: 'scorekeeper',
+        displayName: tour.organizerDisplayName || null, leftAt: null, removedAt: null,
+      });
+    }
+    tour.organizerAccountUserId = target.accountUserId;
+    tour.organizerDisplayName = target.displayName || null;
+    target.revokedAt = Date.now();
+    target.removedAt = target.revokedAt;
+    tour.organizerTokenHash = await hashToken(generateToken());
+    tour.updatedAt = Date.now();
+    tour.revision++;
+    await this.ctx.storage.put(TOUR_KEY, tour);
+    return result(200, {
+      tour: publicTour(tour), newOrganizerAccountUserId: target.accountUserId, memberId: target.memberId || null,
+    });
   }
 
   async alarm() {

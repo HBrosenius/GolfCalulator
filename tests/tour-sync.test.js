@@ -84,6 +84,33 @@ test('organizer client operations use bearer authorization and bounded version b
   requests.slice(2).forEach(item => assert.deepEqual(JSON.parse(item.options.body), { protocolVersion: 2, schemaVersion: 1 }));
 });
 
+test('membership client operations use account authorization and explicit roles', async () => {
+  const requests = [];
+  const client = sync.createClient({
+    baseUrl: 'https://example.test',
+    fetchImpl: async (url, options = {}) => {
+      requests.push({ url, options });
+      return { ok: true, json: async () => ({}) };
+    },
+  });
+  await client.updateMembership('abcd2345', 'account', 'member-1');
+  await client.leave('abcd2345', 'account');
+  await client.updateContributor('abcd2345', 'account', 'person-1', 'scorekeeper', null);
+  await client.restoreContributor('abcd2345', 'account', 'person-1');
+  await client.transferOwnership('abcd2345', 'account', 'person-1');
+  assert.deepEqual(requests.map(item => item.url), [
+    'https://example.test/tour/ABCD2345/membership',
+    'https://example.test/tour/ABCD2345/leave',
+    'https://example.test/tour/ABCD2345/contributors/person-1/membership',
+    'https://example.test/tour/ABCD2345/contributors/person-1/restore',
+    'https://example.test/tour/ABCD2345/transfer-ownership',
+  ]);
+  requests.forEach(item => assert.equal(item.options.headers.Authorization, 'Bearer account'));
+  assert.deepEqual(JSON.parse(requests[0].options.body), { protocolVersion: 2, schemaVersion: 1, memberId: 'member-1' });
+  assert.deepEqual(JSON.parse(requests[2].options.body), { protocolVersion: 2, schemaVersion: 1, role: 'scorekeeper', memberId: null });
+  assert.equal(JSON.parse(requests[4].options.body).contributorId, 'person-1');
+});
+
 test('pending submission retry can be limited to one tour', async () => {
   const store = sync.createStore(memoryStorage());
   store.upsert({ code: 'ABCD2345', token: 'one', pendingSubmissions: [] });

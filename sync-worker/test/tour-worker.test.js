@@ -15,10 +15,11 @@ beforeAll(async () => {
     CREATE TABLE IF NOT EXISTS users (id TEXT PRIMARY KEY,email TEXT NOT NULL UNIQUE,created_at INTEGER NOT NULL,last_login_at INTEGER NOT NULL);
     CREATE TABLE IF NOT EXISTS sessions (token_hash TEXT PRIMARY KEY,user_id TEXT NOT NULL,expires_at INTEGER NOT NULL,created_at INTEGER NOT NULL,last_seen_at INTEGER NOT NULL);
     CREATE TABLE IF NOT EXISTS account_tours (user_id TEXT NOT NULL,tour_code TEXT NOT NULL,role TEXT NOT NULL,member_id TEXT,joined_at INTEGER NOT NULL,PRIMARY KEY(user_id,tour_code));
+    CREATE TABLE IF NOT EXISTS account_profiles (user_id TEXT PRIMARY KEY,display_name TEXT NOT NULL,player_profile_json TEXT NOT NULL,updated_at INTEGER NOT NULL);
   `);
 });
 
-async function accountSession(label) {
+async function accountSession(label, displayName = null) {
   const userId = crypto.randomUUID();
   const token = `${label}`.repeat(43).slice(0, 43);
   const now = Date.now();
@@ -27,6 +28,8 @@ async function accountSession(label) {
       .bind(userId, `${userId}@example.com`, now, now),
     env.ACCOUNTS_DB.prepare('INSERT INTO sessions (token_hash,user_id,expires_at,created_at,last_seen_at) VALUES (?,?,?,?,?)')
       .bind(await hashToken(token), userId, now + 60_000, now, now),
+    ...(displayName ? [env.ACCOUNTS_DB.prepare('INSERT INTO account_profiles (user_id,display_name,player_profile_json,updated_at) VALUES (?,?,?,?)')
+      .bind(userId, displayName, '{}', now)] : []),
   ]);
   return { userId, token };
 }
@@ -138,6 +141,63 @@ describe('shared tour authorization', () => {
     expect((await SELF.fetch(`https://worker.test/tour/${created.code}/rounds`, {
       method: 'POST', headers: headers(secondToken), body: JSON.stringify(submission(created)),
     })).status).toBe(201);
+  });
+
+  it('manages named memberships and transfers account ownership', async () => {
+    const organizer = await accountSession('m', 'Maja');
+    const createResponse = await SELF.fetch('https://worker.test/tour', {
+      method: 'POST', headers: { ...headers(organizer.token), 'CF-Connecting-IP': crypto.randomUUID() },
+      body: JSON.stringify(configuration()),
+    });
+    const created = await createResponse.json();
+    const participant = await accountSession('p', 'Petter');
+    const firstMember = created.tour.members[0].id;
+    const secondMember = created.tour.members[1].id;
+    const joinedResponse = await SELF.fetch(`https://worker.test/tour/${created.code}/join`, {
+      method: 'POST', headers: headers(participant.token), body: JSON.stringify({
+        protocolVersion: PROTOCOL_VERSION, schemaVersion: TOUR_SCHEMA_VERSION,
+        invitationToken: created.invitationToken, deviceLabel: 'Petters telefon', memberId: firstMember,
+      }),
+    });
+    const joined = await joinedResponse.json();
+
+    const managed = await (await SELF.fetch(`https://worker.test/tour/${created.code}/manage`, { headers: headers(organizer.token) })).json();
+    expect(managed.organizer).toEqual({ displayName: 'Maja', accountLinked: true });
+    expect(managed.contributors[0]).toMatchObject({
+      id: joined.contributorId, displayName: 'Petter', accountLinked: true, role: 'player', memberId: firstMember,
+    });
+
+    const membershipBody = (extra = {}) => JSON.stringify({
+      protocolVersion: PROTOCOL_VERSION, schemaVersion: TOUR_SCHEMA_VERSION, ...extra,
+    });
+    const relinked = await SELF.fetch(`https://worker.test/tour/${created.code}/membership`, {
+      method: 'PATCH', headers: headers(participant.token), body: membershipBody({ memberId: secondMember }),
+    });
+    expect(await relinked.json()).toMatchObject({ memberId: secondMember, membershipRole: 'player' });
+
+    const madeScorekeeper = await SELF.fetch(`https://worker.test/tour/${created.code}/contributors/${joined.contributorId}/membership`, {
+      method: 'PATCH', headers: headers(organizer.token), body: membershipBody({ role: 'scorekeeper', memberId: null }),
+    });
+    expect(madeScorekeeper.status).toBe(200);
+    expect(await (await SELF.fetch('https://worker.test/account/tours', { headers: headers(participant.token) })).json())
+      .toMatchObject({ tours: [{ code: created.code, role: 'contributor', memberId: null }] });
+
+    expect((await SELF.fetch(`https://worker.test/tour/${created.code}/contributors/${joined.contributorId}/revoke`, {
+      method: 'POST', headers: headers(organizer.token), body: membershipBody(),
+    })).status).toBe(200);
+    expect((await (await SELF.fetch('https://worker.test/account/tours', { headers: headers(participant.token) })).json()).tours).toEqual([]);
+    expect((await SELF.fetch(`https://worker.test/tour/${created.code}/contributors/${joined.contributorId}/restore`, {
+      method: 'POST', headers: headers(organizer.token), body: membershipBody(),
+    })).status).toBe(200);
+
+    const transferred = await SELF.fetch(`https://worker.test/tour/${created.code}/transfer-ownership`, {
+      method: 'POST', headers: headers(organizer.token), body: membershipBody({ contributorId: joined.contributorId }),
+    });
+    expect(transferred.status).toBe(200);
+    expect((await SELF.fetch(`https://worker.test/tour/${created.code}/manage`, { headers: headers(participant.token) })).status).toBe(200);
+    expect((await SELF.fetch(`https://worker.test/tour/${created.code}/manage`, { headers: headers(organizer.token) })).status).toBe(403);
+    expect(await (await SELF.fetch(`https://worker.test/tour/${created.code}/access`, { headers: headers(organizer.token) })).json())
+      .toMatchObject({ role: 'contributor', membershipRole: 'scorekeeper' });
   });
   it('creates durable public state without leaking credentials', async () => {
     const created = await createTour();

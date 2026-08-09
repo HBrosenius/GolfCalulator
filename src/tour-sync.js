@@ -66,6 +66,27 @@
       revokeContributor: (code, token, contributorId) => jsonRequest(`/tour/${String(code).toUpperCase()}/contributors/${contributorId}/revoke`, {
         method: 'POST', headers: headers(token), body: JSON.stringify({ protocolVersion: PROTOCOL_VERSION, schemaVersion: SCHEMA_VERSION }),
       }),
+      updateMembership: (code, token, memberId) => jsonRequest(`/tour/${String(code).toUpperCase()}/membership`, {
+        method: 'PATCH', headers: headers(token), body: JSON.stringify({
+          protocolVersion: PROTOCOL_VERSION, schemaVersion: SCHEMA_VERSION, memberId: memberId || null,
+        }),
+      }),
+      leave: (code, token) => jsonRequest(`/tour/${String(code).toUpperCase()}/leave`, {
+        method: 'POST', headers: headers(token), body: JSON.stringify({ protocolVersion: PROTOCOL_VERSION, schemaVersion: SCHEMA_VERSION }),
+      }),
+      updateContributor: (code, token, contributorId, role, memberId) => jsonRequest(`/tour/${String(code).toUpperCase()}/contributors/${contributorId}/membership`, {
+        method: 'PATCH', headers: headers(token), body: JSON.stringify({
+          protocolVersion: PROTOCOL_VERSION, schemaVersion: SCHEMA_VERSION, role, memberId: memberId || null,
+        }),
+      }),
+      restoreContributor: (code, token, contributorId) => jsonRequest(`/tour/${String(code).toUpperCase()}/contributors/${contributorId}/restore`, {
+        method: 'POST', headers: headers(token), body: JSON.stringify({ protocolVersion: PROTOCOL_VERSION, schemaVersion: SCHEMA_VERSION }),
+      }),
+      transferOwnership: (code, token, contributorId) => jsonRequest(`/tour/${String(code).toUpperCase()}/transfer-ownership`, {
+        method: 'POST', headers: headers(token), body: JSON.stringify({
+          protocolVersion: PROTOCOL_VERSION, schemaVersion: SCHEMA_VERSION, contributorId,
+        }),
+      }),
       submitRound: (code, token, payload) => jsonRequest(`/tour/${String(code).toUpperCase()}/rounds`, {
         method: 'POST', headers: headers(token), body: JSON.stringify(payload),
       }),

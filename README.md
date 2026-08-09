@@ -101,7 +101,7 @@ Under Spelarregister → **🚌 Tour** kan du sätta upp en tour för ett fast s
 
 En lokal tour kan publiceras med **Dela tour online**. Det skapar en fristående delad kopia och en inbjudningslänk. Befintliga lokala tourer ändras inte automatiskt; publiceringen är den uttryckliga migreringen och de gamla lokala rundorna ligger kvar orörda.
 
-- Alla som öppnar inbjudningslänken får en egen enhetsbehörighet och kan starta, spela och spara rundor kopplade till touren. Om samma enhet öppnar länken igen återanvänds dess befintliga behörighet i stället för att skapa en dubblett.
+- Inloggade personer som öppnar inbjudningslänken blir namngivna tourmedlemmar. De kan koppla sig till en tourspelare eller delta som poängregistrerare; medlemskapet fungerar på personens alla inloggade enheter. Äldre anonyma inbjudningar fortsätter fungera som lokal enhetsåtkomst.
 - Enhetsbehörigheten avgör bara vem som får rapportera. När en ny tourrunda startas kan varje behörig användare välja **vilken eller vilka spelare som helst ur hela tourens startfält**. Tourspelarna hämtas direkt från den delade touren och behöver inte kopplas till lokala spelarprofiler på enheten.
 - Resultaten valideras och räknas om av servern. Varje spelare identifieras med sitt beständiga tourmedlems-ID, så en runda hamnar på rätt spelare oavsett vilken enhet som rapporterar den.
 - Sparade resultat köas lokalt om nätet saknas och skickas igen automatiskt. Samma runda kan därför inte råka registreras två gånger vid återförsök.
@@ -110,7 +110,7 @@ En lokal tour kan publiceras med **Dela tour online**. Det skapar en fristående
 - Servern avslutar automatiskt en delad tour när slutdatumet har passerat, även om ingen har appen öppen. Organisatören kan förlänga en automatiskt avslutad tour och öppna den igen.
 - På startsidan visas **Pågående tourer** med aktiva lokala och delade tourer. En publicerad lokal tour visas inte en extra gång bredvid sin delade kopia.
 - Organisatören kan redigera namn, datum, antal bästa rundor, regel för flera rundor per bana och banornas rundgränser efter publicering. Startfält och bansnapshots förblir låsta, och datum får inte utesluta redan registrerade rundor.
-- Organisatören kan också kopiera eller byta inbjudningslänk, se behöriga enheter med anslutningstid, återkalla enskilda enheter samt avsluta touren. Efter ett manuellt avslut kan inga fler resultat läggas till.
+- Organisatören kan också kopiera eller byta inbjudningslänk, se accepterade medlemmar och deras status, ändra kopplad tourspelare/roll, ta bort eller återställa medlemmar och överföra ägarskapet till en annan kontoinloggad medlem. Medlemmar kan själva byta spelarkoppling eller lämna touren. Efter ett manuellt avslut kan inga fler resultat läggas till.
 - En pågående lokal eller delad tour kan **avbrytas** utan att resultaten raderas. Lokala tourer kan därefter tas bort från enheten; organisatören kan ta bort en delad tour permanent för alla, medan deltagare bara tar bort den från sin egen enhet.
 - Om en tourrunda inte kan skickas visas en tydlig panel med antal försök och senaste fel. Rundan ligger kvar säkert på enheten, synkas automatiskt när nätverket återkommer och kan även skickas igen med **Försök synka igen**.
 - Vanliga säkerhetskopior innehåller inte tourens hemliga organisations- eller enhetsnycklar; de ligger bara på den enhet där länken öppnades eller touren publicerades.

@@ -4,8 +4,8 @@ import { Tour } from './tour.js';
 import { PROTOCOL_VERSION, readJson, validateCreate } from './validation.js';
 import { TOUR_SCHEMA_VERSION, validateTourCreate } from './tour-validation.js';
 import {
-  deleteAccount, deleteSession, exchangeMagicLink, getAccount, getProfile, getSnapshot, listAccountTours,
-  putProfile, putSnapshot, rememberAccountTour, requestMagicLink, userForSession,
+  accountIdentity, deleteAccount, deleteSession, exchangeMagicLink, forgetAccountTour, getAccount, getProfile,
+  getSnapshot, listAccountTours, putProfile, putSnapshot, rememberAccountTour, requestMagicLink, userForSession,
 } from './account.js';
 
 export { GolfRoom, CreateRateLimiter, Tour };
@@ -105,7 +105,8 @@ async function createTour(request, env) {
     if (created.status === 201) {
       const account = env.ACCOUNTS_DB ? await userForSession(request, env) : null;
       if (account) {
-        const bound = await env.GOLF_TOURS.getByName(code).bindOrganizerAccount(account.id);
+        const identity = await accountIdentity(env, account.id);
+        const bound = await env.GOLF_TOURS.getByName(code).bindOrganizerAccount(identity);
         if (bound.tour) created.tour = bound.tour;
         await rememberAccountTour(env, account.id, code, 'organizer');
       }
@@ -160,14 +161,50 @@ async function route(request, env) {
     const token = bearerToken(request);
     const account = env.ACCOUNTS_DB ? await userForSession(request, env) : null;
     const accountUserId = account?.id;
+    const identity = accountUserId ? await accountIdentity(env, accountUserId) : null;
     if (parts.length === 3 && parts[2] === 'access' && request.method === 'GET') return fromTourResult(await tour.access(token, accountUserId));
     if (parts.length === 3 && parts[2] === 'manage' && request.method === 'GET') return fromTourResult(await tour.manage(token, accountUserId));
     const parsed = await bodyOrResponse(request);
     if (parsed.response) return parsed.response;
     if (parts.length === 3 && parts[2] === 'join' && request.method === 'POST') {
-      const joined = await tour.join(parsed.body, accountUserId);
+      const joined = await tour.join(parsed.body, identity);
       if (joined.status === 200 && accountUserId) await rememberAccountTour(env, accountUserId, code, 'contributor', joined.memberId);
       return fromTourResult(joined);
+    }
+    if (parts.length === 3 && parts[2] === 'membership' && request.method === 'PATCH') {
+      const updated = await tour.updateMyMembership(parsed.body, accountUserId);
+      if (updated.status === 200 && accountUserId) await rememberAccountTour(env, accountUserId, code, 'contributor', updated.memberId);
+      return fromTourResult(updated);
+    }
+    if (parts.length === 3 && parts[2] === 'leave' && request.method === 'POST') {
+      const left = await tour.leave(token, accountUserId, parsed.body);
+      if (left.status === 200 && accountUserId) await forgetAccountTour(env, accountUserId, code);
+      return fromTourResult(left);
+    }
+    if (parts.length === 5 && parts[2] === 'contributors' && parts[4] === 'membership' && request.method === 'PATCH') {
+      const updated = await tour.updateContributor(parts[3], token, accountUserId, parsed.body);
+      if (updated.status === 200 && updated.accountUserId) {
+        await rememberAccountTour(env, updated.accountUserId, code, 'contributor', updated.memberId);
+        delete updated.accountUserId;
+      }
+      return fromTourResult(updated);
+    }
+    if (parts.length === 5 && parts[2] === 'contributors' && parts[4] === 'restore' && request.method === 'POST') {
+      const restored = await tour.restoreContributor(parts[3], token, accountUserId, parsed.body);
+      if (restored.status === 200 && restored.accountUserId) {
+        await rememberAccountTour(env, restored.accountUserId, code, 'contributor', restored.memberId);
+        delete restored.accountUserId;
+      }
+      return fromTourResult(restored);
+    }
+    if (parts.length === 3 && parts[2] === 'transfer-ownership' && request.method === 'POST') {
+      const transferred = await tour.transferOwnership(token, accountUserId, parsed.body);
+      if (transferred.status === 200 && transferred.newOrganizerAccountUserId) {
+        await rememberAccountTour(env, transferred.newOrganizerAccountUserId, code, 'organizer', transferred.memberId);
+        if (accountUserId) await rememberAccountTour(env, accountUserId, code, 'contributor');
+        delete transferred.newOrganizerAccountUserId;
+      }
+      return fromTourResult(transferred);
     }
     if (parts.length === 3 && parts[2] === 'rounds' && request.method === 'POST') return fromTourResult(await tour.submitRound(parsed.body, token, accountUserId));
     if (parts.length === 3 && parts[2] === 'conditions' && request.method === 'PATCH') return fromTourResult(await tour.update(token, parsed.body, accountUserId));
@@ -180,7 +217,12 @@ async function route(request, env) {
       return fromTourResult(deleted);
     }
     if (parts.length === 5 && parts[2] === 'contributors' && parts[4] === 'revoke' && request.method === 'POST') {
-      return fromTourResult(await tour.revokeContributor(parts[3], token, parsed.body, accountUserId));
+      const revoked = await tour.revokeContributor(parts[3], token, parsed.body, accountUserId);
+      if (revoked.status === 200 && revoked.accountUserId) {
+        await forgetAccountTour(env, revoked.accountUserId, code);
+        delete revoked.accountUserId;
+      }
+      return fromTourResult(revoked);
     }
     return json({ error: 'Not found' }, 404);
   }
