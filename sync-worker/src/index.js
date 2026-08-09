@@ -3,6 +3,9 @@ import { GolfRoom, CreateRateLimiter } from './room.js';
 import { Tour } from './tour.js';
 import { PROTOCOL_VERSION, readJson, validateCreate } from './validation.js';
 import { TOUR_SCHEMA_VERSION, validateTourCreate } from './tour-validation.js';
+import {
+  deleteSession, exchangeMagicLink, getAccount, getSnapshot, putSnapshot, requestMagicLink,
+} from './account.js';
 
 export { GolfRoom, CreateRateLimiter, Tour };
 
@@ -23,7 +26,7 @@ function randomCode(length = 4) {
 
 function corsHeaders(origin) {
   const headers = {
-    'Access-Control-Allow-Methods': 'GET,POST,PATCH,OPTIONS',
+    'Access-Control-Allow-Methods': 'GET,POST,PUT,PATCH,DELETE,OPTIONS',
     'Access-Control-Allow-Headers': 'Content-Type,Authorization,X-Golf-Protocol',
     'Vary': 'Origin',
   };
@@ -112,6 +115,25 @@ async function route(request, env) {
     return json({ ok: true, protocolVersion: PROTOCOL_VERSION });
   }
   const parts = url.pathname.split('/').filter(Boolean);
+  if (parts[0] === 'account') {
+    if (!env.ACCOUNTS_DB) return json({ error: 'Accounts are not configured' }, 503);
+    if (parts.length === 2 && parts[1] === 'login' && request.method === 'POST') {
+      const parsed = await bodyOrResponse(request);
+      return parsed.response || requestMagicLink(parsed.body, request, env);
+    }
+    if (parts.length === 2 && parts[1] === 'exchange' && request.method === 'POST') {
+      const parsed = await bodyOrResponse(request);
+      return parsed.response || exchangeMagicLink(parsed.body, env);
+    }
+    if (parts.length === 2 && parts[1] === 'session' && request.method === 'DELETE') return deleteSession(request, env);
+    if (parts.length === 2 && parts[1] === 'me' && request.method === 'GET') return getAccount(request, env);
+    if (parts.length === 2 && parts[1] === 'snapshot' && request.method === 'GET') return getSnapshot(request, env);
+    if (parts.length === 2 && parts[1] === 'snapshot' && request.method === 'PUT') {
+      const parsed = await bodyOrResponse(request);
+      return parsed.response || putSnapshot(parsed.body, request, env);
+    }
+    return json({ error: 'Not found' }, 404);
+  }
   if (parts[0] === 'tour') {
     if (parts.length === 1 && request.method === 'POST') return createTour(request, env);
     if (parts.length < 2 || !/^[A-HJ-KM-NP-Z2-9]{8}$/.test(parts[1].toUpperCase())) return json({ error: 'Tour not found' }, 404);

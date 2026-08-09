@@ -4,6 +4,14 @@
   "main": "src/index.js",
   "compatibility_date": "2026-08-07",
   "compatibility_flags": ["nodejs_compat"],
+  "d1_databases": [
+    {
+      "binding": "ACCOUNTS_DB",
+      "database_name": "golfcalc-accounts",
+      "database_id": "71845762-a174-4315-8981-aae9ae165a5f",
+      "migrations_dir": "migrations"
+    }
+  ],
   "durable_objects": {
     "bindings": [
       { "name": "GOLF_ROOMS", "class_name": "GolfRoom" },
@@ -24,6 +32,17 @@
   "env": {
     "production": {
       "name": "golfcalc-sync",
+      "vars": {
+        "APP_BASE_URL": "https://hbrosenius.github.io/GolfCalulator/"
+      },
+      "d1_databases": [
+        {
+          "binding": "ACCOUNTS_DB",
+          "database_name": "golfcalc-accounts",
+          "database_id": "71845762-a174-4315-8981-aae9ae165a5f",
+          "migrations_dir": "migrations"
+        }
+      ],
       "durable_objects": {
         "bindings": [
           { "name": "GOLF_ROOMS", "class_name": "GolfRoom" },
@@ -34,6 +53,17 @@
     },
     "staging": {
       "name": "golfcalc-sync-staging",
+      "vars": {
+        "APP_BASE_URL": "https://hbrosenius.github.io/GolfCalulator/"
+      },
+      "d1_databases": [
+        {
+          "binding": "ACCOUNTS_DB",
+          "database_name": "golfcalc-accounts-staging",
+          "database_id": "6c926cbf-4bd0-467c-82c8-7bf7e8cd0c27",
+          "migrations_dir": "migrations"
+        }
+      ],
       "durable_objects": {
         "bindings": [
           { "name": "GOLF_ROOMS", "class_name": "GolfRoom" },

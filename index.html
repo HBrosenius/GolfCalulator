@@ -19,6 +19,7 @@
 <script src="src/live-round.js"></script>
 <script src="src/tour-rules.js"></script>
 <script src="src/tour-sync.js"></script>
+<script src="src/account-sync.js"></script>
 <script>
 // Apply saved/system theme before first paint to avoid a flash of the wrong theme.
 (function() {
@@ -153,6 +154,9 @@
   .statistics-menu button span:first-child { font-size: 1.4rem; }
   .statistics-menu strong { display: block; color: var(--heading); }
   .statistics-menu small { color: var(--muted); }
+  .account-status { padding: 10px 12px; border-radius: 8px; font-size: 0.84rem; margin-top: 12px; }
+  .account-status.ok { background: #e8f5e9; color: var(--heading); }
+  .account-status.error { background: #fdecea; color: var(--danger); }
 
   .app-footer {
     text-align: center;
@@ -792,6 +796,7 @@
 <body>
 
 <header class="no-print">
+  <button id="accountButton" onclick="openAccountView()" title="Konto" style="position:absolute;top:14px;left:14px;background:rgba(255,255,255,0.15);border:none;border-radius:50%;width:36px;height:36px;font-size:1.1rem;cursor:pointer;color:white;">👤</button>
   <button id="themeToggle" onclick="cycleTheme()" title="Byt tema" style="position:absolute;top:14px;right:14px;background:rgba(255,255,255,0.15);border:none;border-radius:50%;width:36px;height:36px;font-size:1.1rem;cursor:pointer;color:white;">🌙</button>
   <h1>⛳ Poängbogey</h1>
   <p>Golfkalkylator</p>
@@ -945,6 +950,18 @@
         <button type="button" onclick="openHallOfFame()"><span>🏆</span><span><strong>Hall of Fame</strong><small>Topplistor och personliga rekord</small></span></button>
         <button type="button" onclick="openCourseRecordsView()"><span>🏟️</span><span><strong>Banrekord</strong><small>Bästa resultat per bana</small></span></button>
       </div>
+    </div>
+  </div>
+
+  <!-- KONTO OCH MOLNSYNK -->
+  <div id="accountView" class="hidden">
+    <div class="card">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;">
+        <div class="card-title" style="margin:0;"><span class="icon">☁️</span> Konto och molnsynk</div>
+        <button type="button" onclick="goToStep(1)" aria-label="Stäng konto" style="background:none;border:none;font-size:1.4rem;cursor:pointer;color:var(--muted);padding:0 4px;">✕</button>
+      </div>
+      <div id="accountContent"></div>
+      <div id="accountStatus" class="account-status hidden" role="status"></div>
     </div>
   </div>
 
@@ -3371,7 +3388,7 @@ function step4Back() {
 const MAIN_VIEW_IDS = [
   'historyView', 'playersView', 'statisticsView', 'seasonView',
   'hallOfFameView', 'courseRecordsView', 'tourView', 'playerHistoryView',
-  'seasonDetailView', 'courseRecordsDetailView'
+  'seasonDetailView', 'courseRecordsDetailView', 'accountView'
 ];
 
 function setPrimaryNav(section) {
@@ -3405,6 +3422,140 @@ function navigatePrimary(section) {
 
 function openStatisticsView() {
   showPrimaryView('statistics', 'statisticsView');
+}
+
+const ACCOUNT_SESSION_KEY = 'golf_account_session';
+
+function accountSessionLoad() {
+  const session = storageDb.load(ACCOUNT_SESSION_KEY, null);
+  return session && typeof session.token === 'string' && session.user ? session : null;
+}
+
+function accountSessionSave(session) {
+  if (session) storageDb.save(ACCOUNT_SESSION_KEY, session);
+  else storageDb.remove(ACCOUNT_SESSION_KEY);
+  updateAccountButton();
+}
+
+function accountApi() {
+  return GolfAccountSync.createClient(liveSyncClient.baseUrl);
+}
+
+function setAccountStatus(message, kind = 'ok') {
+  const element = document.getElementById('accountStatus');
+  if (!element) return;
+  element.textContent = message;
+  element.className = `account-status ${kind}`;
+}
+
+function updateAccountButton() {
+  const button = document.getElementById('accountButton');
+  if (!button) return;
+  const signedIn = !!accountSessionLoad();
+  button.textContent = signedIn ? '☁️' : '👤';
+  button.title = signedIn ? 'Konto och molnsynk' : 'Logga in';
+}
+
+function openAccountView() {
+  renderAccountView();
+  showPrimaryView('account', 'accountView');
+}
+
+function renderAccountView() {
+  const session = accountSessionLoad();
+  const content = document.getElementById('accountContent');
+  document.getElementById('accountStatus').className = 'account-status hidden';
+  if (!session) {
+    content.innerHTML = `
+      <p style="font-size:0.88rem;color:var(--muted);margin-bottom:14px;">Logga in utan lösenord. Vi skickar en engångslänk som gäller i 15 minuter.</p>
+      <label for="accountEmail" style="margin-top:0;">E-postadress</label>
+      <input type="email" id="accountEmail" autocomplete="email" inputmode="email" placeholder="namn@exempel.se" style="width:100%;padding:12px 14px;border:1.5px solid var(--border);border-radius:8px;font-size:1rem;background:var(--card);color:var(--text);">
+      <button class="btn" style="margin-top:12px;" onclick="requestAccountLink()">Skicka inloggningslänk</button>
+      <p style="font-size:0.76rem;color:var(--muted);margin-top:12px;">Appen fortsätter fungera lokalt även utan konto.</p>`;
+    return;
+  }
+  content.innerHTML = `
+    <div style="background:#f0faf5;border-radius:10px;padding:12px;margin-bottom:14px;">
+      <strong style="color:var(--heading);">${escapeHtml(session.user.email)}</strong>
+      <div style="font-size:0.78rem;color:var(--muted);margin-top:3px;">Inloggad · lokal användning fungerar även offline</div>
+    </div>
+    <button class="btn" onclick="syncAccountNow()">☁️ Synkronisera nu</button>
+    <button class="btn secondary" style="margin-top:10px;" onclick="logoutAccount()">Logga ut på den här enheten</button>
+    <p style="font-size:0.76rem;color:var(--muted);margin-top:12px;">Synkronisering slår ihop unika banor, rundor, spelare och lokala tourer. Data tas inte bort automatiskt.</p>`;
+}
+
+async function requestAccountLink() {
+  const email = document.getElementById('accountEmail')?.value.trim();
+  if (!email) { setAccountStatus('Ange din e-postadress.', 'error'); return; }
+  try {
+    await accountApi().requestLink(email);
+    setAccountStatus('Om adressen är giltig skickas en inloggningslänk. Kontrollera även skräpposten.');
+  } catch (error) {
+    setAccountStatus('Kunde inte kontakta kontotjänsten. Försök igen.', 'error');
+  }
+}
+
+async function exchangeAccountLink(token) {
+  try {
+    const result = await accountApi().exchange(token);
+    accountSessionSave({ token: result.sessionToken, expiresAt: result.expiresAt, user: result.user });
+    history.replaceState(null, '', location.pathname + location.search);
+    openAccountView();
+    setAccountStatus('Du är inloggad. Tryck på Synkronisera nu för att slå ihop data från dina enheter.');
+  } catch (error) {
+    history.replaceState(null, '', location.pathname + location.search);
+    openAccountView();
+    setAccountStatus(error.message || 'Inloggningslänken är ogiltig eller har gått ut.', 'error');
+  }
+}
+
+function localAccountSnapshot() {
+  return { courses: dbLoad(), rounds: roundsLoad(), players: playersLoad(), tours: toursLoad() };
+}
+
+function saveAccountSnapshot(data) {
+  dbSave(data.courses || []);
+  roundsSave(data.rounds || []);
+  playersSave(data.players || []);
+  toursSave(data.tours || []);
+}
+
+async function syncAccountNow() {
+  const session = accountSessionLoad();
+  if (!session || !navigator.onLine) { setAccountStatus('Ingen anslutning. Din lokala data är oförändrad.', 'error'); return; }
+  setAccountStatus('Synkroniserar…');
+  try {
+    let remote = await accountApi().snapshot(session.token);
+    let merged = GolfAccountSync.mergeSnapshots(remote.data, localAccountSnapshot());
+    saveAccountSnapshot(merged);
+    try {
+      await accountApi().saveSnapshot(session.token, remote.version, merged);
+    } catch (error) {
+      if (error.status !== 409) throw error;
+      remote = await accountApi().snapshot(session.token);
+      merged = GolfAccountSync.mergeSnapshots(remote.data, localAccountSnapshot());
+      saveAccountSnapshot(merged);
+      await accountApi().saveSnapshot(session.token, remote.version, merged);
+    }
+    renderSavedCourses();
+    renderSavedPlayersList();
+    renderActiveToursCard();
+    setAccountStatus('Synkroniseringen är klar på den här enheten.');
+  } catch (error) {
+    if (error.status === 401) {
+      accountSessionSave(null);
+      renderAccountView();
+      setAccountStatus('Sessionen har gått ut. Be om en ny inloggningslänk.', 'error');
+    } else setAccountStatus(error.message || 'Synkroniseringen misslyckades.', 'error');
+  }
+}
+
+async function logoutAccount() {
+  const session = accountSessionLoad();
+  accountSessionSave(null);
+  renderAccountView();
+  if (session && navigator.onLine) accountApi().logout(session.token).catch(() => {});
+  setAccountStatus('Du är utloggad. Lokal data finns kvar på enheten.');
 }
 
 function goToStep(n) {
@@ -6502,6 +6653,11 @@ try { _updateLastBackupLabel(); } catch(e) {}
 try { _populateOriginLabelInput(); } catch(e) {}
 try { acceptSharedTourInvitationIfPresent(); } catch(e) {}
 try { syncSharedTourSubmissions(); } catch(e) {}
+try { updateAccountButton(); } catch(e) {}
+try {
+  const accountToken = new URLSearchParams(location.hash.slice(1)).get('account_token');
+  if (accountToken) exchangeAccountLink(accountToken);
+} catch(e) {}
 window.addEventListener('online', () => {
   syncSharedTourSubmissions();
   if (_tourViewMode === 'shared' && _tourViewActiveId) startSharedTourRefresh(_tourViewActiveId);

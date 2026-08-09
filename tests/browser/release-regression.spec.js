@@ -180,6 +180,37 @@ test('top navigation separates play, players, rounds, tours and statistics', asy
   await expect(page.locator('#stepIndicator')).toBeVisible();
 });
 
+test('magic-link sign-in preserves local use and uploads a merged cloud snapshot', async ({ page }) => {
+  let uploaded = null;
+  await page.addInitScript(() => {
+    localStorage.setItem('golf_players_db', JSON.stringify([{ id: 'local-player', name: 'Ada', hi: 12 }]));
+  });
+  await page.route('https://golfcalc-sync.golfcalc-sync.workers.dev/account/**', async route => {
+    const url = new URL(route.request().url());
+    if (url.pathname === '/account/exchange') {
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({
+        sessionToken: 's'.repeat(43), expiresAt: Date.now() + 60_000,
+        user: { id: 'user-1', email: 'ada@example.com', createdAt: Date.now() },
+      }) });
+    } else if (url.pathname === '/account/snapshot' && route.request().method() === 'GET') {
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({
+        version: 0, updatedAt: null, data: { courses: [], rounds: [], players: [], tours: [] },
+      }) });
+    } else if (url.pathname === '/account/snapshot' && route.request().method() === 'PUT') {
+      uploaded = JSON.parse(route.request().postData());
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ version: 1, updatedAt: Date.now() }) });
+    } else await route.fulfill({ status: 204 });
+  });
+
+  await page.goto(`/index.html#account_token=${'t'.repeat(43)}`);
+  await expect(page.locator('#accountView')).toBeVisible();
+  await expect(page.locator('#accountContent')).toContainText('ada@example.com');
+  await page.getByRole('button', { name: /Synkronisera nu/ }).click();
+  await expect(page.locator('#accountStatus')).toContainText('Synkroniseringen är klar');
+  expect(uploaded.baseVersion).toBe(0);
+  expect(uploaded.data.players).toEqual([{ id: 'local-player', name: 'Ada', hi: 12 }]);
+});
+
 test('a live joiner can link their seat to a local saved player', async ({ page }) => {
   await page.goto('/index.html');
   const linked = await page.evaluate(() => {
