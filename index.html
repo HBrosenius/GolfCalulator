@@ -4654,8 +4654,16 @@ function roundUpdate(roundData) {
   roundsSave(rounds);
 }
 
+function roundIdMatches(round, id) {
+  return round != null && String(round.id) === String(id);
+}
+
+function roundFind(id) {
+  return roundsLoad().find(round => roundIdMatches(round, id)) || null;
+}
+
 function roundDelete(id) {
-  roundsSave(roundsLoad().filter(r => r.id !== id));
+  roundsSave(roundsLoad().filter(round => !roundIdMatches(round, id)));
 }
 
 function _buildDataPayload(inclCourses, inclRounds, inclPlayers) {
@@ -7351,7 +7359,7 @@ function renderHistoryList() {
         </div>`;
     }).join('');
     return `
-      <div class="history-item" data-id="${r.id}">
+      <div class="history-item" data-id="${escapeHtml(String(r.id))}">
         <div class="hi-header" onclick="toggleHistoryItem(this)">
           <div style="flex:1;min-width:0;">
             <div class="hi-date">${r.date} · ${r.holes} hål · ${hasMixedTees(r.subjects) ? '⛳ Blandat tee' : `${teeIconFor(r.tee)} ${escapeHtml(r.tee || '')}`}${r.weather && WEATHER[r.weather] ? ' · ' + WEATHER[r.weather].e : ''}</div>
@@ -7359,10 +7367,10 @@ function renderHistoryList() {
             <div class="hi-meta">${topLine}</div>
           </div>
           <span class="hi-chevron">▶</span>
-          <button class="hi-edit" onclick="event.stopPropagation();editRound(${r.id});" title="Redigera">✏️</button>
-          <button class="hi-share" onclick="event.stopPropagation();shareRound(${r.id});" title="Dela">📤</button>
-          <button class="hi-print" onclick="event.stopPropagation();printRound(${r.id});" title="Skriv ut">🖨</button>
-          <button class="hi-del" onclick="event.stopPropagation();if(confirm('Ta bort rundan? Går inte att ångra.')){roundDelete(${r.id});renderHistoryList();}" title="Ta bort">🗑</button>
+          <button class="hi-edit" data-round-action="edit" data-round-id="${escapeHtml(String(r.id))}" title="Redigera">✏️</button>
+          <button class="hi-share" data-round-action="share" data-round-id="${escapeHtml(String(r.id))}" title="Dela">📤</button>
+          <button class="hi-print" data-round-action="print" data-round-id="${escapeHtml(String(r.id))}" title="Skriv ut">🖨</button>
+          <button class="hi-del" data-round-action="delete" data-round-id="${escapeHtml(String(r.id))}" title="Ta bort">🗑</button>
         </div>
         <div class="hi-body">
           ${r.note ? `<div style="font-style:italic;color:var(--muted);font-size:0.85rem;margin:4px 0 8px;">📝 "${escapeHtml(r.note)}"</div>` : ''}
@@ -7375,6 +7383,23 @@ function renderHistoryList() {
       </div>`;
   }).join('');
 
+  container.querySelectorAll('[data-round-action]').forEach(button => {
+    button.addEventListener('click', handleHistoryRoundAction);
+  });
+
+}
+
+function handleHistoryRoundAction(event) {
+  event.stopPropagation();
+  const button = event.currentTarget;
+  const id = button.dataset.roundId;
+  if (button.dataset.roundAction === 'edit') editRound(id);
+  else if (button.dataset.roundAction === 'share') shareRound(id);
+  else if (button.dataset.roundAction === 'print') printRound(id);
+  else if (button.dataset.roundAction === 'delete' && confirm('Ta bort rundan? Går inte att ångra.')) {
+    roundDelete(id);
+    renderHistoryList();
+  }
 }
 
 function toggleHistoryItem(header) {
@@ -7385,7 +7410,7 @@ function toggleHistoryItem(header) {
 }
 
 function editRound(id) {
-  const r = roundsLoad().find(x => x.id === id);
+  const r = roundFind(id);
   if (!r) return;
   const base = r.subjects[0].rows;
   const hpar = base.map(row => row.par);
@@ -7626,8 +7651,7 @@ async function _doShare(rows, meta) {
 }
 
 async function shareRound(id) {
-  const rounds = roundsLoad();
-  const r = rounds.find(x => x.id === id);
+  const r = roundFind(id);
   if (!r) return;
   const rows = [...r.subjects]
     .sort((a, b) => b.totalPoints - a.totalPoints)
@@ -7640,7 +7664,7 @@ async function shareRound(id) {
 }
 
 function printRound(id) {
-  const round = roundsLoad().find(x => x.id === id);
+  const round = roundFind(id);
   if (!round) return;
   const isScramble = round.gameMode === 'scramble';
   const isFourball  = round.gameMode === 'fourball';

@@ -54,6 +54,36 @@ test('legacy data loads and export/import preserves all collections', async ({ p
   expect(result.players).toEqual(result.payload.players);
 });
 
+test('history can delete both numeric and synced string round IDs', async ({ page }) => {
+  await page.goto('/index.html');
+  await page.evaluate(() => {
+    localStorage.clear();
+    const makeRound = (id, courseName) => ({
+      id, schemaVersion: 2, date: '2026-08-10', courseName, tee: 'Gul', holes: 9,
+      slope: 113, cr: 36, par: 36, gameMode: 'individual', note: '', weather: null,
+      markers: { ctp: { hole: null, player: '' }, ld: { hole: null, player: '' } }, bets: [],
+      subjects: [{
+        name: 'Ada', hi: 12, ph: 6, totalPoints: 2, totalBrutto: 5,
+        rows: [{ h: 1, par: 4, si: 1, score: 5, pts: 2, skipped: false }],
+      }],
+    });
+    localStorage.setItem('golf_rounds_db', JSON.stringify([
+      makeRound(1723300000000, 'Numerisk bana'),
+      makeRound('cloud-round-1', 'Synkad bana'),
+    ]));
+    openHistory();
+  });
+
+  page.on('dialog', dialog => dialog.accept());
+  await page.locator('.history-item[data-id="cloud-round-1"] .hi-del').click();
+  await expect.poll(() => page.evaluate(() => roundsLoad().map(round => round.id))).toEqual([1723300000000]);
+  await expect(page.locator('#historyList')).not.toContainText('Synkad bana');
+
+  await page.locator('.history-item[data-id="1723300000000"] .hi-del').click();
+  await expect.poll(() => page.evaluate(() => roundsLoad().length)).toBe(0);
+  await expect(page.locator('#historyList')).toContainText('Inga sparade rundor');
+});
+
 test('hostile backup values cannot create executable DOM', async ({ page }) => {
   await page.goto('/index.html');
   const result = await page.evaluate(() => {
