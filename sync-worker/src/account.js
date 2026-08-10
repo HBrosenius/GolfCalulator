@@ -20,8 +20,13 @@ function accountJson(data, status = 200) {
 function validSnapshot(value) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
   const keys = Object.keys(value);
-  if (keys.some(key => !['courses', 'rounds', 'players', 'tours'].includes(key))) return false;
-  return ['courses', 'rounds', 'players', 'tours'].every(key => value[key] === undefined || Array.isArray(value[key]));
+  if (keys.some(key => !['courses', 'rounds', 'roundDeletions', 'players', 'tours'].includes(key))) return false;
+  if (!['courses', 'rounds', 'roundDeletions', 'players', 'tours']
+    .every(key => value[key] === undefined || Array.isArray(value[key]))) return false;
+  return (value.roundDeletions || []).every(item => item && typeof item === 'object' && !Array.isArray(item) &&
+    Object.keys(item).every(key => ['id', 'deletedAt'].includes(key)) &&
+    typeof item.id === 'string' && item.id.length > 0 && item.id.length <= 128 &&
+    Number.isInteger(item.deletedAt) && item.deletedAt > 0);
 }
 
 async function sendMagicLink(env, email, token, idempotencyKey) {

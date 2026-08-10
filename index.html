@@ -3668,6 +3668,7 @@ async function installPoangbogey() {
   document.getElementById('installAppButton')?.classList.add('hidden');
 }
 const ACCOUNT_SYNC_META_KEY = 'golf_account_sync_meta';
+const ROUND_DELETIONS_KEY = 'golf_round_deletions';
 const ACCOUNT_SYNC_DELAY_MS = 1800;
 let _accountSyncTimer = null;
 let _accountSyncPromise = null;
@@ -3684,6 +3685,24 @@ function accountSessionSave(session) {
   if (session) storageDb.save(ACCOUNT_SESSION_KEY, session);
   else storageDb.remove(ACCOUNT_SESSION_KEY);
   updateAccountButton();
+}
+
+function roundDeletionsLoad() {
+  const value = storageDb.load(ROUND_DELETIONS_KEY, []);
+  return Array.isArray(value) ? value.filter(item => item && item.id != null && Number.isFinite(item.deletedAt)) : [];
+}
+
+function roundMarkDeleted(id) {
+  const normalizedId = String(id);
+  const deletions = roundDeletionsLoad().filter(item => String(item.id) !== normalizedId);
+  deletions.push({ id: normalizedId, deletedAt: Date.now() });
+  storageDb.save(ROUND_DELETIONS_KEY, deletions);
+}
+
+function roundClearDeletion(id) {
+  const normalizedId = String(id);
+  storageDb.save(ROUND_DELETIONS_KEY,
+    roundDeletionsLoad().filter(item => String(item.id) !== normalizedId));
 }
 
 const ACCOUNT_API_ALLOWLIST = new Set([
@@ -4048,13 +4067,17 @@ async function exchangeAccountLink(token, apiBase) {
 }
 
 function localAccountSnapshot() {
-  return { courses: dbLoad(), rounds: roundsLoad(), players: playersLoad(), tours: toursLoad() };
+  return {
+    courses: dbLoad(), rounds: roundsLoad(), roundDeletions: roundDeletionsLoad(),
+    players: playersLoad(), tours: toursLoad()
+  };
 }
 
 function saveAccountSnapshot(data) {
   _accountSyncApplyingRemote = true;
   try {
     dbSave(data.courses || []);
+    storageDb.save(ROUND_DELETIONS_KEY, data.roundDeletions || []);
     roundsSave(data.rounds || []);
     playersSave(data.players || []);
     toursSave(data.tours || []);
@@ -4641,12 +4664,14 @@ function roundsSave(rounds) {
 }
 
 function roundSaveNew(roundData) {
+  roundClearDeletion(roundData.id);
   const rounds = roundsLoad();
   rounds.unshift(roundData); // newest first
   roundsSave(rounds);
 }
 
 function roundUpdate(roundData) {
+  roundClearDeletion(roundData.id);
   const rounds = roundsLoad();
   const idx = rounds.findIndex(r => r.id === roundData.id);
   if (idx === -1) { roundSaveNew(roundData); return; }
@@ -4663,6 +4688,7 @@ function roundFind(id) {
 }
 
 function roundDelete(id) {
+  roundMarkDeleted(id);
   roundsSave(roundsLoad().filter(round => !roundIdMatches(round, id)));
 }
 
@@ -4719,6 +4745,7 @@ function _applyImportPayload(payload) {
     const existing = roundsLoad();
     const existingIds = new Set(existing.map(r => r.id));
     payload.rounds.forEach(r => {
+      roundClearDeletion(r.id);
       if (!existingIds.has(r.id)) { existing.push(r); addedRounds++; }
     });
     roundsSave(existing);

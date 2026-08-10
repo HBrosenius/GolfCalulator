@@ -42,10 +42,21 @@ describe('passwordless accounts and cloud snapshots', () => {
 
     const saved = await SELF.fetch('https://worker.test/account/snapshot', {
       method: 'PUT', headers: { ...headers, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ baseVersion: 0, data: { courses: [], rounds: [], players: [{ id: 'p1', name: 'Ada' }], tours: [] } }),
+      body: JSON.stringify({ baseVersion: 0, data: {
+        courses: [], rounds: [], roundDeletions: [{ id: 'old-round', deletedAt: Date.now() }],
+        players: [{ id: 'p1', name: 'Ada' }], tours: [],
+      } }),
     });
     expect(saved.status).toBe(200);
     expect((await saved.json()).version).toBe(1);
+
+    const invalidDeletion = await SELF.fetch('https://worker.test/account/snapshot', {
+      method: 'PUT', headers: { ...headers, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ baseVersion: 1, data: {
+        courses: [], rounds: [], roundDeletions: [{ id: '', deletedAt: 'yesterday' }], players: [], tours: [],
+      } }),
+    });
+    expect(invalidDeletion.status).toBe(400);
 
     const stale = await SELF.fetch('https://worker.test/account/snapshot', {
       method: 'PUT', headers: { ...headers, 'Content-Type': 'application/json' },

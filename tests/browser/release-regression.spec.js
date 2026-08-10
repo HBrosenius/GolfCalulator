@@ -77,11 +77,45 @@ test('history can delete both numeric and synced string round IDs', async ({ pag
   page.on('dialog', dialog => dialog.accept());
   await page.locator('.history-item[data-id="cloud-round-1"] .hi-del').click();
   await expect.poll(() => page.evaluate(() => roundsLoad().map(round => round.id))).toEqual([1723300000000]);
+  await expect.poll(() => page.evaluate(() => roundDeletionsLoad().map(item => item.id))).toEqual(['cloud-round-1']);
   await expect(page.locator('#historyList')).not.toContainText('Synkad bana');
 
   await page.locator('.history-item[data-id="1723300000000"] .hi-del').click();
   await expect.poll(() => page.evaluate(() => roundsLoad().length)).toBe(0);
+  await expect.poll(() => page.evaluate(() => roundDeletionsLoad().map(item => item.id).sort()))
+    .toEqual(['1723300000000', 'cloud-round-1']);
   await expect(page.locator('#historyList')).toContainText('Inga sparade rundor');
+});
+
+test('account sync propagates a deleted round instead of restoring the server copy', async ({ page }) => {
+  const api = 'https://golfcalc-sync.golfcalc-sync.workers.dev';
+  const token = 's'.repeat(43);
+  const remoteRound = { id: 'cloud-round-1', date: '2026-08-10', courseName: 'Synkad bana', subjects: [] };
+  let savedData = null;
+  await page.route(`${api}/account/snapshot`, async route => {
+    if (route.request().method() === 'GET') {
+      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({
+        version: 1, updatedAt: Date.now(),
+        data: { courses: [], rounds: [remoteRound], roundDeletions: [], players: [], tours: [] },
+      }) });
+    }
+    savedData = route.request().postDataJSON().data;
+    return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ version: 2, updatedAt: Date.now() }) });
+  });
+
+  await page.goto('/index.html');
+  await page.evaluate(({ api, token, remoteRound }) => {
+    localStorage.clear();
+    localStorage.setItem('golf_rounds_db', JSON.stringify([remoteRound]));
+    accountSessionSave({ apiBase: api, token, user: { id: 'u1', email: 'ada@example.com' } });
+    roundDelete(remoteRound.id);
+  }, { api, token, remoteRound });
+  await page.evaluate(() => syncAccountNow({ silent: true }));
+
+  expect(savedData.rounds).toEqual([]);
+  expect(savedData.roundDeletions).toHaveLength(1);
+  expect(savedData.roundDeletions[0].id).toBe('cloud-round-1');
+  expect(await page.evaluate(() => roundsLoad())).toEqual([]);
 });
 
 test('hostile backup values cannot create executable DOM', async ({ page }) => {

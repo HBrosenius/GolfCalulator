@@ -29,6 +29,23 @@ test('cloud snapshot merge preserves unique data and lets this device update mat
   assert.deepEqual(merged.tours, [{ id: 3 }]);
 });
 
+test('round deletion tombstones prevent stale cloud or device copies from returning', () => {
+  const deletedAt = Date.now();
+  const deletedHere = mergeSnapshots(
+    { courses: [], rounds: [{ id: 'cloud-round', note: 'stale server copy' }], players: [], tours: [] },
+    { courses: [], rounds: [], roundDeletions: [{ id: 'cloud-round', deletedAt }], players: [], tours: [] },
+  );
+  assert.deepEqual(deletedHere.rounds, []);
+  assert.deepEqual(deletedHere.roundDeletions, [{ id: 'cloud-round', deletedAt }]);
+
+  const staleDevice = mergeSnapshots(
+    { courses: [], rounds: [], roundDeletions: [{ id: 'cloud-round', deletedAt }], players: [], tours: [] },
+    { courses: [], rounds: [{ id: 'cloud-round', note: 'stale device copy' }], players: [], tours: [] },
+  );
+  assert.deepEqual(staleDevice.rounds, []);
+  assert.deepEqual(staleDevice.roundDeletions, [{ id: 'cloud-round', deletedAt }]);
+});
+
 test('account deletion uses authenticated DELETE without a request body', async () => {
   let captured;
   const client = createClient('https://sync.test', async (url, options) => {

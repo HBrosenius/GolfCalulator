@@ -51,12 +51,28 @@
     return [...merged.values()];
   }
 
+  function mergeRoundDeletions(remote, local) {
+    const merged = new Map();
+    [...(Array.isArray(remote) ? remote : []), ...(Array.isArray(local) ? local : [])]
+      .forEach(item => {
+        if (!item || item.id == null || !Number.isFinite(item.deletedAt)) return;
+        const normalized = { id: String(item.id), deletedAt: item.deletedAt };
+        const existing = merged.get(normalized.id);
+        if (!existing || existing.deletedAt < normalized.deletedAt) merged.set(normalized.id, normalized);
+      });
+    return [...merged.values()];
+  }
+
   function mergeSnapshots(remote, local) {
+    const roundDeletions = mergeRoundDeletions(remote?.roundDeletions, local?.roundDeletions);
+    const deletedRoundIds = new Set(roundDeletions.map(item => item.id));
+    const rounds = mergeCollection(remote?.rounds, local?.rounds,
+      (round, index) => String(round?.id ?? `${round?.date}|${round?.courseName}|${index}`));
     return {
       courses: mergeCollection(remote?.courses, local?.courses,
         course => `${course?.name || ''}|${course?.tee || ''}|${course?.holes || ''}`),
-      rounds: mergeCollection(remote?.rounds, local?.rounds,
-        (round, index) => String(round?.id ?? `${round?.date}|${round?.courseName}|${index}`)),
+      rounds: rounds.filter(round => !deletedRoundIds.has(String(round?.id))),
+      roundDeletions,
       players: mergeCollection(remote?.players, local?.players,
         (player, index) => String(player?.id ?? `${player?.name}|${player?.lastName || ''}|${index}`)),
       tours: mergeCollection(remote?.tours, local?.tours,
