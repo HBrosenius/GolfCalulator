@@ -29,6 +29,21 @@ function validSnapshot(value) {
     Number.isInteger(item.deletedAt) && item.deletedAt > 0);
 }
 
+function preserveRoundDeletions(existingData, incomingData) {
+  const deletions = new Map();
+  [...(existingData?.roundDeletions || []), ...(incomingData?.roundDeletions || [])].forEach(item => {
+    const current = deletions.get(item.id);
+    if (!current || current.deletedAt < item.deletedAt) deletions.set(item.id, item);
+  });
+  const roundDeletions = [...deletions.values()];
+  const deletedIds = new Set(roundDeletions.map(item => item.id));
+  return {
+    ...incomingData,
+    rounds: (incomingData.rounds || []).filter(round => !deletedIds.has(String(round?.id))),
+    roundDeletions,
+  };
+}
+
 async function sendMagicLink(env, email, token, idempotencyKey) {
   if (!env.RESEND_API_KEY || !env.ACCOUNT_FROM_EMAIL || !env.APP_BASE_URL || !env.ACCOUNT_API_BASE) throw new Error('Account email is not configured');
   const configuredBase = String(env.APP_BASE_URL);
@@ -352,7 +367,16 @@ export async function putSnapshot(body, request, env) {
   if (!Number.isInteger(body?.baseVersion) || body.baseVersion < 0 || !validSnapshot(body.data)) {
     return accountJson({ error: 'Ogiltig synkdata' }, 400);
   }
-  const payload = JSON.stringify(body.data);
+  const existing = await env.ACCOUNTS_DB.prepare(
+    'SELECT version,payload FROM account_snapshots WHERE user_id = ?'
+  ).bind(user.id).first();
+  const currentVersion = existing?.version || 0;
+  if (currentVersion !== body.baseVersion) {
+    return accountJson({ error: 'Synkkonflikt', currentVersion }, 409);
+  }
+  const existingData = existing ? JSON.parse(existing.payload) : null;
+  const data = preserveRoundDeletions(existingData, body.data);
+  const payload = JSON.stringify(data);
   if (encoder.encode(payload).byteLength > MAX_SNAPSHOT_BYTES) return accountJson({ error: 'Synkdata är för stor' }, 413);
   const now = Date.now();
   const version = body.baseVersion + 1;

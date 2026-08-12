@@ -3670,6 +3670,7 @@ async function installPoangbogey() {
 const ACCOUNT_SYNC_META_KEY = 'golf_account_sync_meta';
 const ROUND_DELETIONS_KEY = 'golf_round_deletions';
 const ACCOUNT_SYNC_DELAY_MS = 1800;
+const ACCOUNT_SYNC_POLL_MS = 30000;
 let _accountSyncTimer = null;
 let _accountSyncPromise = null;
 let _accountSyncApplyingRemote = false;
@@ -4101,16 +4102,19 @@ async function syncAccountNow(options = {}) {
    try {
     let remote = await accountApi().snapshot(session.token);
     let merged = GolfAccountSync.mergeSnapshots(remote.data, localAccountSnapshot());
+    const uploadNeeded = JSON.stringify(merged) !== JSON.stringify(remote.data);
     saveAccountSnapshot(merged);
-    try {
-      await accountApi().saveSnapshot(session.token, remote.version, merged);
-    } catch (error) {
-      if (error.status !== 409) throw error;
-      remote = await accountApi().snapshot(session.token);
-      _accountPendingConflict = { remote, local: localAccountSnapshot() };
-      const conflict = new Error('Data ändrades på en annan enhet. Välj hur konflikten ska lösas.');
-      conflict.status = 409;
-      throw conflict;
+    if (uploadNeeded) {
+      try {
+        await accountApi().saveSnapshot(session.token, remote.version, merged);
+      } catch (error) {
+        if (error.status !== 409) throw error;
+        remote = await accountApi().snapshot(session.token);
+        _accountPendingConflict = { remote, local: localAccountSnapshot() };
+        const conflict = new Error('Data ändrades på en annan enhet. Välj hur konflikten ska lösas.');
+        conflict.status = 409;
+        throw conflict;
+      }
     }
     renderSavedCourses();
     renderSavedPlayersList();
@@ -7822,6 +7826,10 @@ document.addEventListener('visibilitychange', () => {
   if (!document.hidden) scheduleAccountSync('visible', 500);
   if (!document.hidden && _tourViewMode === 'shared' && _tourViewActiveId) startSharedTourRefresh(_tourViewActiveId);
 });
+function pollAccountSyncIfActive() {
+  if (!document.hidden && navigator.onLine && accountSessionLoad()) scheduleAccountSync('periodic', 0);
+}
+setInterval(pollAccountSyncIfActive, ACCOUNT_SYNC_POLL_MS);
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.addEventListener('controllerchange', () => {
     if (_applyingPwaUpdate) window.location.reload();

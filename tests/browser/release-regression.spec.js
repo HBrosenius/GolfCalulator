@@ -118,6 +118,38 @@ test('account sync propagates a deleted round instead of restoring the server co
   expect(await page.evaluate(() => roundsLoad())).toEqual([]);
 });
 
+test('an open second device periodically applies a cloud round deletion', async ({ page }) => {
+  const api = 'https://golfcalc-sync.golfcalc-sync.workers.dev';
+  const token = 'q'.repeat(43);
+  const staleRound = { id: 'deleted-on-phone', date: '2026-08-10', courseName: 'Synkad bana', subjects: [] };
+  let putCount = 0;
+  await page.route(`${api}/account/snapshot`, async route => {
+    if (route.request().method() === 'PUT') {
+      putCount += 1;
+      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ version: 3, updatedAt: Date.now() }) });
+    }
+    return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({
+      version: 2, updatedAt: Date.now(),
+      data: {
+        courses: [], rounds: [], roundDeletions: [{ id: staleRound.id, deletedAt: Date.now() - 1_000 }],
+        players: [], tours: [],
+      },
+    }) });
+  });
+
+  await page.goto('/index.html');
+  await page.evaluate(({ api, token, staleRound }) => {
+    localStorage.clear();
+    localStorage.setItem('golf_rounds_db', JSON.stringify([staleRound]));
+    accountSessionSave({ apiBase: api, token, user: { id: 'u2', email: 'bo@example.com' } });
+    pollAccountSyncIfActive();
+  }, { api, token, staleRound });
+
+  await expect.poll(() => page.evaluate(() => roundsLoad())).toEqual([]);
+  await expect.poll(() => page.evaluate(() => roundDeletionsLoad().map(item => item.id))).toEqual(['deleted-on-phone']);
+  expect(putCount).toBe(0);
+});
+
 test('hostile backup values cannot create executable DOM', async ({ page }) => {
   await page.goto('/index.html');
   const result = await page.evaluate(() => {

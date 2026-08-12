@@ -94,6 +94,36 @@ describe('passwordless accounts and cloud snapshots', () => {
     expect(await loaded.json()).toMatchObject({ profile: { displayName: 'Ada', handicap: 12.4 } });
   });
 
+  it('preserves deletion tombstones when an older client uploads a stale round', async () => {
+    const userId = crypto.randomUUID();
+    const sessionToken = 't'.repeat(43);
+    const now = Date.now();
+    const deletedAt = now - 1_000;
+    await env.ACCOUNTS_DB.batch([
+      env.ACCOUNTS_DB.prepare('INSERT INTO users (id,email,created_at,last_login_at) VALUES (?,?,?,?)')
+        .bind(userId, `${userId}@example.com`, now, now),
+      env.ACCOUNTS_DB.prepare('INSERT INTO sessions (token_hash,user_id,expires_at,created_at,last_seen_at) VALUES (?,?,?,?,?)')
+        .bind(await hashToken(sessionToken), userId, now + 60_000, now, now),
+      env.ACCOUNTS_DB.prepare('INSERT INTO account_snapshots (user_id,version,payload,updated_at) VALUES (?,?,?,?)')
+        .bind(userId, 1, JSON.stringify({
+          courses: [], rounds: [], roundDeletions: [{ id: 'deleted-round', deletedAt }], players: [], tours: [],
+        }), now),
+    ]);
+    const headers = { Authorization: `Bearer ${sessionToken}`, 'Content-Type': 'application/json' };
+    const saved = await SELF.fetch('https://worker.test/account/snapshot', {
+      method: 'PUT', headers, body: JSON.stringify({
+        baseVersion: 1,
+        data: { courses: [], rounds: [{ id: 'deleted-round' }], players: [], tours: [] },
+      }),
+    });
+    expect(saved.status).toBe(200);
+
+    const snapshot = await (await SELF.fetch('https://worker.test/account/snapshot', { headers })).json();
+    expect(snapshot.version).toBe(2);
+    expect(snapshot.data.rounds).toEqual([]);
+    expect(snapshot.data.roundDeletions).toEqual([{ id: 'deleted-round', deletedAt }]);
+  });
+
   it('calculates cloud career statistics for the linked profile', async () => {
     const userId = crypto.randomUUID();
     const token = 'k'.repeat(43);
