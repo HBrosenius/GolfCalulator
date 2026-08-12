@@ -693,6 +693,7 @@ test('ongoing local and shared tours can be cancelled and removed', async ({ pag
   await expect(page.locator('#tourContent')).toContainText('Avbruten');
   await page.getByRole('button', { name: 'Ta bort tour', exact: true }).click();
   expect(await page.evaluate(() => tourFind(101))).toBeUndefined();
+  expect(await page.evaluate(() => tourDeletionsLoad().map(item => item.id))).toEqual(['101']);
 
   await page.evaluate(({ code, token, sharedTour }) => {
     sharedTourStore.upsert({ code, role: 'organizer', token, tour: sharedTour, pendingSubmissions: [] });
@@ -704,6 +705,34 @@ test('ongoing local and shared tours can be cancelled and removed', async ({ pag
   await page.getByRole('button', { name: /Ta bort touren permanent/ }).click();
   expect(sharedDeleted).toBe(true);
   expect(await page.evaluate(code => sharedTourStore.find(code), code)).toBeNull();
+});
+
+test('account sync keeps a deleted local tour removed on other devices', async ({ page }) => {
+  const api = 'https://golfcalc-sync.golfcalc-sync.workers.dev';
+  const token = 'v'.repeat(43);
+  const staleTour = {
+    id: 202, name: 'Raderad tour', startDate: '2026-01-01', endDate: '2026-12-31', status: 'open',
+    roster: [], courses: [],
+  };
+  await page.route(`${api}/account/snapshot`, route => route.fulfill({
+    status: 200, contentType: 'application/json', body: JSON.stringify({
+      version: 2, updatedAt: Date.now(), data: {
+        courses: [], rounds: [], roundDeletions: [], players: [], tours: [],
+        tourDeletions: [{ id: String(staleTour.id), deletedAt: Date.now() - 1_000 }],
+      },
+    }),
+  }));
+
+  await page.goto('/index.html');
+  await page.evaluate(({ api, token, staleTour }) => {
+    localStorage.clear();
+    localStorage.setItem('golf_tours_db', JSON.stringify([staleTour]));
+    accountSessionSave({ apiBase: api, token, user: { id: 'u3', email: 'c@example.com' } });
+    pollAccountSyncIfActive();
+  }, { api, token, staleTour });
+
+  await expect.poll(() => page.evaluate(() => toursLoad())).toEqual([]);
+  await expect.poll(() => page.evaluate(() => tourDeletionsLoad().map(item => item.id))).toEqual(['202']);
 });
 
 test('participant removal only forgets the shared tour on that device', async ({ page }) => {

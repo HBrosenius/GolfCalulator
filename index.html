@@ -3669,6 +3669,7 @@ async function installPoangbogey() {
 }
 const ACCOUNT_SYNC_META_KEY = 'golf_account_sync_meta';
 const ROUND_DELETIONS_KEY = 'golf_round_deletions';
+const TOUR_DELETIONS_KEY = 'golf_tour_deletions';
 const ACCOUNT_SYNC_DELAY_MS = 1800;
 const ACCOUNT_SYNC_POLL_MS = 30000;
 let _accountSyncTimer = null;
@@ -3704,6 +3705,18 @@ function roundClearDeletion(id) {
   const normalizedId = String(id);
   storageDb.save(ROUND_DELETIONS_KEY,
     roundDeletionsLoad().filter(item => String(item.id) !== normalizedId));
+}
+
+function tourDeletionsLoad() {
+  const value = storageDb.load(TOUR_DELETIONS_KEY, []);
+  return Array.isArray(value) ? value.filter(item => item && item.id != null && Number.isFinite(item.deletedAt)) : [];
+}
+
+function tourMarkDeleted(id) {
+  const normalizedId = String(id);
+  const deletions = tourDeletionsLoad().filter(item => String(item.id) !== normalizedId);
+  deletions.push({ id: normalizedId, deletedAt: Date.now() });
+  storageDb.save(TOUR_DELETIONS_KEY, deletions);
 }
 
 const ACCOUNT_API_ALLOWLIST = new Set([
@@ -4070,7 +4083,7 @@ async function exchangeAccountLink(token, apiBase) {
 function localAccountSnapshot() {
   return {
     courses: dbLoad(), rounds: roundsLoad(), roundDeletions: roundDeletionsLoad(),
-    players: playersLoad(), tours: toursLoad()
+    players: playersLoad(), tours: toursLoad(), tourDeletions: tourDeletionsLoad()
   };
 }
 
@@ -4081,6 +4094,7 @@ function saveAccountSnapshot(data) {
     storageDb.save(ROUND_DELETIONS_KEY, data.roundDeletions || []);
     roundsSave(data.rounds || []);
     playersSave(data.players || []);
+    storageDb.save(TOUR_DELETIONS_KEY, data.tourDeletions || []);
     toursSave(data.tours || []);
   } finally { _accountSyncApplyingRemote = false; }
 }
@@ -5194,6 +5208,7 @@ function tourUpdate(tour) {
 }
 
 function tourDelete(id) {
+  tourMarkDeleted(id);
   toursSave(toursLoad().filter(t => t.id !== id));
 }
 

@@ -51,7 +51,7 @@
     return [...merged.values()];
   }
 
-  function mergeRoundDeletions(remote, local) {
+  function mergeDeletions(remote, local) {
     const merged = new Map();
     [...(Array.isArray(remote) ? remote : []), ...(Array.isArray(local) ? local : [])]
       .forEach(item => {
@@ -64,10 +64,14 @@
   }
 
   function mergeSnapshots(remote, local) {
-    const roundDeletions = mergeRoundDeletions(remote?.roundDeletions, local?.roundDeletions);
+    const roundDeletions = mergeDeletions(remote?.roundDeletions, local?.roundDeletions);
     const deletedRoundIds = new Set(roundDeletions.map(item => item.id));
+    const tourDeletions = mergeDeletions(remote?.tourDeletions, local?.tourDeletions);
+    const deletedTourIds = new Set(tourDeletions.map(item => item.id));
     const rounds = mergeCollection(remote?.rounds, local?.rounds,
       (round, index) => String(round?.id ?? `${round?.date}|${round?.courseName}|${index}`));
+    const tours = mergeCollection(remote?.tours, local?.tours,
+      (tour, index) => String(tour?.id ?? `${tour?.name}|${tour?.startDate}|${index}`));
     return {
       courses: mergeCollection(remote?.courses, local?.courses,
         course => `${course?.name || ''}|${course?.tee || ''}|${course?.holes || ''}`),
@@ -75,8 +79,8 @@
       roundDeletions,
       players: mergeCollection(remote?.players, local?.players,
         (player, index) => String(player?.id ?? `${player?.name}|${player?.lastName || ''}|${index}`)),
-      tours: mergeCollection(remote?.tours, local?.tours,
-        (tour, index) => String(tour?.id ?? `${tour?.name}|${tour?.startDate}|${index}`)),
+      tours: tours.filter(tour => !deletedTourIds.has(String(tour?.id))),
+      tourDeletions,
     };
   }
 

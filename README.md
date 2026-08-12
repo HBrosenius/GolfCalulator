@@ -303,8 +303,8 @@ ihop banor, rundor, spelare och lokala tourer mellan enheter.
 - Synkronisering sker automatiskt efter inloggning, vid appstart, när nätverket
   kommer tillbaka och efter ändringar i banor, rundor, spelare eller lokala
   tourer. En öppen, aktiv app hämtar dessutom ändringar från andra enheter inom
-  cirka 30 sekunder. Raderade rundor förblir raderade på alla enheter, även om
-  en äldre appversion senare försöker synkronisera en gammal kopia. Snabba
+  cirka 30 sekunder. Raderade rundor och lokala tourer förblir raderade på alla
+  enheter, även om en äldre appversion senare försöker synkronisera en gammal kopia. Snabba
   ändringar samlas ihop och appen fortsätter alltid spara lokalt utan att vänta
   på nätverket.
 - Kontovyn visar om data är synkroniserad, väntar på nätverk eller behöver ett

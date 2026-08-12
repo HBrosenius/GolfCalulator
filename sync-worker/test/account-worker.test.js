@@ -94,7 +94,7 @@ describe('passwordless accounts and cloud snapshots', () => {
     expect(await loaded.json()).toMatchObject({ profile: { displayName: 'Ada', handicap: 12.4 } });
   });
 
-  it('preserves deletion tombstones when an older client uploads a stale round', async () => {
+  it('preserves deletion tombstones when an older client uploads stale rounds and tours', async () => {
     const userId = crypto.randomUUID();
     const sessionToken = 't'.repeat(43);
     const now = Date.now();
@@ -107,13 +107,16 @@ describe('passwordless accounts and cloud snapshots', () => {
       env.ACCOUNTS_DB.prepare('INSERT INTO account_snapshots (user_id,version,payload,updated_at) VALUES (?,?,?,?)')
         .bind(userId, 1, JSON.stringify({
           courses: [], rounds: [], roundDeletions: [{ id: 'deleted-round', deletedAt }], players: [], tours: [],
+          tourDeletions: [{ id: 'deleted-tour', deletedAt }],
         }), now),
     ]);
     const headers = { Authorization: `Bearer ${sessionToken}`, 'Content-Type': 'application/json' };
     const saved = await SELF.fetch('https://worker.test/account/snapshot', {
       method: 'PUT', headers, body: JSON.stringify({
         baseVersion: 1,
-        data: { courses: [], rounds: [{ id: 'deleted-round' }], players: [], tours: [] },
+        data: {
+          courses: [], rounds: [{ id: 'deleted-round' }], players: [], tours: [{ id: 'deleted-tour' }],
+        },
       }),
     });
     expect(saved.status).toBe(200);
@@ -122,6 +125,8 @@ describe('passwordless accounts and cloud snapshots', () => {
     expect(snapshot.version).toBe(2);
     expect(snapshot.data.rounds).toEqual([]);
     expect(snapshot.data.roundDeletions).toEqual([{ id: 'deleted-round', deletedAt }]);
+    expect(snapshot.data.tours).toEqual([]);
+    expect(snapshot.data.tourDeletions).toEqual([{ id: 'deleted-tour', deletedAt }]);
   });
 
   it('calculates cloud career statistics for the linked profile', async () => {

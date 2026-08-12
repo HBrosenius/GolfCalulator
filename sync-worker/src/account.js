@@ -20,27 +20,35 @@ function accountJson(data, status = 200) {
 function validSnapshot(value) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
   const keys = Object.keys(value);
-  if (keys.some(key => !['courses', 'rounds', 'roundDeletions', 'players', 'tours'].includes(key))) return false;
-  if (!['courses', 'rounds', 'roundDeletions', 'players', 'tours']
+  if (keys.some(key => !['courses', 'rounds', 'roundDeletions', 'players', 'tours', 'tourDeletions'].includes(key))) return false;
+  if (!['courses', 'rounds', 'roundDeletions', 'players', 'tours', 'tourDeletions']
     .every(key => value[key] === undefined || Array.isArray(value[key]))) return false;
-  return (value.roundDeletions || []).every(item => item && typeof item === 'object' && !Array.isArray(item) &&
+  return [...(value.roundDeletions || []), ...(value.tourDeletions || [])]
+    .every(item => item && typeof item === 'object' && !Array.isArray(item) &&
     Object.keys(item).every(key => ['id', 'deletedAt'].includes(key)) &&
     typeof item.id === 'string' && item.id.length > 0 && item.id.length <= 128 &&
     Number.isInteger(item.deletedAt) && item.deletedAt > 0);
 }
 
-function preserveRoundDeletions(existingData, incomingData) {
-  const deletions = new Map();
-  [...(existingData?.roundDeletions || []), ...(incomingData?.roundDeletions || [])].forEach(item => {
-    const current = deletions.get(item.id);
-    if (!current || current.deletedAt < item.deletedAt) deletions.set(item.id, item);
-  });
-  const roundDeletions = [...deletions.values()];
+function preserveSnapshotDeletions(existingData, incomingData) {
+  const preserve = key => {
+    const deletions = new Map();
+    [...(existingData?.[key] || []), ...(incomingData?.[key] || [])].forEach(item => {
+      const current = deletions.get(item.id);
+      if (!current || current.deletedAt < item.deletedAt) deletions.set(item.id, item);
+    });
+    return [...deletions.values()];
+  };
+  const roundDeletions = preserve('roundDeletions');
   const deletedIds = new Set(roundDeletions.map(item => item.id));
+  const tourDeletions = preserve('tourDeletions');
+  const deletedTourIds = new Set(tourDeletions.map(item => item.id));
   return {
     ...incomingData,
     rounds: (incomingData.rounds || []).filter(round => !deletedIds.has(String(round?.id))),
     roundDeletions,
+    tours: (incomingData.tours || []).filter(tour => !deletedTourIds.has(String(tour?.id))),
+    tourDeletions,
   };
 }
 
@@ -345,7 +353,7 @@ export async function exportAccount(request, env) {
     format: 'poangbogey-account-export', version: 1, exportedAt: new Date().toISOString(),
     account: { id: user.id, email: user.email, createdAt: user.createdAt }, profile: profile || null,
     snapshot: snapshot ? { version: snapshot.version, updatedAt: snapshot.updatedAt, data: JSON.parse(snapshot.payload) }
-      : { version: 0, updatedAt: null, data: { courses: [], rounds: [], players: [], tours: [] } },
+      : { version: 0, updatedAt: null, data: { courses: [], rounds: [], roundDeletions: [], players: [], tours: [], tourDeletions: [] } },
     sharedTours: tours.results || [], sessions: sessions.results || [],
     securityEvents: (securityEvents.results || []).map(event => ({ ...event, details: event.details ? JSON.parse(event.details) : null })),
     notificationSettings: (pushSubscriptions.results || []).map(item => ({ ...item, preferences: JSON.parse(item.preferences) })),
@@ -358,7 +366,7 @@ export async function getSnapshot(request, env) {
   const row = await env.ACCOUNTS_DB.prepare('SELECT version,payload,updated_at AS updatedAt FROM account_snapshots WHERE user_id = ?')
     .bind(user.id).first();
   return row ? accountJson({ version: row.version, updatedAt: row.updatedAt, data: JSON.parse(row.payload) })
-    : accountJson({ version: 0, updatedAt: null, data: { courses: [], rounds: [], players: [], tours: [] } });
+    : accountJson({ version: 0, updatedAt: null, data: { courses: [], rounds: [], roundDeletions: [], players: [], tours: [], tourDeletions: [] } });
 }
 
 export async function putSnapshot(body, request, env) {
@@ -375,7 +383,7 @@ export async function putSnapshot(body, request, env) {
     return accountJson({ error: 'Synkkonflikt', currentVersion }, 409);
   }
   const existingData = existing ? JSON.parse(existing.payload) : null;
-  const data = preserveRoundDeletions(existingData, body.data);
+  const data = preserveSnapshotDeletions(existingData, body.data);
   const payload = JSON.stringify(data);
   if (encoder.encode(payload).byteLength > MAX_SNAPSHOT_BYTES) return accountJson({ error: 'Synkdata är för stor' }, 413);
   const now = Date.now();
