@@ -1,4 +1,5 @@
 const { test, expect } = require('@playwright/test');
+const { version: appVersion } = require('../../package.json');
 
 test('legacy data loads and export/import preserves all collections', async ({ page }) => {
   await page.goto('/index.html');
@@ -779,7 +780,7 @@ test('installed PWA reloads offline and applies a deferred upgrade after an acti
 
   await context.setOffline(true);
   await page.reload();
-  await expect(page.locator('.app-footer')).toContainText('v2.1');
+  await expect(page.locator('.app-footer')).toHaveText(`Poängbogey-kalkylator v${appVersion}`);
   await expect(page.locator('#resumeBanner')).toBeVisible();
   const missingResource = await page.evaluate(() => fetch('./missing-release-test.js')
     .then(response => ({ resolved: true, ok: response.ok, status: response.status }))

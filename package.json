@@ -1,10 +1,13 @@
 {
   "name": "golfcalculator",
-  "version": "2.1.0",
+  "version": "2.1.1",
   "private": true,
   "scripts": {
+    "sync:version": "node scripts/sync-version.mjs",
+    "check:version": "node scripts/sync-version.mjs --check",
+    "version": "npm run sync:version",
     "test": "npm run test:unit && npm run test:browser",
-    "verify": "npm run test && npm --prefix sync-worker run check",
+    "verify": "npm run check:version && npm run test && npm --prefix sync-worker run check",
     "verify:release": "npm run verify && npm audit --audit-level=high && npm --prefix sync-worker audit --audit-level=high",
     "test:unit": "node --test tests/*.test.js && npm --prefix sync-worker test",
     "test:scoring": "node --test tests/scoring.test.js",

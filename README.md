@@ -256,6 +256,12 @@ Kör hela testsviten med `npm test`. Den omfattar regel- och lagringstester, Wor
 
 Inför en release körs `npm run verify:release`. Kommandot kör hela testsviten, validerar Worker-konfigurationen med en torrkörning och kontrollerar båda beroendeträden efter kända sårbarheter. Första gången behövs `npm ci`, `npm ci --prefix sync-worker` och `npx playwright install chromium`.
 
+Appversionen hämtas från `package.json`. Skapa en patch-, minor- eller majorversion
+med `npm version patch`, `npm version minor` respektive `npm version major`.
+Kommandot uppdaterar automatiskt versionsnumret i sidfoten, skapar release-commit
+och Git-tagg. Kör därefter `git push --follow-tags`. `npm run verify` stoppar CI om
+sidfoten och `package.json` inte har samma version.
+
 ### Checklista efter driftsättning
 
 1. Kontrollera att Worker-endpointens `/health` svarar med `ok`.
