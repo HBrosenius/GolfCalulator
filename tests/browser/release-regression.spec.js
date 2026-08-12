@@ -132,7 +132,7 @@ test('an open second device periodically applies a cloud round deletion', async 
       version: 2, updatedAt: Date.now(),
       data: {
         courses: [], rounds: [], roundDeletions: [{ id: staleRound.id, deletedAt: Date.now() - 1_000 }],
-        players: [], tours: [],
+        players: [], tours: [], tourDeletions: [],
       },
     }) });
   });
