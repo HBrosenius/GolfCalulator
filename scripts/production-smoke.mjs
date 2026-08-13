@@ -9,6 +9,24 @@ const json = async response => {
   return body;
 };
 const iso = offset => new Date(Date.now() + offset * 86400000).toISOString().slice(0, 10);
+const wait = milliseconds => new Promise(resolve => setTimeout(resolve, milliseconds));
+const connectLive = async (url, token, attempts = 3) => {
+  let lastError;
+  for (let attempt = 1; attempt <= attempts; attempt++) {
+    try {
+      return await new Promise((resolve, reject) => {
+        const socket = new WebSocket(url, ['golf-v2', token]);
+        const timer = setTimeout(() => { socket.close(); reject(new Error('Live WebSocket connection timeout')); }, 5000);
+        socket.onopen = () => { clearTimeout(timer); resolve(socket); };
+        socket.onerror = () => { clearTimeout(timer); socket.close(); reject(new Error('Live WebSocket connection failed')); };
+      });
+    } catch (error) {
+      lastError = error;
+      if (attempt < attempts) await wait(attempt * 1000);
+    }
+  }
+  throw new Error(`Live WebSocket failed after ${attempts} attempts: ${lastError?.message || 'unknown error'}`);
+};
 let created;
 
 try {
@@ -34,14 +52,17 @@ try {
   }));
 
   const socketUrl = `${api.replace(/^http/, 'ws')}/tour/${created.code}/live`;
+  const socket = await connectLive(socketUrl, created.organizerToken);
   const liveUpdate = new Promise((resolve, reject) => {
-    const socket = new WebSocket(socketUrl, ['golf-v2', created.organizerToken]);
-    const timer = setTimeout(() => { socket.close(); reject(new Error('Live standings timeout')); }, 10000);
+    const timer = setTimeout(() => { socket.close(); reject(new Error('Live standings update timeout')); }, 10000);
     socket.onmessage = event => {
       const message = JSON.parse(event.data);
       if (message.tour?.rounds?.length) { clearTimeout(timer); socket.close(); resolve(message); }
     };
-    socket.onerror = () => { clearTimeout(timer); reject(new Error('Live WebSocket failed')); };
+    socket.onerror = () => { clearTimeout(timer); reject(new Error('Live WebSocket failed after connecting')); };
+    socket.onclose = event => {
+      if (!event.wasClean) { clearTimeout(timer); reject(new Error(`Live WebSocket closed unexpectedly (${event.code})`)); }
+    };
   });
 
   const course = created.tour.courses[0];
