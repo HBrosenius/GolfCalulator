@@ -15,6 +15,17 @@ test('verified catalogue datasets produce escaped, provenance-aware D1 migration
   assert.equal(fs.readFileSync('sync-worker/migrations/0008_verified_ekerum_courses.sql', 'utf8').trim(), sql.trim());
 });
 
+test('Kalmar verified dataset matches its checked-in D1 migration', async () => {
+  const { buildMigrationSql, validateVerifiedCourses } = await import('../scripts/build-course-catalog-migration.mjs');
+  const courses = JSON.parse(fs.readFileSync('catalog/verified/kalmar.json', 'utf8'));
+  assert.equal(validateVerifiedCourses(courses).length, 2);
+  assert.equal(courses.flatMap(course => course.tees.flatMap(tee => tee.ratings)).length, 15);
+  const sql = buildMigrationSql(courses);
+  assert.match(sql, /kalmar-gamla-banan-18/);
+  assert.match(sql, /kalmar-nya-banan-18/);
+  assert.equal(fs.readFileSync('sync-worker/migrations/0009_verified_kalmar_courses.sql', 'utf8').trim(), sql.trim());
+});
+
 test('catalogue importer rejects unverified and duplicate records', async () => {
   const { validateVerifiedCourses } = await import('../scripts/build-course-catalog-migration.mjs');
   const courses = JSON.parse(fs.readFileSync('catalog/verified/ekerum.json', 'utf8'));

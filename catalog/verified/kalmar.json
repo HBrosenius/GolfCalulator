@@ -1,0 +1,117 @@
+[
+  {
+    "id": "kalmar-gamla-banan-18",
+    "name": "Kalmar GK - Gamla Banan",
+    "region": "Kalmar län",
+    "country": "SE",
+    "holes": 18,
+    "version": 1,
+    "updatedAt": 1786665600000,
+    "tees": [
+      {
+        "name": "Vit",
+        "par": 72,
+        "hpar": [3, 4, 4, 4, 4, 3, 5, 5, 4, 4, 4, 5, 3, 5, 4, 3, 4, 4],
+        "si": [10, 6, 8, 14, 2, 16, 18, 4, 12, 9, 17, 3, 1, 13, 7, 15, 5, 11],
+        "ratings": [{ "category": "men", "label": "Herrar", "slope": 143, "cr": 73.7 }]
+      },
+      {
+        "name": "Gul",
+        "par": 72,
+        "hpar": [3, 4, 4, 4, 4, 3, 5, 5, 4, 4, 4, 5, 3, 5, 4, 3, 4, 4],
+        "si": [10, 6, 8, 14, 2, 16, 18, 4, 12, 9, 17, 3, 1, 13, 7, 15, 5, 11],
+        "ratings": [
+          { "category": "men", "label": "Herrar", "slope": 140, "cr": 72.3 },
+          { "category": "women", "label": "Damer", "slope": 145, "cr": 78.6 }
+        ]
+      },
+      {
+        "name": "Blå",
+        "par": 72,
+        "hpar": [3, 4, 4, 4, 4, 3, 5, 5, 4, 4, 4, 5, 3, 5, 4, 3, 4, 4],
+        "si": [10, 6, 8, 14, 2, 16, 18, 4, 12, 9, 17, 3, 1, 13, 7, 15, 5, 11],
+        "ratings": [
+          { "category": "men", "label": "Herrar", "slope": 136, "cr": 70.3 },
+          { "category": "women", "label": "Damer", "slope": 140, "cr": 76.1 }
+        ]
+      },
+      {
+        "name": "Röd",
+        "par": 72,
+        "hpar": [3, 4, 4, 4, 4, 3, 5, 5, 4, 4, 4, 5, 3, 5, 4, 3, 4, 4],
+        "si": [10, 6, 8, 14, 2, 16, 18, 4, 12, 9, 17, 3, 1, 13, 7, 15, 5, 11],
+        "ratings": [
+          { "category": "men", "label": "Herrar", "slope": 131, "cr": 67.9 },
+          { "category": "women", "label": "Damer", "slope": 134, "cr": 73.2 }
+        ]
+      }
+    ],
+    "source": {
+      "url": "https://www.kalmargk.se/spela/slopetabeller",
+      "title": "Kalmar GK:s officiella slopetabeller och banguide"
+    },
+    "verifiedAt": 1786665600000,
+    "verificationStatus": "verified"
+  },
+  {
+    "id": "kalmar-nya-banan-18",
+    "name": "Kalmar GK - Nya Banan",
+    "region": "Kalmar län",
+    "country": "SE",
+    "holes": 18,
+    "version": 1,
+    "updatedAt": 1786665600000,
+    "tees": [
+      {
+        "name": "Vit",
+        "par": 71,
+        "hpar": [3, 5, 5, 3, 4, 4, 4, 3, 5, 3, 5, 5, 4, 4, 3, 4, 4, 3],
+        "si": [12, 4, 16, 8, 2, 14, 6, 18, 10, 9, 13, 5, 17, 1, 7, 15, 3, 11],
+        "ratings": [{ "category": "men", "label": "Herrar", "slope": 139, "cr": 70.8 }]
+      },
+      {
+        "name": "Gul",
+        "par": 71,
+        "hpar": [3, 5, 5, 3, 4, 4, 4, 3, 5, 3, 5, 5, 4, 4, 3, 4, 4, 3],
+        "si": [12, 4, 16, 8, 2, 14, 6, 18, 10, 9, 13, 5, 17, 1, 7, 15, 3, 11],
+        "ratings": [
+          { "category": "men", "label": "Herrar", "slope": 132, "cr": 69.3 },
+          { "category": "women", "label": "Damer", "slope": 138, "cr": 75.2 }
+        ]
+      },
+      {
+        "name": "Blå",
+        "par": 71,
+        "hpar": [3, 5, 5, 3, 4, 4, 4, 3, 5, 3, 5, 5, 4, 4, 3, 4, 4, 3],
+        "si": [12, 4, 16, 8, 2, 14, 6, 18, 10, 9, 13, 5, 17, 1, 7, 15, 3, 11],
+        "ratings": [
+          { "category": "men", "label": "Herrar", "slope": 129, "cr": 67.3 },
+          { "category": "women", "label": "Damer", "slope": 133, "cr": 72.7 }
+        ]
+      },
+      {
+        "name": "Röd",
+        "par": 71,
+        "hpar": [3, 5, 5, 3, 4, 4, 4, 3, 5, 3, 5, 5, 4, 4, 3, 4, 4, 3],
+        "si": [12, 4, 16, 8, 2, 14, 6, 18, 10, 9, 13, 5, 17, 1, 7, 15, 3, 11],
+        "ratings": [
+          { "category": "men", "label": "Herrar", "slope": 124, "cr": 65.5 },
+          { "category": "women", "label": "Damer", "slope": 128, "cr": 70.3 }
+        ]
+      },
+      {
+        "name": "Orange",
+        "par": 71,
+        "hpar": [3, 5, 5, 3, 4, 4, 4, 3, 5, 3, 5, 5, 4, 4, 3, 4, 4, 3],
+        "si": [12, 4, 16, 8, 2, 14, 6, 18, 10, 9, 13, 5, 17, 1, 7, 15, 3, 11],
+        "ratings": [{ "category": "women", "label": "Damer", "slope": 119, "cr": 66.4 }]
+      }
+    ],
+    "source": {
+      "url": "https://www.kalmargk.se/spela/slopetabeller",
+      "title": "Kalmar GK:s officiella slopetabeller och banguide"
+    },
+    "verifiedAt": 1786665600000,
+    "verificationStatus": "verified"
+  }
+]

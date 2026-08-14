@@ -32,3 +32,13 @@ aldrig skriver över den andra på enheten.
 - Långe Jans slope: `https://ekerum.cdn.prismic.io/ekerum/aOTFuJ5xUNkB1qu6_Hektometer-25LJ.pdf`
 - Långe Eriks slope: `https://ekerum.cdn.prismic.io/ekerum/aOTFuJ5xUNkB1qu5_Hektometer-25LE.pdf`
 - Par och index för båda banorna: `https://www.caddee.se/klubb/ekerum-golfklubb`
+
+`kalmar.json` kontrollerades 2026-08-14 mot Kalmar Golfklubbs egna sidor och dokument:
+
+- Gamla Banans par och index: `https://www.kalmargk.se/spela/banguide-gamla-banan/`
+- Nya Banans par och index: `https://www.kalmargk.se/spela/banguide-nya-banan`
+- Klubbens länkar till slopetabeller: `https://www.kalmargk.se/spela/slopetabeller`
+- Gamla Banan herrar: `https://www.kalmargk.se/media/jbrhuf53/gamla-banan-herrar.pdf`
+- Gamla Banan damer: `https://www.kalmargk.se/media/c3yowsuc/kalmar_gk_gamla_banan_women.pdf`
+- Nya Banan herrar: `https://www.kalmargk.se/media/dtkp0y3t/nya-banan-herrar.pdf`
+- Nya Banan damer: `https://www.kalmargk.se/media/45ddzqxg/nya-banan-damer.pdf`
