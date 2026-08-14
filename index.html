@@ -1409,7 +1409,7 @@
 
 </div><!-- /container -->
 
-<footer class="app-footer no-print">Poängbogey-kalkylator v2.2.1</footer>
+<footer class="app-footer no-print">Poängbogey-kalkylator v2.3.0</footer>
 
 <!-- LIVE-RUNDA KOD MODAL -->
 <div id="liveCodeModal" class="crop-modal hidden">
@@ -1819,23 +1819,24 @@ async function searchCourseCatalog() {
     status.textContent = _catalogCourses.length ? `${_catalogCourses.length} ${_catalogCourses.length === 1 ? 'bana hittades' : 'banor hittades'}.` : 'Ingen bana hittades.';
     results.innerHTML = _catalogCourses.map((course, courseIndex) => {
       const saved = new Set(dbLoad().filter(entry => entry.catalogId === course.id).map(entry => entry.tee));
+      const options = GolfCourseCatalog.catalogueOptions(course);
       const verification = course.verificationStatus === 'verified' && course.verifiedAt
         ? ` · verifierad ${new Date(course.verifiedAt).toLocaleDateString('sv-SE')}`
         : course.verificationStatus === 'needs-review' ? ' · granskas' : '';
       const source = course.source
         ? `<div class="cg-holes"><a href="${escapeHtml(course.source.url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(course.source.title)}</a>${verification}</div>`
         : '';
-      return `<div class="course-group"><div class="cg-header"><div><div class="cg-name">${escapeHtml(course.name)}</div><div class="cg-holes">${course.holes} hål · ${escapeHtml(course.region || course.country || '')}</div>${source}</div></div><div class="cg-tees">${course.tees.map((tee, teeIndex) => `<button class="cg-tee-btn" onclick="importCatalogCourse(${courseIndex},${teeIndex})">${teeIconFor(tee.name)} ${escapeHtml(tee.name)} <span class="cg-tee-meta">· S${tee.slope} CR${tee.cr}${saved.has(tee.name) ? ' · sparad' : ''}</span></button>`).join('')}</div></div>`;
+      return `<div class="course-group"><div class="cg-header"><div><div class="cg-name">${escapeHtml(course.name)}</div><div class="cg-holes">${course.holes} hål · ${escapeHtml(course.region || course.country || '')}</div>${source}</div></div><div class="cg-tees">${options.map((option, optionIndex) => `<button class="cg-tee-btn" onclick="importCatalogCourse(${courseIndex},${optionIndex})">${teeIconFor(option.teeName)} ${escapeHtml(option.label)} <span class="cg-tee-meta">· S${option.slope} CR${option.cr}${saved.has(option.label) ? ' · sparad' : ''}</span></button>`).join('')}</div></div>`;
     }).join('');
   } catch (error) {
     status.textContent = error.message || 'Bankatalogen kunde inte hämtas. Försök igen.';
   }
 }
 
-function importCatalogCourse(courseIndex, teeIndex) {
+function importCatalogCourse(courseIndex, optionIndex) {
   const course = _catalogCourses[courseIndex];
   const entries = GolfCourseCatalog.localEntries(course);
-  const selected = entries[teeIndex];
+  const selected = entries[optionIndex];
   if (!selected || !entries.every(entry => dbUpsert(entry))) {
     document.getElementById('courseCatalogStatus').textContent = 'Banan kunde inte sparas på enheten.';
     return;

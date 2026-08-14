@@ -1,0 +1,104 @@
+[
+  {
+    "id": "ekerum-lange-jan-18",
+    "name": "Ekerum - Långe Jan",
+    "region": "Kalmar län",
+    "country": "SE",
+    "holes": 18,
+    "version": 1,
+    "updatedAt": 1786665600000,
+    "source": {
+      "url": "https://www.ekerum.com/golf-oland/",
+      "title": "Ekerums officiella slope och banguide"
+    },
+    "verifiedAt": 1786665600000,
+    "verificationStatus": "verified",
+    "tees": [
+      {
+        "name": "67",
+        "par": 72,
+        "hpar": [4,4,3,4,5,4,5,4,3,4,3,4,4,4,5,3,4,5],
+        "si": [5,7,15,11,3,13,1,9,17,4,18,8,16,2,12,10,6,14],
+        "ratings": [{ "category": "men", "label": "Herrar", "slope": 138, "cr": 76.0 }]
+      },
+      {
+        "name": "62",
+        "par": 72,
+        "hpar": [4,4,3,4,5,4,5,4,3,4,3,4,4,4,5,3,4,5],
+        "si": [5,7,15,11,3,13,1,9,17,4,18,8,16,2,12,10,6,14],
+        "ratings": [{ "category": "men", "label": "Herrar", "slope": 133, "cr": 73.8 }]
+      },
+      {
+        "name": "55",
+        "par": 72,
+        "hpar": [4,4,3,4,5,4,5,4,3,4,3,4,4,4,5,3,4,5],
+        "si": [5,7,15,11,3,13,1,9,17,4,18,8,16,2,12,10,6,14],
+        "ratings": [
+          { "category": "men", "label": "Herrar", "slope": 126, "cr": 70.5 },
+          { "category": "women", "label": "Damer", "slope": 135, "cr": 75.6 }
+        ]
+      },
+      {
+        "name": "46",
+        "par": 72,
+        "hpar": [4,4,3,4,5,4,5,4,3,4,3,4,4,4,5,3,4,5],
+        "si": [5,7,15,11,3,13,1,9,17,4,18,8,16,2,12,10,6,14],
+        "ratings": [
+          { "category": "men", "label": "Herrar", "slope": 119, "cr": 66.4 },
+          { "category": "women", "label": "Damer", "slope": 125, "cr": 70.7 }
+        ]
+      }
+    ]
+  },
+  {
+    "id": "ekerum-lange-erik-18",
+    "name": "Ekerum - Långe Erik",
+    "region": "Kalmar län",
+    "country": "SE",
+    "holes": 18,
+    "version": 1,
+    "updatedAt": 1786665600000,
+    "source": {
+      "url": "https://www.ekerum.com/golf-oland/",
+      "title": "Ekerums officiella slope och banguide"
+    },
+    "verifiedAt": 1786665600000,
+    "verificationStatus": "verified",
+    "tees": [
+      {
+        "name": "64",
+        "par": 72,
+        "hpar": [4,4,3,5,3,4,4,4,4,5,4,3,4,4,5,4,3,5],
+        "si": [7,15,5,13,3,11,17,1,9,4,12,14,18,2,10,6,16,8],
+        "ratings": [{ "category": "men", "label": "Herrar", "slope": 131, "cr": 74.8 }]
+      },
+      {
+        "name": "59",
+        "par": 72,
+        "hpar": [4,4,3,5,3,4,4,4,4,5,4,3,4,4,5,4,3,5],
+        "si": [7,15,5,13,3,11,17,1,9,4,12,14,18,2,10,6,16,8],
+        "ratings": [{ "category": "men", "label": "Herrar", "slope": 126, "cr": 72.2 }]
+      },
+      {
+        "name": "54",
+        "par": 72,
+        "hpar": [4,4,3,5,3,4,4,4,4,5,4,3,4,4,5,4,3,5],
+        "si": [7,15,5,13,3,11,17,1,9,4,12,14,18,2,10,6,16,8],
+        "ratings": [
+          { "category": "men", "label": "Herrar", "slope": 122, "cr": 69.9 },
+          { "category": "women", "label": "Damer", "slope": 132, "cr": 74.9 }
+        ]
+      },
+      {
+        "name": "47",
+        "par": 72,
+        "hpar": [4,4,3,5,3,4,4,4,4,5,4,3,4,4,5,4,3,5],
+        "si": [7,15,5,13,3,11,17,1,9,4,12,14,18,2,10,6,16,8],
+        "ratings": [
+          { "category": "men", "label": "Herrar", "slope": 115, "cr": 66.0 },
+          { "category": "women", "label": "Damer", "slope": 123, "cr": 70.6 }
+        ]
+      }
+    ]
+  }
+]

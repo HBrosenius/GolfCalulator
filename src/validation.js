@@ -47,13 +47,24 @@
   function optional(value, check) { return value === undefined || value === null || check(value); }
 
   function isCourse(course) {
-    const keys = new Set(['name', 'tee', 'holes', 'slope', 'cr', 'par', 'hpar', 'si']);
-    return hasOnlyKeys(course, keys) && isText(course.name, 80) && isText(course.tee, 20) &&
+    const keys = new Set(['name', 'tee', 'holes', 'slope', 'cr', 'par', 'hpar', 'si',
+      'ratingCategory', 'catalogTee', 'catalogId', 'catalogVersion', 'catalogUpdatedAt',
+      'catalogSource', 'catalogVerifiedAt', 'catalogVerificationStatus']);
+    const sourceOk = optional(course.catalogSource, source => hasOnlyKeys(source, new Set(['url', 'title'])) &&
+      isText(source.url, 500) && /^https?:\/\//.test(source.url) && isText(source.title, 120));
+    return hasOnlyKeys(course, keys) && isText(course.name, 80) && isText(course.tee, 50) &&
       (course.holes === 9 || course.holes === 18) && isNumber(course.slope, 55, 155) &&
       isNumber(course.cr, 25, 85) && isInteger(course.par, 27, 90) &&
       Array.isArray(course.hpar) && course.hpar.length === course.holes && course.hpar.every(value => isInteger(value, 3, 6)) &&
       Array.isArray(course.si) && course.si.length === course.holes && course.si.every(value => isInteger(value, 1, 18)) &&
-      new Set(course.si).size === course.si.length;
+      new Set(course.si).size === course.si.length &&
+      optional(course.ratingCategory, value => ['all', 'men', 'women'].includes(value)) &&
+      optional(course.catalogTee, value => isText(value, 24)) &&
+      optional(course.catalogId, value => isText(value, 80) && /^[a-z0-9-]+$/.test(value)) &&
+      optional(course.catalogVersion, value => isInteger(value, 1, Number.MAX_SAFE_INTEGER)) &&
+      optional(course.catalogUpdatedAt, value => isInteger(value, 1, Number.MAX_SAFE_INTEGER)) && sourceOk &&
+      optional(course.catalogVerifiedAt, value => isInteger(value, 1, Number.MAX_SAFE_INTEGER)) &&
+      optional(course.catalogVerificationStatus, value => ['verified', 'needs-review', 'legacy'].includes(value));
   }
 
   function isPlayer(player) {

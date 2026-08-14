@@ -16,3 +16,19 @@ Verifieringsstatus:
 
 Gissa aldrig saknade värden. En bana publiceras först när varje hål och teevariant som
 läggs in klarar katalogens validering. Spara källans URL och datum för senaste kontroll.
+
+Verifierade dataset ligger i `catalog/verified/`. Skapa migrations-SQL på standardutmatningen
+med `npm run catalog:build -- catalog/verified/<fil>.json`. Importverktyget stoppar poster som
+saknar komplett scoredata, säker källänk, verifieringsdatum eller status `verified`.
+
+En tee kan ha `ratings` för `men`, `women` eller `all`. När samma fysiska tee har olika
+CR/slope skapas separata val, till exempel `55 · Herrar` och `55 · Damer`, så att en variant
+aldrig skriver över den andra på enheten.
+
+## Verifierade källor
+
+`ekerum.json` kontrollerades 2026-08-14 mot Ekerums officiella golfsida och dess länkar:
+
+- Långe Jans slope: `https://ekerum.cdn.prismic.io/ekerum/aOTFuJ5xUNkB1qu6_Hektometer-25LJ.pdf`
+- Långe Eriks slope: `https://ekerum.cdn.prismic.io/ekerum/aOTFuJ5xUNkB1qu5_Hektometer-25LE.pdf`
+- Par och index för båda banorna: `https://www.caddee.se/klubb/ekerum-golfklubb`

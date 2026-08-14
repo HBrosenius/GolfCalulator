@@ -44,6 +44,19 @@ test('import and photo validation accept only supported shapes', () => {
   assert.equal(validation.isPhotoDataUrl('javascript:alert(1)'), false);
 });
 
+test('backup validation preserves safe catalogue provenance and rating choices', () => {
+  const backup = validBackup();
+  Object.assign(backup.courses[0], {
+    tee: '55 · Damer', ratingCategory: 'women', catalogTee: '55', catalogId: 'test-gk-9',
+    catalogVersion: 2, catalogUpdatedAt: 1786665600000,
+    catalogSource: { url: 'https://example.se/scorekort', title: 'Officiellt scorekort' },
+    catalogVerifiedAt: 1786665600000, catalogVerificationStatus: 'verified',
+  });
+  assert.equal(validation.isBackupPayload(backup), true);
+  backup.courses[0].catalogSource.url = 'javascript:alert(1)';
+  assert.equal(validation.isBackupPayload(backup), false);
+});
+
 test('backup validation rejects executable fields, unknown keys, and malformed nested data', () => {
   const maliciousId = validBackup();
   maliciousId.rounds[0].id = '1);globalThis.pwned=true;//';

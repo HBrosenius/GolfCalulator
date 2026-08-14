@@ -60,7 +60,10 @@ test('course catalogue search imports complete tee data for offline play', async
     id: 'catalog-test-18', name: 'Katalogbanan', region: 'Kalmar län', country: 'SE', holes: 18,
     version: 3, updatedAt: Date.now(),
     tees: [
-      { name: 'Gul', slope: 130, cr: 71.2, par: 72, hpar: Array(18).fill(4), si: Array.from({ length: 18 }, (_, index) => index + 1) },
+      { name: '55', par: 72, hpar: Array(18).fill(4), si: Array.from({ length: 18 }, (_, index) => index + 1), ratings: [
+        { category: 'men', label: 'Herrar', slope: 130, cr: 71.2 },
+        { category: 'women', label: 'Damer', slope: 135, cr: 75.4 },
+      ] },
       { name: 'Röd', slope: 122, cr: 67.4, par: 72, hpar: Array(18).fill(4), si: Array.from({ length: 18 }, (_, index) => index + 1) },
     ],
   };
@@ -75,13 +78,16 @@ test('course catalogue search imports complete tee data for offline play', async
   await page.locator('#catalogSearchInput').fill('Katalog');
   await page.getByRole('button', { name: 'Sök', exact: true }).click();
   await expect(page.locator('#courseCatalogResults')).toContainText('Katalogbanan');
-  await page.locator('#courseCatalogResults .cg-tee-btn').filter({ hasText: 'Gul' }).click();
+  await expect(page.locator('#courseCatalogResults')).toContainText('55 · Herrar');
+  await expect(page.locator('#courseCatalogResults')).toContainText('55 · Damer');
+  await page.locator('#courseCatalogResults .cg-tee-btn').filter({ hasText: '55 · Damer' }).click();
 
   await expect(page.locator('#step2')).toBeVisible();
   await expect(page.locator('#step2CourseInfo')).toContainText('Katalogbanan');
   const imported = await page.evaluate(() => dbLoad().filter(entry => entry.catalogId === 'catalog-test-18'));
-  expect(imported).toHaveLength(2);
-  expect(imported.map(entry => entry.tee).sort()).toEqual(['Gul', 'Röd']);
+  expect(imported).toHaveLength(3);
+  expect(imported.map(entry => entry.tee).sort()).toEqual(['55 · Damer', '55 · Herrar', 'Röd']);
+  expect(imported.find(entry => entry.tee === '55 · Damer')).toMatchObject({ slope: 135, cr: 75.4, ratingCategory: 'women', catalogTee: '55' });
   expect(imported[0].hpar).toHaveLength(18);
 });
 

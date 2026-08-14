@@ -11,7 +11,7 @@ Mobilanpassad webbapp för att beräkna poängbogey-resultat under en golfrunda.
 - Stöd för både **traditionella teefärger** (Gul, Röd) och **Hektometersystemet** (T60, T57, T53, T48, m.fl.) — spelare i samma runda kan spela från **olika tee** och ändå tävla rättvist mot varandra
 - Hålvis inmatning av par (3/4/5-knappar) och Hcp/Index från scorekortet
 - **Sparar bandata** automatiskt — slope, CR, par och håldata återladdas nästa runda
-- **Gemensam bankatalog** — sök efter publicerade banor och importera alla tees med slope, CR, par och håldata; källänk och verifieringsstatus visas när de finns, och efter import fungerar banan offline precis som en manuellt sparad bana
+- **Gemensam bankatalog** — sök efter publicerade banor och importera alla tees med slope, CR, par och håldata; kategoriunika ratingar visas som separata val (t.ex. `55 · Herrar` och `55 · Damer`), källänk och verifieringsstatus följer med och banan fungerar sedan offline
 - Rankingresultat med guld/silver/brons för alla spelare eller lag
 - **Live-runda** — dela en kod så alla spelare kan mata in sin egen score från sin egen telefon under rundan
 

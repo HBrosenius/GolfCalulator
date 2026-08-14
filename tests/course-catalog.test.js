@@ -23,9 +23,28 @@ test('catalog courses become complete offline local tee entries', () => {
   assert.deepEqual(localEntries(course), [{
     name: 'Test GK', tee: 'Gul', holes: 9, slope: 113, cr: 36, par: 36,
     hpar: Array(9).fill(4), si: [1,3,5,7,9,11,13,15,17],
+    ratingCategory: 'all', catalogTee: 'Gul',
     catalogId: 'test-course', catalogVersion: 2, catalogUpdatedAt: 123,
     catalogSource: null, catalogVerifiedAt: null, catalogVerificationStatus: 'legacy',
   }]);
+});
+
+test('category-specific ratings become distinct local tee choices', () => {
+  const rated = {
+    ...course,
+    tees: [{
+      name: '55', par: 36, hpar: Array(9).fill(4), si: [1,3,5,7,9,11,13,15,17],
+      ratings: [
+        { category: 'men', label: 'Herrar', slope: 126, cr: 35.2 },
+        { category: 'women', label: 'Damer', slope: 135, cr: 37.8 },
+      ],
+    }],
+  };
+  assert.equal(validCourse(rated), true);
+  assert.deepEqual(localEntries(rated).map(entry => [entry.tee, entry.ratingCategory, entry.slope, entry.cr]), [
+    ['55 · Herrar', 'men', 126, 35.2],
+    ['55 · Damer', 'women', 135, 37.8],
+  ]);
 });
 
 test('catalogue accepts safe provenance and preserves it offline', () => {

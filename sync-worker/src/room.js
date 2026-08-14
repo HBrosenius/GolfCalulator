@@ -38,6 +38,17 @@ function publicRoom(room) {
 }
 
 export class GolfRoom extends DurableObject {
+  constructor(ctx, env) {
+    super(ctx, env);
+    this.mutationTail = Promise.resolve();
+  }
+
+  serializedMutation(operation) {
+    const result = this.mutationTail.then(operation, operation);
+    this.mutationTail = result.catch(() => {});
+    return result;
+  }
+
   async create(config, hostTokenHash, seatTokenHash) {
     if (await this.ctx.storage.get(ROOM_KEY)) return result(409, { error: 'Room unavailable' });
     const now = Date.now();
@@ -84,6 +95,7 @@ export class GolfRoom extends DurableObject {
   }
 
   async claimSeat(body) {
+    return this.serializedMutation(async () => {
     const room = await this.ctx.storage.get(ROOM_KEY);
     if (!room) return result(404, { error: 'Room not found' });
     const now = Date.now();
@@ -96,6 +108,7 @@ export class GolfRoom extends DurableObject {
     room.seats[body.seat].tokenHash = await hashToken(seatToken);
     await this.ctx.storage.put(ROOM_KEY, room);
     return result(200, { room: publicRoom(room), seatToken });
+    });
   }
 
   async failedClaim(room, status = 400, error = 'Invalid request') {
@@ -105,6 +118,7 @@ export class GolfRoom extends DurableObject {
   }
 
   async patch(body, token) {
+    return this.serializedMutation(async () => {
     const room = await this.ctx.storage.get(ROOM_KEY);
     if (!room) return result(404, { error: 'Room not found' });
     const invalid = validatePatch(body, room);
@@ -126,9 +140,11 @@ export class GolfRoom extends DurableObject {
     }
     await this.ctx.storage.put(ROOM_KEY, room);
     return result(200, { room: publicRoom(room) });
+    });
   }
 
   async proposeBet(body, token) {
+    return this.serializedMutation(async () => {
     const room = await this.ctx.storage.get(ROOM_KEY);
     if (!room) return result(404, { error: 'Room not found' });
     if (validateBetProposal(body, room)) return result(400, { error: 'Invalid request' });
@@ -144,9 +160,11 @@ export class GolfRoom extends DurableObject {
     });
     await this.ctx.storage.put(ROOM_KEY, room);
     return result(200, { room: publicRoom(room) });
+    });
   }
 
   async respondBet(betId, body, token) {
+    return this.serializedMutation(async () => {
     const room = await this.ctx.storage.get(ROOM_KEY);
     if (!room) return result(404, { error: 'Room not found' });
     if (validateBetResponse(body, room)) return result(400, { error: 'Invalid request' });
@@ -165,9 +183,11 @@ export class GolfRoom extends DurableObject {
       await this.ctx.storage.put(ROOM_KEY, room);
     }
     return result(200, { room: publicRoom(room) });
+    });
   }
 
   async cancelBet(betId, body, token) {
+    return this.serializedMutation(async () => {
     const room = await this.ctx.storage.get(ROOM_KEY);
     if (!room) return result(404, { error: 'Room not found' });
     if (validateBetCancel(body, room)) return result(400, { error: 'Invalid request' });
@@ -181,6 +201,7 @@ export class GolfRoom extends DurableObject {
       await this.ctx.storage.put(ROOM_KEY, room);
     }
     return result(200, { room: publicRoom(room) });
+    });
   }
 
   async alarm() {
