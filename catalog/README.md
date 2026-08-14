@@ -60,3 +60,20 @@ väntar tills kombinationsspecifika hålindex kan verifieras utan antaganden.
 - Par och index: `https://www.olandsgk.se/spela/gitarea/Course/courseinfo`
 - Tee, längd och spelhandicap: `https://www.olandsgk.se/spela/slopekalkylator`
 - CR/slope verifierades mot slopekalkylatorns resultat för flera exakta handicapvärden.
+
+`goteborg-batches-1-2.json` kontrollerades 2026-08-14 mot klubbarnas officiella
+SGF-scorekort. Datasetet innehåller Delsjö GK, Göteborgs Golf Klubb, Albatrossen,
+Torslanda GK, Lerjedalens GK, Särö 62, Särö 54, Särö 70, Myra GK och Kungälv-Kode GK:
+
+- Delsjö: `https://www.degk.se/golf/`
+- Göteborgs Golf Klubb: `https://www.goteborgsgk.org/spela/`
+- Albatross: `https://www.albatrossgolfklubb.se/spela/slope`
+- Torslanda: `https://torslandagk.se/spela/18-halsbanan/`
+- Lerjedalen: `https://lerjedalen.se/spela/slope/`
+- Särö: `https://www.sarogolfclub.se/golf/`
+- Myra: `https://myragolf.se/golf/`
+- Kungälv-Kode: `https://www.kkgk.se/spela/slopekalkylator`
+
+Övriga planerade Göteborgsbanor publiceras inte i denna migration. Deras officiella
+källor saknade ännu en komplett, maskinellt verifierbar kombination av hålpar, index
+och CR/slope. De ligger kvar i granskningskön i stället för att fyllas med antaganden.

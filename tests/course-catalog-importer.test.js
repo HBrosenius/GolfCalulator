@@ -48,6 +48,15 @@ test('Ölands GK dataset matches its checked-in D1 migration', async () => {
   assert.equal(fs.readFileSync('sync-worker/migrations/0012_verified_olands_gk.sql', 'utf8').trim(), sql.trim());
 });
 
+test('Göteborg batches 1 and 2 dataset matches its checked-in D1 migration', async () => {
+  const { buildMigrationSql, validateVerifiedCourses } = await import('../scripts/build-course-catalog-migration.mjs');
+  const courses = JSON.parse(fs.readFileSync('catalog/verified/goteborg-batches-1-2.json', 'utf8'));
+  assert.equal(validateVerifiedCourses(courses).length, 10);
+  assert.equal(courses.flatMap(course => course.tees.flatMap(tee => tee.ratings)).length, 67);
+  const sql = buildMigrationSql(courses);
+  assert.equal(fs.readFileSync('sync-worker/migrations/0013_verified_goteborg_batches_1_2.sql', 'utf8').trim(), sql.trim());
+});
+
 test('catalogue importer rejects unverified and duplicate records', async () => {
   const { validateVerifiedCourses } = await import('../scripts/build-course-catalog-migration.mjs');
   const courses = JSON.parse(fs.readFileSync('catalog/verified/ekerum.json', 'utf8'));
