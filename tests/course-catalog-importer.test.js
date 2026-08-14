@@ -24,6 +24,10 @@ test('Kalmar verified dataset matches its checked-in D1 migration', async () => 
   assert.match(sql, /kalmar-gamla-banan-18/);
   assert.match(sql, /kalmar-nya-banan-18/);
   assert.equal(fs.readFileSync('sync-worker/migrations/0009_verified_kalmar_courses.sql', 'utf8').trim(), sql.trim());
+  const cleanup = fs.readFileSync('sync-worker/migrations/0010_unpublish_superseded_kalmar_courses.sql', 'utf8');
+  assert.match(cleanup, /SET published = 0/);
+  assert.match(cleanup, /kalmar-gk-gamla-18/);
+  assert.match(cleanup, /kalmar-gk-nya-18/);
 });
 
 test('catalogue importer rejects unverified and duplicate records', async () => {
