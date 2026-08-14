@@ -42,3 +42,15 @@ aldrig skriver över den andra på enheten.
 - Gamla Banan damer: `https://www.kalmargk.se/media/c3yowsuc/kalmar_gk_gamla_banan_women.pdf`
 - Nya Banan herrar: `https://www.kalmargk.se/media/dtkp0y3t/nya-banan-herrar.pdf`
 - Nya Banan damer: `https://www.kalmargk.se/media/45ddzqxg/nya-banan-damer.pdf`
+
+`jonkoping-varnamo-vetlanda.json` kontrollerades 2026-08-14 mot klubbarnas egna sidor:
+
+- Jönköpings banguide: `https://www.jonkopingsgk.se/spela-gaest/banguide-old`
+- Jönköpings slopetabeller: `https://www.jonkopingsgk.se/spela-gaest/slopetabell/`
+- Värnamos klubbpublicerade Caddee-guide: `https://www.caddee.se/klubb/varnamo-golfklubb`
+- Värnamos slopetabeller: `https://www.varnamogk.se/spela-golf/banor/`
+- Vetlandas banguide: `https://vetlandagk.com/vaara-banor/18-haalsbana/`
+- Vetlandas slopetabeller: `https://vetlandagk.com/vaara-banor/slopetabell-18-haalsbana/`
+
+Värnamo publiceras tills vidare endast som Västra/Östra. Övriga slingkombinationer
+väntar tills kombinationsspecifika hålindex kan verifieras utan antaganden.

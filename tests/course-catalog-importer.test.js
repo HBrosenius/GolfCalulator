@@ -30,6 +30,15 @@ test('Kalmar verified dataset matches its checked-in D1 migration', async () => 
   assert.match(cleanup, /kalmar-gk-nya-18/);
 });
 
+test('Jönköping, Värnamo and Vetlanda dataset matches its checked-in D1 migration', async () => {
+  const { buildMigrationSql, validateVerifiedCourses } = await import('../scripts/build-course-catalog-migration.mjs');
+  const courses = JSON.parse(fs.readFileSync('catalog/verified/jonkoping-varnamo-vetlanda.json', 'utf8'));
+  assert.equal(validateVerifiedCourses(courses).length, 3);
+  assert.equal(courses.flatMap(course => course.tees.flatMap(tee => tee.ratings)).length, 23);
+  const sql = buildMigrationSql(courses);
+  assert.equal(fs.readFileSync('sync-worker/migrations/0011_verified_jonkoping_varnamo_vetlanda.sql', 'utf8').trim(), sql.trim());
+});
+
 test('catalogue importer rejects unverified and duplicate records', async () => {
   const { validateVerifiedCourses } = await import('../scripts/build-course-catalog-migration.mjs');
   const courses = JSON.parse(fs.readFileSync('catalog/verified/ekerum.json', 'utf8'));
