@@ -54,3 +54,9 @@ aldrig skriver över den andra på enheten.
 
 Värnamo publiceras tills vidare endast som Västra/Östra. Övriga slingkombinationer
 väntar tills kombinationsspecifika hålindex kan verifieras utan antaganden.
+
+`olands-gk.json` kontrollerades 2026-08-14 mot Ölands Golfklubbs och SGF:s officiella data:
+
+- Par och index: `https://www.olandsgk.se/spela/gitarea/Course/courseinfo`
+- Tee, längd och spelhandicap: `https://www.olandsgk.se/spela/slopekalkylator`
+- CR/slope verifierades mot slopekalkylatorns resultat för flera exakta handicapvärden.
