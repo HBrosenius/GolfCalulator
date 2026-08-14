@@ -1,6 +1,6 @@
 {
   "name": "golfcalculator",
-  "version": "2.2.0",
+  "version": "2.2.1",
   "private": true,
   "scripts": {
     "sync:version": "node scripts/sync-version.mjs",
@@ -13,7 +13,8 @@
     "test:scoring": "node --test tests/scoring.test.js",
     "test:worker": "npm --prefix sync-worker test",
     "test:browser": "playwright test",
-    "smoke:production": "node scripts/production-smoke.mjs"
+    "smoke:production": "node scripts/production-smoke.mjs",
+    "catalog:inventory": "node scripts/swedish-course-inventory.mjs"
   },
   "devDependencies": {
     "@playwright/test": "1.62.1"

@@ -10,7 +10,7 @@ module.exports = defineConfig({
     trace: 'retain-on-failure',
   },
   projects: [
-    { name: 'chromium', use: { ...devices['Desktop Chrome'], channel: 'chromium' } },
+    { name: 'chromium', use: { ...devices['Desktop Chrome'], channel: process.env.PLAYWRIGHT_CHANNEL || 'chromium' } },
   ],
   webServer: {
     command: 'node tests/browser/server.js',

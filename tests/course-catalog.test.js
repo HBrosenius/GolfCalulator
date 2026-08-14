@@ -24,5 +24,19 @@ test('catalog courses become complete offline local tee entries', () => {
     name: 'Test GK', tee: 'Gul', holes: 9, slope: 113, cr: 36, par: 36,
     hpar: Array(9).fill(4), si: [1,3,5,7,9,11,13,15,17],
     catalogId: 'test-course', catalogVersion: 2, catalogUpdatedAt: 123,
+    catalogSource: null, catalogVerifiedAt: null, catalogVerificationStatus: 'legacy',
   }]);
+});
+
+test('catalogue accepts safe provenance and preserves it offline', () => {
+  const sourced = {
+    ...course,
+    source: { url: 'https://example.se/scorekort', title: 'Officiellt scorekort' },
+    verifiedAt: 1786665600000,
+    verificationStatus: 'verified',
+  };
+  assert.equal(validCourse(sourced), true);
+  assert.deepEqual(localEntries(sourced)[0].catalogSource, sourced.source);
+  assert.equal(localEntries(sourced)[0].catalogVerifiedAt, sourced.verifiedAt);
+  assert.equal(validCourse({ ...sourced, source: { url: 'javascript:alert(1)', title: 'Fel' } }), false);
 });

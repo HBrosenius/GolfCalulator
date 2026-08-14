@@ -9,6 +9,11 @@
     if (!course || typeof course.id !== 'string' || !/^[a-z0-9-]{1,80}$/.test(course.id) ||
       typeof course.name !== 'string' || !course.name.trim() || course.name.length > 120 || ![9, 18].includes(course.holes)) return false;
     if (!Array.isArray(course.tees) || course.tees.length === 0 || course.tees.length > 12) return false;
+    if (course.source != null && (typeof course.source !== 'object' ||
+      typeof course.source.url !== 'string' || !/^https?:\/\//.test(course.source.url) || course.source.url.length > 500 ||
+      typeof course.source.title !== 'string' || !course.source.title.trim() || course.source.title.length > 120)) return false;
+    if (course.verificationStatus != null && !['verified', 'needs-review', 'legacy'].includes(course.verificationStatus)) return false;
+    if (course.verifiedAt != null && (!Number.isInteger(course.verifiedAt) || course.verifiedAt <= 0)) return false;
     return course.tees.every(tee => typeof tee.name === 'string' && tee.name.trim() && tee.name.length <= 24 &&
       Number.isFinite(tee.slope) && tee.slope >= 55 && tee.slope <= 155 && Number.isFinite(tee.cr) &&
       tee.cr >= 20 && tee.cr <= 90 && Number.isInteger(tee.par) && tee.par >= 27 && tee.par <= 80 &&
@@ -35,6 +40,9 @@
       name: course.name, tee: tee.name, holes: course.holes, slope: tee.slope, cr: tee.cr, par: tee.par,
       hpar: tee.hpar.slice(), si: tee.si.slice(), catalogId: course.id, catalogVersion: course.version || 1,
       catalogUpdatedAt: course.updatedAt || null,
+      catalogSource: course.source ? { ...course.source } : null,
+      catalogVerifiedAt: course.verifiedAt || null,
+      catalogVerificationStatus: course.verificationStatus || 'legacy',
     }));
   }
 
