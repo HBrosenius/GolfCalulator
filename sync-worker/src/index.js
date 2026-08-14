@@ -5,6 +5,7 @@ import { PROTOCOL_VERSION, readJson, validateCreate } from './validation.js';
 import { TOUR_SCHEMA_VERSION, validateTourCreate } from './tour-validation.js';
 import { deletePushSubscription, getPushKey, getPushSettings, notifyUsers, savePushSubscription } from './push.js';
 import { clientErrorPayload, reportOperationalError, structuredLog } from './observability.js';
+import { searchCourseCatalog } from './course-catalog.js';
 import {
   accountIdentity, deleteAccount, deleteSession, exchangeMagicLink, exportAccount, forgetAccountTour, getAccount, getProfile,
   getCareerStats, getSnapshot, listAccountSessions, listAccountTours, listSecurityEvents, putProfile, putSnapshot, rememberAccountTour,
@@ -135,6 +136,10 @@ async function route(request, env, ctx = null) {
     const payload = clientErrorPayload(parsed.body);
     if (payload) reportOperationalError(env, 'browser_error', { component: 'browser', ...payload }, ctx);
     return new Response(null, { status: 204 });
+  }
+  if (url.pathname === '/courses' && request.method === 'GET') {
+    if (!env.ACCOUNTS_DB) return json({ error: 'Course catalog is not configured' }, 503);
+    return searchCourseCatalog(request, env);
   }
   const parts = url.pathname.split('/').filter(Boolean);
   if (parts[0] === 'account') {

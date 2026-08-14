@@ -15,6 +15,7 @@ const SHELL = [
   './src/tour-rules.js?v=20260809-3',
   './src/tour-sync.js?v=20260809-7',
   './src/account-sync.js?v=20260809-7',
+  './src/course-catalog.js?v=20260814-1',
   './manifest.json',
   './icon-192.png',
   './icon-512.png',

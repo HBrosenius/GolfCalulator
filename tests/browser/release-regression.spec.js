@@ -55,6 +55,36 @@ test('legacy data loads and export/import preserves all collections', async ({ p
   expect(result.players).toEqual(result.payload.players);
 });
 
+test('course catalogue search imports complete tee data for offline play', async ({ page }) => {
+  const course = {
+    id: 'catalog-test-18', name: 'Katalogbanan', region: 'Kalmar län', country: 'SE', holes: 18,
+    version: 3, updatedAt: Date.now(),
+    tees: [
+      { name: 'Gul', slope: 130, cr: 71.2, par: 72, hpar: Array(18).fill(4), si: Array.from({ length: 18 }, (_, index) => index + 1) },
+      { name: 'Röd', slope: 122, cr: 67.4, par: 72, hpar: Array(18).fill(4), si: Array.from({ length: 18 }, (_, index) => index + 1) },
+    ],
+  };
+  await page.route('**/courses?q=*', route => route.fulfill({
+    status: 200, contentType: 'application/json', body: JSON.stringify({ courses: [course], count: 1 }),
+  }));
+  await page.goto('/index.html');
+  await page.evaluate(() => localStorage.clear());
+  await page.reload();
+
+  await page.getByRole('button', { name: /Sök i bankatalogen/ }).click();
+  await page.locator('#catalogSearchInput').fill('Katalog');
+  await page.getByRole('button', { name: 'Sök', exact: true }).click();
+  await expect(page.locator('#courseCatalogResults')).toContainText('Katalogbanan');
+  await page.locator('#courseCatalogResults .cg-tee-btn').filter({ hasText: 'Gul' }).click();
+
+  await expect(page.locator('#step2')).toBeVisible();
+  await expect(page.locator('#step2CourseInfo')).toContainText('Katalogbanan');
+  const imported = await page.evaluate(() => dbLoad().filter(entry => entry.catalogId === 'catalog-test-18'));
+  expect(imported).toHaveLength(2);
+  expect(imported.map(entry => entry.tee).sort()).toEqual(['Gul', 'Röd']);
+  expect(imported[0].hpar).toHaveLength(18);
+});
+
 test('history can delete both numeric and synced string round IDs', async ({ page }) => {
   await page.goto('/index.html');
   await page.evaluate(() => {
