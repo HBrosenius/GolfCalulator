@@ -29,6 +29,9 @@ Spelhandicap = round(lägst HI × 0,5 + högst HI × 0,4)
 
 Laget spelar en gemensam score per hål. Resultatsidan visar vilket lag som vann.
 
+### Scramble (2 spelare, 1 lag)
+Med exakt 2 spelare bildar ni ett gemensamt lag istället för två lag — praktiskt för att hålla score när ni spelar scramble tillsammans mot en annan bollsällskap som räknas separat. Ni kan ange ett **minsta antal utslag per spelare** (Texas Scramble-regeln), och för varje hål väljer ni vems utslag som användes. Resultatsidan visar hur många utslag respektive spelare bidragit med och flaggar om kravet inte uppfylldes.
+
 ### Bästboll (4 spelare, 2 lag)
 Spelarna delas in i Lag A och Lag B, men till skillnad från Scramble spelar varje spelare sin egen boll och matar in sin egen score per hål med sitt eget spelhandicap. Lagets poäng på varje hål är den bästa av de två lagmedlemmarnas poäng. Resultatsidan visar båda spelarnas individuella scorekort och markerar vilken spelares poäng som räknades för laget på varje hål.
 

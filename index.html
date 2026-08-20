@@ -1322,6 +1322,7 @@
         <div class="toggle-row">
           <button class="toggle-btn active" id="btnModeIndividual" onclick="setGameMode('individual')">Individuellt</button>
           <span id="matchModeBtn" style="display:none;"><button class="toggle-btn" id="btnModeMatch" onclick="setGameMode('match')">Matchspel (1v1)</button></span>
+          <span id="scramble2ModeBtn" style="display:none;"><button class="toggle-btn" id="btnModeScramble2" onclick="setGameMode('scramble')">Scramble (1 lag)</button></span>
           <span id="teamModeBtns" style="display:contents;">
             <button class="toggle-btn" id="btnModeScramble" onclick="setGameMode('scramble')">Scramble (2 lag)</button>
             <button class="toggle-btn" id="btnModeFourball" onclick="setGameMode('fourball')">Bästboll (2 lag)</button>
@@ -2346,7 +2347,9 @@ function setNumPlayers(n) {
   document.getElementById('gameModeRow').classList.toggle('hidden', !showModes);
   document.getElementById('teamModeBtns').style.display = n === 4 ? 'contents' : 'none';
   document.getElementById('matchModeBtn').style.display = n === 2 ? '' : 'none';
-  if (n !== 4 && isTeamMode(state.gameMode)) setGameMode('individual');
+  document.getElementById('scramble2ModeBtn').style.display = n === 2 ? '' : 'none';
+  const isScramble2p = n === 2 && state.gameMode === 'scramble';
+  if (n !== 4 && isTeamMode(state.gameMode) && !isScramble2p) setGameMode('individual');
   else if (n !== 2 && state.gameMode === 'match') setGameMode('individual');
   else if (showModes) document.getElementById('gameModeDesc').innerHTML = GAME_MODE_DESCRIPTIONS[state.gameMode] || '';
   buildPlayerCards();
@@ -2354,7 +2357,7 @@ function setNumPlayers(n) {
 
 const GAME_MODE_DESCRIPTIONS = {
   individual: 'Varje spelare räknar sin egen poängbogey med sitt eget spelhandicap.',
-  scramble: 'Lagen väljer den bästa av sina två utslag/bollar och spelar den gemensamt vidare — laget matar in <strong>en</strong> score per hål. Laghandicap beräknas automatiskt från spelarnas HI.',
+  scramble: 'Lagen väljer den bästa av sina två utslag/bollar och spelar den gemensamt vidare — laget matar in <strong>en</strong> score per hål. Laghandicap beräknas automatiskt från spelarnas HI. Med 2 spelare bildar ni ett gemensamt lag och kan ange ett minsta antal utslag som vardera spelare måste bidra med (Texas Scramble-regel).',
   fourball: 'Varje spelare spelar sin egen boll och matar in sin egen score med sitt eget spelhandicap. Lagets poäng på varje hål är den <strong>bästa</strong> av lagmedlemmarnas poäng den hålet.',
   foursome: 'Lagmedlemmarna spelar en gemensam boll och slår varannan gång — laget matar in <strong>en</strong> score per hål. Laghandicap är snittet av lagmedlemmarnas spelhandicap. Appen visar vem i respektive lag som slår ut på varje hål (växlar automatiskt hål för hål).',
   match: 'Matchspel 1 mot 1 — varje hål vinns av spelaren med flest poäng (netto). Den som är fler hål upp än det finns hål kvar vinner matchen. Resultatet visas som t.ex. <strong>3&2</strong>.'
@@ -2366,12 +2369,13 @@ function setGameMode(mode) {
   state.gameMode = mode;
   document.getElementById('btnModeIndividual').classList.toggle('active', mode === 'individual');
   document.getElementById('btnModeScramble').classList.toggle('active', mode === 'scramble');
+  document.getElementById('btnModeScramble2').classList.toggle('active', mode === 'scramble');
   document.getElementById('btnModeFourball').classList.toggle('active', mode === 'fourball');
   document.getElementById('btnModeFoursome').classList.toggle('active', mode === 'foursome');
   document.getElementById('btnModeMatch').classList.toggle('active', mode === 'match');
   document.getElementById('gameModeDesc').innerHTML = GAME_MODE_DESCRIPTIONS[mode] || '';
-  // Default team assignments: 0,1 → A; 2,3 → B
-  if (isTeamMode(mode) && (!state.teamAssign || state.teamAssign.length !== 4)) {
+  // Default team assignments: 0,1 → A; 2,3 → B (only meaningful for 4-player team formats)
+  if (isTeamMode(mode) && state.numPlayers === 4 && (!state.teamAssign || state.teamAssign.length !== 4)) {
     state.teamAssign = ['A','A','B','B'];
   }
   buildPlayerCards();
@@ -2381,6 +2385,7 @@ function buildPlayerCards() {
   const container = document.getElementById('playerCardsContainer');
   container.innerHTML = '';
   const isTeamFormat = isTeamMode(state.gameMode) && state.numPlayers === 4;
+  const isScramble2p = state.gameMode === 'scramble' && state.numPlayers === 2;
 
   for (let p = 0; p < state.numPlayers; p++) {
     const existing = state.players[p] || {};
@@ -2453,7 +2458,7 @@ function buildPlayerCards() {
       </div>`;
   }
   for (let p = 0; p < state.numPlayers; p++) updatePlayerPH(p);
-  if (isTeamFormat) buildTeamInfo();
+  if (isTeamFormat || isScramble2p) buildTeamInfo();
 }
 
 function assignTeam(playerIdx, team) {
@@ -2474,6 +2479,30 @@ function buildTeamInfo() {
   if (!el) return;
   const isFourball = state.gameMode === 'fourball';
   const isFoursome = state.gameMode === 'foursome';
+
+  if (state.gameMode === 'scramble' && state.numPlayers === 2) {
+    const members = [];
+    for (let p = 0; p < 2; p++) {
+      const hi = parseFloat(document.getElementById(`phi_${p}`)?.value);
+      const name = document.getElementById(`pname_${p}`)?.value.trim() || `Spelare ${p+1}`;
+      members.push({ name, hi });
+    }
+    const his = members.map(m => m.hi).filter(h => !isNaN(h));
+    const ph = his.length === 2 ? calcScrambleHandicap(his[0], his[1]) : '–';
+    el.innerHTML = `
+      <div class="team-info-card team-a">
+        <strong>Laget</strong>: ${members.map(m => escapeHtml(m.name)).join(' & ')} · Spelhandicap: <strong>${ph}</strong>
+      </div>
+      <div style="margin-top:8px;">
+        <label style="margin-top:0;">Minsta antal utslag per spelare (Texas Scramble-regel)</label>
+        <input type="number" id="minTeeShots" min="0" max="${state.holes || 18}" placeholder="t.ex. 6"
+          value="${state.minTeeShots != null ? state.minTeeShots : ''}"
+          oninput="state.minTeeShots = this.value !== '' ? parseInt(this.value) : null; inprogressSave();">
+      </div>`;
+    el.classList.remove('hidden');
+    return;
+  }
+
   const teams = { A: [], B: [] };
   for (let p = 0; p < 4; p++) {
     const hi  = parseFloat(document.getElementById(`phi_${p}`)?.value);
@@ -2587,7 +2616,13 @@ function buildStep4State() {
 
   if (!state.tourContext) detectQualifyingTours(players);
 
-  if (state.gameMode === 'scramble' || state.gameMode === 'foursome') {
+  if (state.gameMode === 'scramble' && state.numPlayers === 2) {
+    // Single team: both players form one scramble team, no opponent.
+    const his = players.map(m => m.hi);
+    const ph  = calcScrambleHandicap(his[0], his[1]);
+    state.teams = [{ name: 'Laget', members: players, playingHandicap: ph }];
+    state.scores = [new Array(state.holes).fill('')];
+  } else if (state.gameMode === 'scramble' || state.gameMode === 'foursome') {
     // Build 2 teams
     const teamNames = { A: [], B: [] };
     players.forEach((pl, p) => {
@@ -2609,6 +2644,14 @@ function buildStep4State() {
   } else {
     state.teams = null;
     state.scores = players.map(() => new Array(state.holes).fill(''));
+  }
+
+  if (state.gameMode === 'scramble') {
+    if (!Array.isArray(state.teeShots) || state.teeShots.length !== state.teams.length) {
+      state.teeShots = state.teams.map(() => new Array(state.holes).fill(null));
+    }
+  } else {
+    state.teeShots = null;
   }
 
   assignRandomMarkerHoles();
@@ -2652,11 +2695,20 @@ function foursomeStarterName(team, holeIndex) {
   return members[holeIndex % 2].name;
 }
 
+// Scramble: which team member's tee shot was used on a given hole — tracked so the
+// Texas Scramble minimum-drives-per-player rule (state.minTeeShots) can be checked.
+function setTeeShotPlayer(teamIdx, holeIdx, val) {
+  if (!state.teeShots || !state.teeShots[teamIdx]) return;
+  state.teeShots[teamIdx][holeIdx] = val !== '' ? parseInt(val) : null;
+  inprogressSave();
+}
+
 function buildScoreTable() {
   const thead = document.getElementById('scoreTableHead');
   const tbody = document.getElementById('scoreTableBody');
   const isSharedScore = isSharedScoreMode(state.gameMode);
   const isFoursome = state.gameMode === 'foursome';
+  const isScramble = state.gameMode === 'scramble';
   const cols = isSharedScore ? state.teams : state.players;
 
   // Header — show each player's tee when the group isn't all on the same one
@@ -2703,7 +2755,16 @@ function buildScoreTable() {
     let cells = `<td class="hole-num">${h}</td><td class="par">${par}</td><td class="si">${si}</td>`;
     cols.forEach((c, p) => {
       const val = state.scores[p] && state.scores[p][i] !== '' ? state.scores[p][i] : '';
-      const teeTag = isFoursome ? `<div class="tee-order">🎯 ${foursomeStarterName(c, i)}</div>` : '';
+      let teeTag = '';
+      if (isFoursome) {
+        teeTag = `<div class="tee-order">🎯 ${foursomeStarterName(c, i)}</div>`;
+      } else if (isScramble && c.members && c.members.length === 2) {
+        const sel = state.teeShots?.[p]?.[i];
+        teeTag = `<select class="tee-shot-select" style="font-size:0.7rem;margin-bottom:2px;" onchange="setTeeShotPlayer(${p},${i},this.value)">
+          <option value="">🎯 Vem?</option>
+          ${c.members.map((m, mi) => `<option value="${mi}"${sel === mi ? ' selected' : ''}>${escapeHtml(m.name)}</option>`).join('')}
+        </select>`;
+      }
       // In a live round, only seats this device may edit are writable — see isSeatEditableByMe().
       const isReadonly = state.liveRoomCode && !isSeatEditableByMe(p);
       const strokes = strokesOnHole(c.playingHandicap, si, state.holes);
@@ -3326,17 +3387,19 @@ function calculateAll() {
       const par     = state.hpar[i] || 4;
       const si      = state.si[i] || (i + 1);
       const strokes = strokesOnHole(ph, si, state.holes);
+      const teeShotByIdx = isScramble ? state.teeShots?.[p]?.[i] : null;
+      const teeShotBy = (teeShotByIdx != null && subj.members) ? subj.members[teeShotByIdx]?.name || null : null;
       if (!score) {
-        rows.push({ h: i+1, par, si, strokes, score: '–', netto: '–', pts: 0, skipped: true });
+        rows.push({ h: i+1, par, si, strokes, score: '–', netto: '–', pts: 0, skipped: true, teeShotBy });
         continue;
       }
       const netto = score - strokes;
       const pts   = GolfScoring.calculateStablefordPoints(score, par, strokes);
       totalPoints += pts;
       totalBrutto += score;
-      rows.push({ h: i+1, par, si, strokes, score, netto, pts, skipped: false });
+      rows.push({ h: i+1, par, si, strokes, score, netto, pts, skipped: false, teeShotBy });
     }
-    return { subj, ph, totalPoints, totalBrutto, rows, isScramble, isFourball, isFoursome, isMatch };
+    return { subj, ph, totalPoints, totalBrutto, rows, isScramble, isFourball, isFoursome, isMatch, minTeeShots: isScramble ? (state.minTeeShots || null) : null };
   });
 
   if (isFourball) applyFourballTeamScoring(results);
@@ -3599,6 +3662,18 @@ function renderResults(playerResults, rankContainerId = 'rankingContainer', prCo
       ? `Spelhandicap +${r.ph} · ${r.subj.members.map(m=>escapeHtml(m.name)).join(' & ')}${isFoursome ? ' · Foursome' : ''}`
       : `Spelhandicap +${r.ph}${teeLbl2} · Brutto ${r.totalBrutto} · ${holesPlayed} hål`;
 
+    let teeShotSummary = '';
+    if (isScramble && r.subj.members && r.subj.members.length === 2) {
+      const counts = r.subj.members.map(m => r.rows.filter(row => row.teeShotBy === m.name).length);
+      const unregistered = r.rows.filter(row => !row.skipped && !row.teeShotBy).length;
+      const min = r.minTeeShots;
+      const parts = r.subj.members.map((m, mi) => {
+        const ok = min == null || counts[mi] >= min;
+        return `<span style="${min != null && !ok ? 'color:var(--danger);font-weight:700;' : ''}">${escapeHtml(m.name)}: ${counts[mi]}${min != null ? ` / ${min}` : ''} utslag</span>`;
+      });
+      teeShotSummary = `<div style="font-size:0.8rem;color:var(--muted);margin-bottom:10px;">🎯 ${parts.join(' · ')}${unregistered ? ` · ${unregistered} hål saknar registrerat utslag` : ''}</div>`;
+    }
+
     const sectionPhoto = _photoForName(r.subj.name);
     prContainer.innerHTML += `
       <div class="player-result-section"><div class="card">
@@ -3607,6 +3682,7 @@ function renderResults(playerResults, rankContainerId = 'rankingContainer', prCo
           <span>📊 ${escapeHtml(r.subj.name)} · ${r.totalPoints} poäng <small style="color:var(--muted);font-weight:500;">· ${Number.isFinite(r.totalBrutto) ? r.totalBrutto : '–'} slag</small></span>
         </div>
         <div style="font-size:0.8rem;color:var(--muted);margin-bottom:10px;">${subLabel}</div>
+        ${teeShotSummary}
         <div style="overflow-x:auto;">
           <table class="result-table">
             <thead><tr><th>Hål</th><th>Par</th><th>Hcp</th><th>Slag</th><th>Score</th><th>Netto</th><th>Poäng</th></tr></thead>
@@ -5183,6 +5259,7 @@ function saveCurrentRound(playerResults) {
     note: state.note || '',
     weather: state.weather || null,
     markers: state.markers || { ctp: { hole: null, player: '' }, ld: { hole: null, player: '' } },
+    minTeeShots: isScramble ? (state.minTeeShots || null) : null,
     bets: state.bets || [],
     liveRoomCode: state.liveRoomCode || null,
     tourRef: state.tourContext?.code ? { code: state.tourContext.code, syncStatus: 'pending' } : null,
@@ -7546,6 +7623,7 @@ function editRound(id) {
       (row.skipped || row.score === '–' || row.score == null) ? '' : row.score)),
     note: r.note || '', weather: r.weather || null,
     markers: r.markers || { ctp: { hole: null, player: '' }, ld: { hole: null, player: '' } },
+    minTeeShots: r.minTeeShots || null,
     editingId: r.id, editingDate: r.date
   };
   if (shared) {
@@ -7554,6 +7632,13 @@ function editRound(id) {
       members: (s.members || []).map((nm, i) => ({ name: nm, playerId: s.memberIds?.[i] || null })),
       playingHandicap: s.ph
     }));
+    if (r.gameMode === 'scramble') {
+      state.teeShots = r.subjects.map(s => s.rows.map(row => {
+        if (!row.teeShotBy) return null;
+        const idx = (s.members || []).indexOf(row.teeShotBy);
+        return idx >= 0 ? idx : null;
+      }));
+    }
   } else {
     state.players = r.subjects.map(s => ({
       playerId: s.playerId || null, memberId: s.memberId || null, name: s.name, hi: s.hi, playingHandicap: s.ph,
@@ -7792,7 +7877,8 @@ function printRound(id) {
     totalBrutto: s.totalBrutto,
     rows: s.rows,
     isScramble, isFourball, isFoursome, isMatch: round.gameMode === 'match',
-    teamId: s.teamId, teammateName: s.teammate
+    teamId: s.teamId, teammateName: s.teammate,
+    minTeeShots: isScramble ? (round.minTeeShots || null) : null
   }));
   renderResults(results, 'printRankingContainer', 'printPlayerResultsContainer', round.markers);
 
