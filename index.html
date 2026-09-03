@@ -2775,8 +2775,11 @@ function buildScoreTable() {
         ${strokeHint}<div class="live-pts" id="pts_${p}_${i}"></div></td>`;
     });
     let extra = '';
-    if (people.length >= 2 && markers.ctp && markers.ctp.hole === i) extra += markerRow('🎯', 'Närmast pinnen', 'setCtpPlayer', markers.ctp.player, 'ctpPlayerSelect');
-    if (people.length >= 2 && markers.ld && markers.ld.hole === i) extra += markerRow('💥', 'Längsta drive', 'setLdPlayer', markers.ld.player, 'ldPlayerSelect');
+    // Scramble with a single team (2 players, no opponent) has no one to compare
+    // closest-to-pin/longest-drive against, so skip these fun markers entirely.
+    const showFunMarkers = people.length >= 2 && !(isScramble && state.teams && state.teams.length === 1);
+    if (showFunMarkers && markers.ctp && markers.ctp.hole === i) extra += markerRow('🎯', 'Närmast pinnen', 'setCtpPlayer', markers.ctp.player, 'ctpPlayerSelect');
+    if (showFunMarkers && markers.ld && markers.ld.hole === i) extra += markerRow('💥', 'Längsta drive', 'setLdPlayer', markers.ld.player, 'ldPlayerSelect');
     // Bet slot row: always present (even empty) so renderBetRows() can patch it in
     // place by id on every poll tick, without a full buildScoreTable() rebuild.
     // Betting works offline too — not just in a live-synced room.
