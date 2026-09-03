@@ -1357,6 +1357,7 @@
         <div style="flex:1;font-size:0.85rem;color:var(--heading);" id="honorText"></div>
       </div>
       <div id="matchStatus" style="display:none;background:var(--green-dark);color:white;border-radius:8px;padding:10px 12px;margin-bottom:10px;font-weight:700;text-align:center;font-size:0.95rem;"></div>
+      <div id="teeShotSummary" style="display:none;background:#fff8e1;border-radius:8px;padding:9px 12px;margin-bottom:10px;font-size:0.85rem;"></div>
       <div id="tourQualificationNotice" class="tour-qualification hidden"></div>
       <details id="tournamentLivePanel" class="tournament-live-panel hidden" open><summary>🏆 Live i touren</summary><div id="tournamentLiveBody" class="tournament-live-body"></div></details>
       <div class="score-table-wrap">
@@ -2700,6 +2701,7 @@ function foursomeStarterName(team, holeIndex) {
 function setTeeShotPlayer(teamIdx, holeIdx, val) {
   if (!state.teeShots || !state.teeShots[teamIdx]) return;
   state.teeShots[teamIdx][holeIdx] = val !== '' ? parseInt(val) : null;
+  updateTeeShotSummary();
   inprogressSave();
 }
 
@@ -2789,6 +2791,7 @@ function buildScoreTable() {
   updateMatchStatus();
   syncRoundMeta();
   updateHonorBanner();
+  updateTeeShotSummary();
   renderBetRows();
   setTimeout(() => document.getElementById('score_0_0')?.focus(), 100);
 }
@@ -3211,6 +3214,45 @@ function updateHonorBanner() {
   banner.style.display = 'flex';
 }
 
+// Texas Scramble minimum-drives rule: keep each player's utslag count (and how many
+// holes are left to hit the minimum) visible while scoring, not just at the results page.
+function updateTeeShotSummary() {
+  const box = document.getElementById('teeShotSummary');
+  if (!box) return;
+  const isScramble = state.gameMode === 'scramble';
+  const team = isScramble && state.teams && state.teams.length === 1 ? state.teams[0] : null;
+  if (!team || !team.members || team.members.length !== 2 || state.minTeeShots == null) {
+    box.style.display = 'none';
+    return;
+  }
+  const min = state.minTeeShots;
+  const teeShots = state.teeShots?.[0] || [];
+  const scores = state.scores?.[0] || [];
+  const counts = [0, 0];
+  let unregistered = 0, played = 0;
+  for (let i = 0; i < state.holes; i++) {
+    if (scores[i] === '' || scores[i] == null) continue;
+    played++;
+    const who = teeShots[i];
+    if (who === 0 || who === 1) counts[who]++; else unregistered++;
+  }
+  const remaining = state.holes - played;
+  let anyShort = false;
+  const parts = team.members.map((m, mi) => {
+    const need = min - counts[mi];
+    const short = need > remaining;
+    const done = need <= 0;
+    if (short) anyShort = true;
+    const style = short ? 'color:var(--danger);font-weight:700;' : done ? 'color:var(--green);font-weight:700;' : '';
+    return `<span style="${style}">${escapeHtml(m.name)}: ${counts[mi]}/${min}${short ? ' ⚠️' : done ? ' ✓' : ''}</span>`;
+  });
+  box.style.background = anyShort ? '#fdecea' : '#fff8e1';
+  box.innerHTML = `<span style="font-weight:600;">🎯 Utslag:</span> ${parts.join(' · ')}` +
+    `<span style="color:var(--muted);"> · ${remaining} hål kvar</span>` +
+    (unregistered ? `<span style="color:var(--muted);"> · ${unregistered} hål utan registrerat utslag</span>` : '');
+  box.style.display = 'block';
+}
+
 function onScoreInput(p, i, el) {
   el.classList.toggle('has-value', el.value !== '');
   if (!state.scores[p]) state.scores[p] = new Array(state.holes).fill('');
@@ -3228,6 +3270,7 @@ function onScoreInput(p, i, el) {
   }
   updateLiveLeader();
   updateHonorBanner();
+  updateTeeShotSummary();
   updateMatchStatus();
   renderTournamentLivePanel();
   inprogressSave();
@@ -4509,6 +4552,7 @@ function renderLiveSeatCells(room) {
   if (changed) {
     updateLiveLeader();
     updateHonorBanner();
+    updateTeeShotSummary();
     updateMatchStatus();
   }
 }
