@@ -63,7 +63,7 @@
     assertFiniteNumber(hi2, 'hi2');
     const lower = Math.min(hi1, hi2);
     const higher = Math.max(hi1, hi2);
-    return Math.round(lower * 0.5 + higher * 0.4);
+    return Math.round(lower * 0.5 + higher * 0.2);
   }
 
   function calculateFoursomeHandicap(ph1, ph2) {

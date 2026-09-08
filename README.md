@@ -24,7 +24,7 @@ Varje spelare räknar poängbogey med sitt eget spelhandicap. Resultatsidan visa
 Spelarna delas in i Lag A och Lag B. Lagets spelhandicap beräknas enligt:
 
 ```
-Spelhandicap = round(lägst HI × 0,5 + högst HI × 0,4)
+Spelhandicap = round(lägst HI × 0,5 + högst HI × 0,2)
 ```
 
 Laget spelar en gemensam score per hål. Resultatsidan visar vilket lag som vann.

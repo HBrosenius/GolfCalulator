@@ -43,7 +43,7 @@ test('Stableford calculation handles played, incomplete and invalid scores', () 
 });
 
 test('team formulas cover scramble, foursome and fourball', () => {
-  assert.equal(scoring.calculateScrambleHandicap(10, 20), 13);
+  assert.equal(scoring.calculateScrambleHandicap(10, 20), 9);
   assert.equal(scoring.calculateFoursomeHandicap(11, 18), 15);
   assert.equal(scoring.calculateFourballTeamPoints([[2, 1, null], [1, 3, 2]]), 7);
 });
