@@ -70,3 +70,15 @@ test('backup validation rejects executable fields, unknown keys, and malformed n
   malformedRows.rounds[0].subjects[0].rows[0].score = '<img src=x onerror=alert(1)>';
   assert.equal(validation.isBackupPayload(malformedRows), false);
 });
+
+test('backup validation accepts scramble tee-shot tracking fields', () => {
+  const backup = validBackup();
+  backup.rounds[0].gameMode = 'scramble';
+  backup.rounds[0].minTeeShots = 6;
+  backup.rounds[0].subjects[0].rows[0].teeShotBy = 'Ada';
+  assert.equal(validation.isBackupPayload(backup), true);
+
+  const badMinTeeShots = validBackup();
+  badMinTeeShots.rounds[0].minTeeShots = 'six';
+  assert.equal(validation.isBackupPayload(badMinTeeShots), false);
+});

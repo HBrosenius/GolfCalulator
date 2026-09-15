@@ -86,9 +86,10 @@
   }
 
   function isResultRow(row, holes) {
-    const keys = new Set(['h', 'par', 'si', 'strokes', 'score', 'netto', 'pts', 'skipped']);
+    const keys = new Set(['h', 'par', 'si', 'strokes', 'score', 'netto', 'pts', 'skipped', 'teeShotBy']);
     return hasOnlyKeys(row, keys) && isInteger(row.h, 1, holes) && isInteger(row.par, 3, 6) &&
       isInteger(row.si, 1, 18) && isInteger(row.strokes, -20, 20) && typeof row.skipped === 'boolean' &&
+      optional(row.teeShotBy, value => isText(value, 50)) &&
       (row.skipped
         ? (row.score === '–' || row.score === null) && (row.netto === '–' || row.netto === null) && row.pts === 0
         : isInteger(row.score, 1, 20) && isInteger(row.netto, -20, 40) && isInteger(row.pts, 0, 8));
@@ -134,9 +135,10 @@
   function isRound(round) {
     const keys = new Set([
       'schemaVersion', 'id', 'date', 'courseName', 'tee', 'mixedTees', 'holes', 'slope', 'cr', 'par',
-      'gameMode', 'note', 'weather', 'markers', 'bets', 'liveRoomCode', 'tourRef', 'subjects',
+      'gameMode', 'note', 'weather', 'markers', 'minTeeShots', 'bets', 'liveRoomCode', 'tourRef', 'subjects',
     ]);
     return hasOnlyKeys(round, keys) && optional(round.schemaVersion, value => value === 1 || value === 2) &&
+      optional(round.minTeeShots, value => isInteger(value, 0, 18)) &&
       isInteger(round.id, 1, Number.MAX_SAFE_INTEGER) && isDate(round.date) && isText(round.courseName, 80) &&
       isText(round.tee, 20) && optional(round.mixedTees, value => typeof value === 'boolean') &&
       (round.holes === 9 || round.holes === 18) && isNumber(round.slope, 55, 155) && isNumber(round.cr, 25, 85) &&
