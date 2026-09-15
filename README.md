@@ -12,7 +12,7 @@ Mobilanpassad webbapp för att beräkna poängbogey-resultat under en golfrunda.
 - Hålvis inmatning av par (3/4/5-knappar) och Hcp/Index från scorekortet
 - **Sparar bandata** automatiskt — slope, CR, par och håldata återladdas nästa runda
 - **Gemensam bankatalog** — sök efter publicerade banor och importera alla tees med slope, CR, par och håldata; kategoriunika ratingar visas som separata val (t.ex. `55 · Herrar` och `55 · Damer`), källänk och verifieringsstatus följer med och banan fungerar sedan offline
-- Rankingresultat med guld/silver/brons för alla spelare eller lag
+- Rankingresultat med guld/silver/brons för alla spelare eller lag — poängbogey-poängen visas alltid tillsammans med totalt antal slag (brutto)
 - **Live-runda** — dela en kod så alla spelare kan mata in sin egen score från sin egen telefon under rundan
 
 ## Spelformer
