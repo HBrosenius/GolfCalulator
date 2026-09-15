@@ -2,6 +2,13 @@
 
 Mobilanpassad webbapp för att beräkna poängbogey-resultat under en golfrunda. Fungerar som statiska filer utan backend eller byggsteg.
 
+<p align="center">
+  <img src="docs/screenshots/01-home.png" width="200" alt="Startsida – välj bana">
+  <img src="docs/screenshots/02-players.png" width="200" alt="Lägg till spelare och se spelhandicap">
+  <img src="docs/screenshots/03-scoring.png" width="200" alt="Hålvis scoreinmatning med löpande poäng">
+  <img src="docs/screenshots/04-results.png" width="200" alt="Resultatsida med ranking och höjdpunkter">
+</p>
+
 ## Funktioner
 
 - **1–4 spelare** i samma bollsällskap, varje spelare med eget handicapindex
@@ -14,6 +21,7 @@ Mobilanpassad webbapp för att beräkna poängbogey-resultat under en golfrunda.
 - **Gemensam bankatalog** — sök efter publicerade banor och importera alla tees med slope, CR, par och håldata; kategoriunika ratingar visas som separata val (t.ex. `55 · Herrar` och `55 · Damer`), källänk och verifieringsstatus följer med och banan fungerar sedan offline
 - Rankingresultat med guld/silver/brons för alla spelare eller lag — poängbogey-poängen visas alltid tillsammans med totalt antal slag (brutto)
 - **Live-runda** — dela en kod så alla spelare kan mata in sin egen score från sin egen telefon under rundan
+- **Ljust och mörkt tema** — växla med temaknappen uppe till höger; valet sparas till nästa gång
 
 ## Spelformer
 
@@ -244,6 +252,8 @@ Under **📅 Sparade rundor → ☁️ Cloud-backup** kan all data (banor, rundo
 De tre mest spelade banorna visas som snabbvalsknappar längst upp på startsidan, rangordnade efter antal spelade rundor.
 
 ## Installera som app (PWA)
+
+<img src="docs/screenshots/05-results-dark.png" width="200" align="right" alt="Resultatsida i mörkt läge">
 
 Appen kan installeras på hemskärmen och fungerar då helt offline:
 
