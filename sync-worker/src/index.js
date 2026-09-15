@@ -18,6 +18,7 @@ const CODE_CHARS = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
 const MAX_ACCOUNT_SNAPSHOT_REQUEST_BYTES = 1_550_000;
 const ALLOWED_ORIGINS = new Set([
   'https://hbrosenius.github.io',
+  'https://golf.brosenius.se',
   'http://localhost:5500',
   'http://127.0.0.1:5500',
   'http://localhost:8765',
