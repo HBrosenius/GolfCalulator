@@ -4,6 +4,14 @@ import { hashToken } from '../src/auth.js';
 import { PROTOCOL_VERSION } from '../src/validation.js';
 import { TOUR_SCHEMA_VERSION } from '../src/tour-validation.js';
 
+function daysAgo(days) {
+  return new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+}
+
+function daysFromNow(days) {
+  return new Date(Date.now() + days * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+}
+
 function headers(token) {
   const result = { 'Content-Type': 'application/json', 'X-Golf-Protocol': String(PROTOCOL_VERSION) };
   if (token) result.Authorization = `Bearer ${token}`;
@@ -39,7 +47,7 @@ async function accountSession(label, displayName = null) {
 function configuration() {
   return {
     protocolVersion: PROTOCOL_VERSION, schemaVersion: TOUR_SCHEMA_VERSION,
-    name: 'Delad tour', startDate: '2026-06-01', endDate: '2026-08-31',
+    name: 'Delad tour', startDate: daysAgo(10), endDate: daysFromNow(100),
     bestOfN: 2, duplicateCourseRule: 'best',
     members: [{ name: 'Ada', hi: 12 }, { name: 'Bo', hi: 8 }],
     courses: [{
@@ -92,7 +100,7 @@ function submission(created, overrides = {}) {
   }));
   return {
     protocolVersion: PROTOCOL_VERSION, schemaVersion: TOUR_SCHEMA_VERSION,
-    clientRoundId: crypto.randomUUID(), playedDate: '2026-07-10',
+    clientRoundId: crypto.randomUUID(), playedDate: daysFromNow(20),
     courseId: course.id, gameMode: 'individual',
     subjects: [{ memberId: member.id, teeName: course.tees[0].name, totalPoints: 18, totalBrutto: rows.reduce((sum, row) => sum + row.score, 0), rows, teamId: null }],
     ...overrides,
@@ -315,7 +323,7 @@ describe('shared tour authorization', () => {
   });
 
   it('automatically completes a tour after its end date', async () => {
-    const created = await createTour({ ...configuration(), startDate: '2025-06-01', endDate: '2025-08-31' });
+    const created = await createTour({ ...configuration(), startDate: daysAgo(90), endDate: daysAgo(10) });
     const response = await SELF.fetch(`https://worker.test/tour/${created.code}`);
     expect(response.status).toBe(200);
     const tour = await response.json();
@@ -328,7 +336,7 @@ describe('shared tour authorization', () => {
     const created = await createTour();
     const joined = await joinTour(created);
     const payload = updatePayload(joined.body.tour, {
-      name: 'Uppdaterad tour', endDate: '2026-09-30', bestOfN: null,
+      name: 'Uppdaterad tour', endDate: daysFromNow(150), bestOfN: null,
       duplicateCourseRule: 'first',
       courseLimits: joined.body.tour.courses.map(course => ({ courseId: course.id, maxRounds: 4 })),
     });
@@ -342,7 +350,7 @@ describe('shared tour authorization', () => {
     });
     expect(updated.status).toBe(200);
     const tour = await updated.json();
-    expect(tour).toMatchObject({ name: 'Uppdaterad tour', endDate: '2026-09-30', bestOfN: null, duplicateCourseRule: 'first' });
+    expect(tour).toMatchObject({ name: 'Uppdaterad tour', endDate: daysFromNow(150), bestOfN: null, duplicateCourseRule: 'first' });
     expect(tour.courses[0].maxRounds).toBe(4);
 
     const conflict = await SELF.fetch(`https://worker.test/tour/${created.code}/conditions`, {
@@ -352,14 +360,14 @@ describe('shared tour authorization', () => {
   });
 
   it('reopens an automatically expired tour when the organizer extends its dates', async () => {
-    const created = await createTour({ ...configuration(), startDate: '2025-06-01', endDate: '2025-08-31' });
+    const created = await createTour({ ...configuration(), startDate: daysAgo(90), endDate: daysAgo(10) });
     const expired = await (await SELF.fetch(`https://worker.test/tour/${created.code}`)).json();
     const response = await SELF.fetch(`https://worker.test/tour/${created.code}/conditions`, {
       method: 'PATCH', headers: headers(created.organizerToken),
-      body: JSON.stringify(updatePayload(expired, { endDate: '2027-08-31' })),
+      body: JSON.stringify(updatePayload(expired, { endDate: daysFromNow(120) })),
     });
     expect(response.status).toBe(200);
-    expect(await response.json()).toMatchObject({ status: 'open', completedReason: null, endDate: '2027-08-31' });
+    expect(await response.json()).toMatchObject({ status: 'open', completedReason: null, endDate: daysFromNow(120) });
   });
 
   it('lets only the organizer cancel and permanently delete a shared tour', async () => {
@@ -459,11 +467,11 @@ describe('shared tour authorization', () => {
     const corrected = await SELF.fetch(`https://worker.test/tour/${created.code}/rounds/${submittedBody.round.id}`, {
       method: 'PATCH', headers: headers(member.token), body: JSON.stringify({
         protocolVersion: PROTOCOL_VERSION, schemaVersion: TOUR_SCHEMA_VERSION, expectedRevision: submittedBody.tour.revision,
-        playedDate: '2026-07-11', reason: 'Fel datum vid registrering',
+        playedDate: daysFromNow(21), reason: 'Fel datum vid registrering',
       }),
     });
     expect(corrected.status).toBe(200);
-    expect((await corrected.json()).correction).toMatchObject({ before: { playedDate: '2026-07-10' }, after: { playedDate: '2026-07-11' } });
+    expect((await corrected.json()).correction).toMatchObject({ before: { playedDate: daysFromNow(20) }, after: { playedDate: daysFromNow(21) } });
 
     const spoofedSocket = await SELF.fetch(`https://worker.test/tour/${created.code}/live`, {
       headers: { Upgrade: 'websocket', 'Sec-WebSocket-Protocol': `golf-v2, ${'z'.repeat(43)}`, 'X-Account-User': member.userId },
@@ -508,7 +516,7 @@ describe('shared tour authorization', () => {
 
     const outside = await SELF.fetch(`https://worker.test/tour/${created.code}/rounds`, {
       method: 'POST', headers: headers(joined.body.contributorToken),
-      body: JSON.stringify(submission(created, { playedDate: '2026-09-01' })),
+      body: JSON.stringify(submission(created, { playedDate: daysFromNow(120) })),
     });
     expect(outside.status).toBe(400);
   });
