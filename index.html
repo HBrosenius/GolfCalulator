@@ -981,6 +981,7 @@
         <label style="display:flex;align-items:center;gap:6px;font-size:0.9rem;cursor:pointer;margin:0;">
           <input type="checkbox" id="exportPlayers" checked style="width:16px;height:16px;accent-color:var(--green);"> Spelare
         </label>
+        <label style="display:flex;align-items:center;gap:6px;font-size:0.9rem;cursor:pointer;margin:0;"><input type="checkbox" id="exportTours" checked style="width:16px;height:16px;accent-color:var(--green);"> Lokala tourer (inklusive spelare)</label>
       </div>
       <div style="display:flex;gap:10px;flex-wrap:wrap;">
         <button class="btn" style="flex:1;" onclick="exportData()">⬇ Exportera</button>
@@ -3820,6 +3821,8 @@ function step4Back() {
     openHistory();
     return;
   }
+  setNumPlayers(state.numPlayers);
+  setGameMode(state.gameMode);
   goToStep(3);
 }
 
@@ -4936,11 +4939,12 @@ function roundDelete(id) {
   roundsSave(roundsLoad().filter(round => !roundIdMatches(round, id)));
 }
 
-function _buildDataPayload(inclCourses, inclRounds, inclPlayers) {
+function _buildDataPayload(inclCourses, inclRounds, inclPlayers, inclTours = false) {
   return GolfStorage.createBackupPayload({
     courses:  inclCourses  ? dbLoad()        : [],
     rounds:   inclRounds   ? roundsLoad()    : [],
-    players:  inclPlayers  ? playersLoad()   : []
+    players:  (inclPlayers || inclTours) ? playersLoad() : [],
+    tours:    inclTours ? toursLoad() : []
   });
 }
 
@@ -4948,7 +4952,8 @@ function exportData() {
   const inclRounds   = document.getElementById('exportRounds').checked;
   const inclCourses  = document.getElementById('exportCourses').checked;
   const inclPlayers  = document.getElementById('exportPlayers').checked;
-  if (!inclRounds && !inclCourses && !inclPlayers) {
+  const inclTours = document.getElementById('exportTours').checked;
+  if (!inclRounds && !inclCourses && !inclPlayers && !inclTours) {
     const r = document.getElementById('importResult');
     r.style.display = 'block';
     r.style.background = '#fff8e1';
@@ -4956,7 +4961,7 @@ function exportData() {
     r.textContent = '⚠️ Välj minst ett alternativ att exportera.';
     return;
   }
-  const payload = _buildDataPayload(inclCourses, inclRounds, inclPlayers);
+  const payload = _buildDataPayload(inclCourses, inclRounds, inclPlayers, inclTours);
   const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
@@ -4968,11 +4973,11 @@ function exportData() {
 }
 
 // Applies an import payload (from file or cloud) using the same merge/dedup logic.
-// Returns { addedCourses, addedRounds, addedPlayers }. Throws on invalid payload.
+// Returns counts for added courses, rounds, players and tours. Throws on invalid payload.
 function _applyImportPayload(payload) {
   if (!GolfValidation.isBackupPayload(payload)) throw new Error('Ogiltigt format');
 
-  let addedCourses = 0, addedRounds = 0, addedPlayers = 0;
+  let addedCourses = 0, addedRounds = 0, addedPlayers = 0, addedTours = 0;
 
   if (Array.isArray(payload.courses)) {
     const existing = dbLoad();
@@ -5009,7 +5014,18 @@ function _applyImportPayload(payload) {
     if (document.getElementById('savedPlayersList')) renderSavedPlayersList();
   }
 
-  return { addedCourses, addedRounds, addedPlayers };
+  if (Array.isArray(payload.tours)) {
+    const existing = toursLoad();
+    const ids = new Set(existing.map(tour => tour.id));
+    for (const tour of GolfStorage.migrateTours(payload.tours)) {
+      if (!ids.has(tour.id)) { existing.push(tour); ids.add(tour.id); addedTours++; }
+    }
+    const restoredIds = new Set(payload.tours.map(tour => String(tour.id)));
+    storageDb.save(TOUR_DELETIONS_KEY, tourDeletionsLoad().filter(item => !restoredIds.has(String(item.id))));
+    toursSave(existing);
+    renderActiveToursCard();
+  }
+  return { addedCourses, addedRounds, addedPlayers, addedTours };
 }
 
 function importData(input) {
@@ -5020,11 +5036,11 @@ function importData(input) {
   reader.onload = e => {
     try {
       const payload = JSON.parse(e.target.result);
-      const { addedCourses, addedRounds, addedPlayers } = _applyImportPayload(payload);
+      const { addedCourses, addedRounds, addedPlayers, addedTours } = _applyImportPayload(payload);
       resultEl.style.display = 'block';
       resultEl.style.background = '#e8f5e9';
       resultEl.style.color = '#2e7d32';
-      resultEl.textContent = `✅ Importerat: ${addedCourses} nya banor, ${addedRounds} nya rundor, ${addedPlayers} nya spelare.`;
+      resultEl.textContent = `✅ Importerat: ${addedCourses} nya banor, ${addedRounds} nya rundor, ${addedPlayers} nya spelare, ${addedTours} nya tourer.`;
     } catch(err) {
       resultEl.style.display = 'block';
       resultEl.style.background = '#fdecea';
@@ -5237,7 +5253,7 @@ async function driveBackupNow() {
     const originId = _getOriginId();
     const originLabel = _getOriginLabel();
     const filename = `golf-backup-${originId}.json`;
-    const payload = _buildDataPayload(true, true, true);
+    const payload = _buildDataPayload(true, true, true, true);
     const content = JSON.stringify(payload);
     const existingId = await _driveFindThisOriginFileId(token, filename);
 
@@ -5289,8 +5305,8 @@ async function driveRestoreNow() {
     });
     if (!res.ok) throw new Error('Kunde inte hämta säkerhetskopian.');
     const payload = await res.json();
-    const { addedCourses, addedRounds, addedPlayers } = _applyImportPayload(payload);
-    _setDriveStatus(`✅ Återställt: ${addedCourses} nya banor, ${addedRounds} nya rundor, ${addedPlayers} nya spelare.`, 'ok');
+    const { addedCourses, addedRounds, addedPlayers, addedTours } = _applyImportPayload(payload);
+    _setDriveStatus(`✅ Återställt: ${addedCourses} nya banor, ${addedRounds} nya rundor, ${addedPlayers} nya spelare, ${addedTours} nya tourer.`, 'ok');
   } catch (err) {
     _setDriveStatus('❌ ' + (err.message || 'Något gick fel.'), 'error');
   }
@@ -5324,6 +5340,7 @@ function saveCurrentRound(playerResults) {
   }));
   const mixedTees = hasMixedTees(subjects);
   const isEditing = !!state.editingId;
+  const originalRound = isEditing ? roundFind(state.editingId) : null;
   const roundData = {
     schemaVersion: ROUND_SCHEMA_VERSION,
     id: isEditing ? state.editingId : now.getTime(),
@@ -5341,8 +5358,8 @@ function saveCurrentRound(playerResults) {
     markers: state.markers || { ctp: { hole: null, player: '' }, ld: { hole: null, player: '' } },
     minTeeShots: isScramble ? (state.minTeeShots || null) : null,
     bets: state.bets || [],
-    liveRoomCode: state.liveRoomCode || null,
-    tourRef: state.tourContext?.code ? { code: state.tourContext.code, syncStatus: 'pending' } : null,
+    liveRoomCode: isEditing ? (originalRound?.liveRoomCode || null) : (state.liveRoomCode || null),
+    tourRef: isEditing ? (originalRound?.tourRef || null) : (state.tourContext?.code ? { code: state.tourContext.code, syncStatus: 'pending' } : null),
     subjects
   };
   if (isEditing) roundUpdate(roundData);
@@ -7707,6 +7724,7 @@ function editRound(id) {
     note: r.note || '', weather: r.weather || null,
     markers: r.markers || { ctp: { hole: null, player: '' }, ld: { hole: null, player: '' } },
     minTeeShots: r.minTeeShots || null,
+    bets: r.bets || [],
     editingId: r.id, editingDate: r.date
   };
   if (shared) {

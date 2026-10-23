@@ -48,8 +48,8 @@ test('legacy data loads and export/import preserves all collections', async ({ p
   });
 
   expect(result.migratedTours[0].courses).toEqual([{ name: 'Testbanan', maxRounds: 1 }]);
-  expect(result.payload.version).toBe(1);
-  expect(result.imported).toEqual({ addedCourses: 1, addedRounds: 1, addedPlayers: 1 });
+  expect(result.payload.version).toBe(2);
+  expect(result.imported).toEqual({ addedCourses: 1, addedRounds: 1, addedPlayers: 1, addedTours: 0 });
   expect(result.courses).toEqual(result.payload.courses);
   expect(result.rounds).toEqual(result.payload.rounds);
   expect(result.players).toEqual(result.payload.players);

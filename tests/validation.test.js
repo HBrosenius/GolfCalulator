@@ -82,3 +82,32 @@ test('backup validation accepts scramble tee-shot tracking fields', () => {
   badMinTeeShots.rounds[0].minTeeShots = 'six';
   assert.equal(validation.isBackupPayload(badMinTeeShots), false);
 });
+
+test('round backups accept safe synced IDs and full-length tee names', () => {
+  const payload = validBackup();
+  payload.rounds[0].id = 'cloud-round-1';
+  payload.rounds[0].tee = 'Championship tee yellow';
+  payload.rounds[0].subjects[0].tee = payload.rounds[0].tee;
+  assert.equal(validation.isBackupPayload(payload), true);
+  payload.rounds[0].id = '1);alert(1)';
+  assert.equal(validation.isBackupPayload(payload), false);
+});
+
+test('version two validates local tours and keeps version one readable', () => {
+  const payload = validBackup();
+  assert.equal(validation.isBackupPayload(payload), true);
+  payload.version = 2;
+  payload.tours = [{ id: 77, name: 'Summer', startDate: '2026-01-01', endDate: '2026-12-31',
+    status: 'open', roster: [42], courses: [{ name: 'Testbanan', holes: 9, maxRounds: 2 }],
+    bestOfN: null, duplicateCourseRule: 'best' }];
+  assert.equal(validation.isBackupPayload(payload), true);
+  payload.tours[0].courses[0].onclick = 'alert(1)';
+  assert.equal(validation.isBackupPayload(payload), false);
+  delete payload.tours[0].courses[0].onclick;
+  payload.tours[0].id = '1);alert(1)';
+  assert.equal(validation.isBackupPayload(payload), false);
+  payload.tours = [null];
+  assert.equal(validation.isBackupPayload(payload), false);
+  payload.version = 3;
+  assert.equal(validation.isBackupPayload(payload), false);
+});

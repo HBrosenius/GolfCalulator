@@ -46,11 +46,12 @@ test('legacy tour course strings migrate without changing modern entries', () =>
 test('backup serialization is versioned and normalizes missing collections', () => {
   const payload = storage.createBackupPayload({ rounds: [{ id: 'r1' }] }, new Date('2026-08-07T12:00:00Z'));
   assert.deepEqual(payload, {
-    version: 1,
+    version: 2,
     exportedAt: '2026-08-07T12:00:00.000Z',
     courses: [],
     rounds: [{ id: 'r1' }],
     players: [],
+    tours: [],
   });
 });
 

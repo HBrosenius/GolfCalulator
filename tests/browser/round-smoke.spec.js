@@ -203,3 +203,68 @@ test('handicap edits retain saved-player links and name edits clear the picker',
   expect(await page.evaluate(() => state.playerIds[0])).toBeNull();
   await expect(page.locator('#ppicker_0')).toHaveValue('');
 });
+
+test('resumed round can revisit populated player setup without losing scores', async ({ page }) => {
+  await openScorecard(page);
+  await page.locator('#score_0_0').fill('5');
+  await page.reload();
+  await page.evaluate(() => resumeRound());
+  await page.locator('#step4 button', { hasText: 'Tillbaka' }).click();
+  await expect(page.locator('#pname_0')).toHaveValue('Ada');
+  await expect(page.locator('#phi_0')).toHaveValue('10');
+  await page.locator('#step3 button', { hasText: 'Nästa' }).click();
+  await expect(page.locator('#step4')).toBeVisible();
+  await expect(page.locator('#score_0_0')).toHaveValue('5');
+});
+
+test('editing saved scores preserves bets and tour and live references without reconnecting', async ({ page }) => {
+  await openScorecard(page);
+  await page.locator('#score_0_0').fill('5');
+  await page.locator('#step4 button', { hasText: 'Beräkna' }).click();
+  const metadata = await page.evaluate(() => {
+    const rounds = roundsLoad();
+    Object.assign(rounds[0], {
+      tourRef: { code: 'ABCDEFGH', syncStatus: 'synced', submissionId: 'submission-1' },
+      liveRoomCode: 'ABCD', bets: [{ id: 'bet-1', hole: 0, amount: 10, proposerSeat: 0,
+        createdAt: 1, status: 'cancelled', responses: { 0: 'accepted' } }],
+    });
+    roundsSave(rounds);
+    editRound(rounds[0].id);
+    return { tourRef: rounds[0].tourRef, liveRoomCode: rounds[0].liveRoomCode, bets: rounds[0].bets };
+  });
+  expect(await page.evaluate(() => state.liveRoomCode || null)).toBeNull();
+  await page.locator('#score_0_0').fill('6');
+  await page.locator('#step4 button', { hasText: 'Beräkna' }).click();
+  const saved = await page.evaluate(() => roundsLoad()[0]);
+  expect(saved).toMatchObject(metadata);
+  expect(saved.subjects[0].rows[0].score).toBe(6);
+});
+
+test('backup restores tours, roster links and synced rounds without duplicates', async ({ page }) => {
+  await openScorecard(page);
+  await page.locator('#score_0_0').fill('5');
+  await page.locator('#step4 button', { hasText: 'Beräkna' }).click();
+  const restored = await page.evaluate(() => {
+    playersSave([{ id: 42, name: 'Ada', hi: 10 }]);
+    toursSave([{ id: 77, name: 'Summer', startDate: '2026-01-01', endDate: '2026-12-31',
+      status: 'open', roster: [42], courses: [{ name: 'Binga Golf', holes: 9, maxRounds: 2 }],
+      bestOfN: null, duplicateCourseRule: 'best' }]);
+    const rounds = roundsLoad();
+    rounds[0].id = 'cloud-round-1';
+    rounds[0].tee = 'Championship tee yellow';
+    rounds[0].subjects[0].tee = rounds[0].tee;
+    rounds[0].subjects[0].playerId = 42;
+    roundsSave(rounds);
+    const payload = JSON.parse(JSON.stringify(_buildDataPayload(false, true, false, true)));
+    roundsSave([]); playersSave([]); toursSave([]); tourMarkDeleted(77);
+    const first = _applyImportPayload(payload);
+    const second = _applyImportPayload(payload);
+    return { payload, first, second, tours: toursLoad(), players: playersLoad(), rounds: roundsLoad(), deletions: tourDeletionsLoad() };
+  });
+  expect(restored.first).toMatchObject({ addedRounds: 1, addedPlayers: 1, addedTours: 1 });
+  expect(restored.second).toEqual({ addedCourses: 0, addedRounds: 0, addedPlayers: 0, addedTours: 0 });
+  expect(restored.tours).toEqual(restored.payload.tours);
+  expect(restored.players).toEqual(restored.payload.players);
+  expect(restored.rounds).toEqual(restored.payload.rounds);
+  expect(restored.deletions).toEqual([]);
+});

@@ -104,7 +104,7 @@
     return hasOnlyKeys(subject, keys) && optional(subject.playerId, value => isInteger(value, 1, Number.MAX_SAFE_INTEGER)) &&
       optional(subject.memberId, value => isText(value, 80)) && isText(subject.name, 80) &&
       optional(subject.hi, value => isNumber(value, 0, 54)) && isInteger(subject.ph, -20, 72) &&
-      optional(subject.tee, value => isText(value, 20)) && optional(subject.slope, value => isNumber(value, 55, 155)) &&
+      optional(subject.tee, value => isText(value, 50)) && optional(subject.slope, value => isNumber(value, 55, 155)) &&
       optional(subject.cr, value => isNumber(value, 25, 85)) && optional(subject.par, value => isInteger(value, 27, 90)) &&
       isInteger(subject.totalPoints, 0, holes * 8) && isInteger(subject.totalBrutto, 0, holes * 20) &&
       optional(subject.members, value => Array.isArray(value) && value.length <= 12 && value.every(name => isText(name, 50))) &&
@@ -140,8 +140,8 @@
     ]);
     return hasOnlyKeys(round, keys) && optional(round.schemaVersion, value => value === 1 || value === 2) &&
       optional(round.minTeeShots, value => isInteger(value, 0, 18)) &&
-      isInteger(round.id, 1, Number.MAX_SAFE_INTEGER) && isDate(round.date) && isText(round.courseName, 80) &&
-      isText(round.tee, 20) && optional(round.mixedTees, value => typeof value === 'boolean') &&
+      (isInteger(round.id, 1, Number.MAX_SAFE_INTEGER) || (typeof round.id === 'string' && /^[A-Za-z0-9_-]{1,80}$/.test(round.id))) && isDate(round.date) && isText(round.courseName, 80) &&
+      isText(round.tee, 50) && optional(round.mixedTees, value => typeof value === 'boolean') &&
       (round.holes === 9 || round.holes === 18) && isNumber(round.slope, 55, 155) && isNumber(round.cr, 25, 85) &&
       isInteger(round.par, 27, 90) && ['individual', 'scramble', 'fourball', 'foursome', 'match'].includes(round.gameMode) &&
       optional(round.note, value => isText(value, 120, true)) && optional(round.weather, value => ['sun', 'cloud', 'rain', 'wind'].includes(value)) &&
@@ -152,9 +152,28 @@
       round.subjects.every(subject => isSubject(subject, round.holes));
   }
 
+  function isLocalTour(tour) {
+    const keys = new Set(['id', 'name', 'startDate', 'endDate', 'status', 'bestOfN',
+      'duplicateCourseRule', 'roster', 'courses', 'sharedCode']);
+    return hasOnlyKeys(tour, keys) && isInteger(tour.id, 1, Number.MAX_SAFE_INTEGER) &&
+      isText(tour.name, 120) && isDate(tour.startDate) && isDate(tour.endDate) && tour.startDate <= tour.endDate &&
+      ['open', 'completed', 'cancelled'].includes(tour.status) &&
+      optional(tour.bestOfN, value => isInteger(value, 1, Number.MAX_SAFE_INTEGER)) &&
+      optional(tour.duplicateCourseRule, value => ['best', 'first'].includes(value)) &&
+      optional(tour.sharedCode, value => typeof value === 'string' && /^[A-HJ-KM-NP-Z2-9]{8}$/.test(value)) &&
+      Array.isArray(tour.roster) && tour.roster.length <= 500 &&
+      tour.roster.every(id => isInteger(id, 1, Number.MAX_SAFE_INTEGER)) &&
+      Array.isArray(tour.courses) && tour.courses.length <= 500 && tour.courses.every(course =>
+        (typeof course === 'string' && isText(course, 80)) ||
+        (hasOnlyKeys(course, new Set(['name', 'maxRounds', 'holes'])) && isText(course.name, 80) &&
+          optional(course.maxRounds, value => isInteger(value, 1, Number.MAX_SAFE_INTEGER)) &&
+          optional(course.holes, value => value === 9 || value === 18)));
+  }
+
   function isBackupPayload(value) {
-    const keys = new Set(['version', 'exportedAt', 'courses', 'rounds', 'players']);
-    return hasOnlyKeys(value, keys) && value.version === 1 && optional(value.exportedAt, date => {
+    const keys = new Set(['version', 'exportedAt', 'courses', 'rounds', 'players', ...(value?.version === 2 ? ['tours'] : [])]);
+    return hasOnlyKeys(value, keys) && (value.version === 1 || value.version === 2) &&
+      (value.version === 1 || (Array.isArray(value.tours) && value.tours.length <= 500 && value.tours.every(isLocalTour))) && optional(value.exportedAt, date => {
       if (!isText(date, 40)) return false;
       const parsed = new Date(date);
       return !Number.isNaN(parsed.getTime()) && parsed.toISOString() === date;

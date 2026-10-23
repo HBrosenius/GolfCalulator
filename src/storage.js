@@ -55,11 +55,12 @@
 
   function createBackupPayload(data, now) {
     return {
-      version: 1,
+      version: 2,
       exportedAt: (now || new Date()).toISOString(),
       courses: Array.isArray(data.courses) ? data.courses : [],
       rounds: Array.isArray(data.rounds) ? data.rounds : [],
       players: Array.isArray(data.players) ? data.players : [],
+      tours: Array.isArray(data.tours) ? data.tours : [],
     };
   }
 
