@@ -2415,7 +2415,7 @@ function buildPlayerCards() {
         `<option value="${escapeHtml(member.id)}"${member.id === selectedMemberId ? ' selected' : ''}>${escapeHtml(member.name)} (${member.hi})</option>`).join('')
       : savedPlayers.length
         ? `<option value="">— Välj sparad spelare —</option>` +
-          savedPlayers.map(sp => `<option value="${sp.id}">${escapeHtml(sp.name)} (${sp.hi})</option>`).join('')
+          savedPlayers.map(sp => `<option value="${sp.id}"${sp.id === state.playerIds?.[p] ? ' selected' : ''}>${escapeHtml(sp.name)} (${sp.hi})</option>`).join('')
         : null;
     const pickerHtml = pickerOptions
       ? `<select id="ppicker_${p}" class="player-picker-select" onchange="${tourMembers.length ? 'pickSharedTourMember' : 'pickSavedPlayer'}(${p}, this)">${pickerOptions}</select>`
@@ -2453,7 +2453,7 @@ function buildPlayerCards() {
           <div>
             <label style="margin-top:0;">Handicapindex</label>
             <input type="number" id="phi_${p}" placeholder="t.ex. 15.4" step="0.1" min="0" max="54"
-              value="${hiVal}" oninput="onPlayerInput(${p})" inputmode="decimal"${tourMembers.length ? ' readonly' : ''}>
+              value="${hiVal}" oninput="onPlayerInput(${p}, true)" inputmode="decimal"${tourMembers.length ? ' readonly' : ''}>
           </div>
         </div>
         ${teeHtml}
@@ -2548,7 +2548,12 @@ function onPlayerInput(p, preservePlayerId = false) {
   if (!preservePlayerId) {
     if (state.playerIds) state.playerIds[p] = null;
     if (state.playerMemberIds) state.playerMemberIds[p] = null;
+    const picker = document.getElementById(`ppicker_${p}`);
+    if (picker) picker.value = '';
   }
+  const name = document.getElementById(`pname_${p}`)?.value || '';
+  const hi = parseFloat(document.getElementById(`phi_${p}`)?.value);
+  state.players[p] = { ...state.players[p], name, hi: Number.isFinite(hi) ? hi : '' };
   updatePlayerPH(p);
   if (isTeamMode(state.gameMode)) buildTeamInfo();
 }
@@ -2591,8 +2596,8 @@ function buildStep4State() {
     const nameEl = document.getElementById(`pname_${p}`);
     const hiEl   = document.getElementById(`phi_${p}`);
     const hi = parseFloat(hiEl ? hiEl.value : '');
-    if (isNaN(hi) || hi < 0) {
-      alert(`Ange ett giltigt handicapindex för spelare ${p+1}.`);
+    if (!Number.isFinite(hi) || hi < 0 || hi > 54) {
+      alert(`Ange ett giltigt handicapindex (0–54) för spelare ${p+1}.`);
       return false;
     }
     const name = (nameEl && nameEl.value.trim()) ? nameEl.value.trim() : `Spelare ${p+1}`;
@@ -2616,6 +2621,18 @@ function buildStep4State() {
     seenNames.add(key);
   }
 
+  // Keep scores only when they still belong to the same course and roster.
+  // Handicap changes can recalculate points without discarding gross scores.
+  const scoreSetupKey = JSON.stringify({
+    course: state.courseName, tee: state.teeColor, holes: state.holes,
+    hpar: state.hpar, si: state.si, mode: state.gameMode,
+    players: players.map(player => [player.playerId, player.memberId, player.name, player.tee]),
+    teams: isTeamMode(state.gameMode) ? state.teamAssign : null,
+  });
+  const previousScores = state._scoreSetupKey === scoreSetupKey ? state.scores : null;
+  const hasScores = (state.scores || []).some(row => row.some(score => score !== '' && score != null));
+  if (!previousScores && hasScores && !confirm('Ändrad bana eller spelaruppställning nollställer inmatade scorer. Fortsätta?')) return false;
+  state._scoreSetupKey = scoreSetupKey;
   state.players = players;
 
   if (!state.tourContext) detectQualifyingTours(players);
@@ -2650,8 +2667,10 @@ function buildStep4State() {
     state.scores = players.map(() => new Array(state.holes).fill(''));
   }
 
+  if (previousScores) state.scores = previousScores;
+
   if (state.gameMode === 'scramble') {
-    if (!Array.isArray(state.teeShots) || state.teeShots.length !== state.teams.length) {
+    if (!previousScores || !Array.isArray(state.teeShots) || state.teeShots.length !== state.teams.length) {
       state.teeShots = state.teams.map(() => new Array(state.holes).fill(null));
     }
   } else {
@@ -2729,6 +2748,7 @@ function buildScoreTable() {
   thead.innerHTML = hd + '</tr>';
 
   // Totals footer
+  document.getElementById('scoreTfoot')?.remove();
   const tfoot = document.createElement('tfoot');
   tfoot.id = 'scoreTfoot';
   let ft = '<tr class="totals-row"><td colspan="3">Poäng</td>';
@@ -2775,7 +2795,7 @@ function buildScoreTable() {
       const strokes = strokesOnHole(c.playingHandicap, si, state.holes);
       const strokeHint = strokes > 0 ? `<div class="stroke-hint">+${strokes} slag</div>` : '';
       cells += `<td>${teeTag}<input type="number" class="score-input${val ? ' has-value' : ''}${isReadonly ? ' live-readonly' : ''}" id="score_${p}_${i}"
-        min="1" max="15" inputmode="numeric" value="${val}"${isReadonly ? ' readonly tabindex="-1"' : ''}
+        min="1" max="20" inputmode="numeric" value="${val}"${isReadonly ? ' readonly tabindex="-1"' : ''}
         oninput="onScoreInput(${p},${i},this)" onkeydown="scoreKeyDown(event,${p},${i})">
         ${strokeHint}<div class="live-pts" id="pts_${p}_${i}"></div></td>`;
     });
@@ -2791,12 +2811,21 @@ function buildScoreTable() {
     extra += `<tr class="bet-row" id="betrow_${i}"><td colspan="${totalCols}" id="betcell_${i}"></td></tr>`;
     tbody.innerHTML += `<tr${rowClass}>${cells}</tr>${extra}`;
   }
+  restoreScoresToTable();
+  updateLiveLeader();
   updateMatchStatus();
   syncRoundMeta();
   updateHonorBanner();
   updateTeeShotSummary();
   renderBetRows();
-  setTimeout(() => document.getElementById('score_0_0')?.focus(), 100);
+  const focusBeforeScorecard = document.activeElement;
+  setTimeout(() => {
+    if (document.activeElement === focusBeforeScorecard &&
+        !document.activeElement.matches('input, textarea, select') &&
+        !document.getElementById('step4').classList.contains('hidden')) {
+      nextEditableScoreInput(-1, 0)?.focus();
+    }
+  }, 100);
 }
 
 // ============================================================
@@ -3283,35 +3312,9 @@ function onScoreInput(p, i, el) {
   if (state.liveRoomCode && isSeatEditableByMe(p)) liveSyncPush(p);
   clearTimeout(el._advanceTimer);
   if (el.value !== '') {
-    // Scores are 1–15: a lone "1" may still become 10–15, so wait briefly for a
-    // second digit; any other value is complete and advances immediately.
-    // Advancing on a fixed delay used to split "10" across two holes.
-    const advance = () => {
-      let next;
-      if (state.liveRoomCode && state.liveSeat != null) {
-        // Advance sideways to the next seat this device may edit, skipping
-        // remote (other-device-owned) columns; wrap to the next hole's first
-        // editable seat once every editable seat in this hole has a value.
-        const n = numColumns();
-        next = null;
-        for (let q = p + 1; q < n; q++) {
-          if (isSeatEditableByMe(q)) { next = document.getElementById(`score_${q}_${i}`); break; }
-        }
-        if (!next) {
-          for (let q = 0; q < n; q++) {
-            if (isSeatEditableByMe(q)) { next = document.getElementById(`score_${q}_${i + 1}`); break; }
-          }
-        }
-      } else {
-        const n = numColumns();
-        const nextP = p + 1;
-        next = nextP < n
-          ? document.getElementById(`score_${nextP}_${i}`)
-          : document.getElementById(`score_0_${i+1}`);
-      }
-      if (next) next.focus();
-    };
-    if (el.value === '1') {
+    // Both 1 and 2 can begin a two-digit score (10–20).
+    const advance = () => nextEditableScoreInput(p, i)?.focus();
+    if (el.value === '1' || el.value === '2') {
       el._advanceTimer = setTimeout(() => { if (document.activeElement === el) advance(); }, 800);
     } else {
       advance();
@@ -3319,16 +3322,26 @@ function onScoreInput(p, i, el) {
   }
 }
 
+function nextEditableScoreInput(p, i, direction = 1) {
+  const n = numColumns();
+  for (let index = i * n + p + direction; index >= 0 && index < state.holes * n; index += direction) {
+    const seat = index % n;
+    if (!isSeatEditableByMe(seat)) continue;
+    const input = document.getElementById(`score_${seat}_${Math.floor(index / n)}`);
+    if (input && !input.readOnly && !input.disabled) return input;
+  }
+  return null;
+}
+
 function scoreKeyDown(event, p, i) {
   if (event.key === 'Tab' || event.key === 'Enter') {
-    event.preventDefault();
     clearTimeout(event.target._advanceTimer);
-    const n = numColumns();
-    const nextP = p + 1;
-    const next = nextP < n
-      ? document.getElementById(`score_${nextP}_${i}`)
-      : document.getElementById(`score_0_${i+1}`);
-    if (next) next.focus();
+    const next = nextEditableScoreInput(p, i, event.shiftKey ? -1 : 1);
+    // Leave native Tab behavior at either edge so the scorecard is not a focus trap.
+    if (next) {
+      event.preventDefault();
+      next.focus();
+    }
   }
 }
 
@@ -7436,9 +7449,6 @@ function pickSavedPlayer(slotIndex, selectEl) {
   if (isNaN(id)) return;
   const player = playersLoad().find(p => p.id === id);
   if (!player) return;
-  if (!state.playerIds) state.playerIds = [];
-  state.playerIds[slotIndex] = player.id;
-  if (state.playerMemberIds) state.playerMemberIds[slotIndex] = null;
   const displayName = player.nick || player.name;
 
   // A player can only take part once per round
@@ -7447,10 +7457,14 @@ function pickSavedPlayer(slotIndex, selectEl) {
     const otherNameEl = document.getElementById(`pname_${p}`);
     if (otherNameEl && otherNameEl.value.trim().toLowerCase() === displayName.trim().toLowerCase()) {
       alert(`${displayName} är redan tillagd som spelare ${p + 1} i den här rundan.`);
-      selectEl.value = '';
+      selectEl.value = String(state.playerIds?.[slotIndex] ?? '');
       return;
     }
   }
+
+  if (!state.playerIds) state.playerIds = [];
+  state.playerIds[slotIndex] = player.id;
+  if (state.playerMemberIds) state.playerMemberIds[slotIndex] = null;
 
   const nameEl = document.getElementById(`pname_${slotIndex}`);
   const hiEl   = document.getElementById(`phi_${slotIndex}`);
