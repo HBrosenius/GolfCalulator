@@ -412,7 +412,8 @@ export async function getCareerStats(request, env) {
   const name = profile?.displayName || null;
   const performances = [];
   for (const round of data.rounds || []) for (const subject of round.subjects || []) {
-    if (profile?.playerId ? String(subject.playerId) !== profile.playerId : (name && subject.name !== name)) continue;
+    // Without a linked player or display name nothing can be attributed to this account.
+    if (profile?.playerId ? String(subject.playerId) !== profile.playerId : (!name || subject.name !== name)) continue;
     if (typeof subject.totalPoints === 'number') performances.push({ points: subject.totalPoints, date: round.date || round.playedDate, course: round.courseName });
   }
   const totalPoints = performances.reduce((sum, item) => sum + item.points, 0);

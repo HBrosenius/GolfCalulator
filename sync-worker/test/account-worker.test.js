@@ -147,6 +147,22 @@ describe('passwordless accounts and cloud snapshots', () => {
     expect(await response.json()).toMatchObject({ stats: { rounds: 2, courses: 2, averagePoints: 33, bestPoints: 36, lastPlayedAt: '2026-07-02' } });
   });
 
+  it('does not attribute other players\' rounds when the account has no profile', async () => {
+    const userId = crypto.randomUUID();
+    const token = 'n'.repeat(43);
+    const now = Date.now();
+    await env.ACCOUNTS_DB.batch([
+      env.ACCOUNTS_DB.prepare('INSERT INTO users (id,email,created_at,last_login_at) VALUES (?,?,?,?)').bind(userId, `${userId}@example.com`, now, now),
+      env.ACCOUNTS_DB.prepare('INSERT INTO sessions (token_hash,user_id,expires_at,created_at,last_seen_at) VALUES (?,?,?,?,?)').bind(await hashToken(token), userId, now + 60_000, now, now),
+      env.ACCOUNTS_DB.prepare('INSERT INTO account_snapshots (user_id,version,payload,updated_at) VALUES (?,?,?,?)').bind(userId, 1, JSON.stringify({ courses: [], players: [], tours: [], rounds: [
+        { date: '2026-07-01', courseName: 'A', subjects: [{ name: 'Ada', totalPoints: 30 }, { name: 'Bo', totalPoints: 40 }] },
+      ] }), now),
+    ]);
+    const response = await SELF.fetch('https://worker.test/account/stats', { headers: { Authorization: `Bearer ${token}` } });
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ stats: { rounds: 0, averagePoints: null, bestPoints: null } });
+  });
+
   it('accepts authenticated snapshots above the live-mutation 16 KB limit', async () => {
     const userId = crypto.randomUUID();
     const sessionToken = 'z'.repeat(43);

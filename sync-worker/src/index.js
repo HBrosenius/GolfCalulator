@@ -322,12 +322,20 @@ export default {
         const databaseCheck = await env.ACCOUNTS_DB.prepare('SELECT 1 AS ok').first();
         if (databaseCheck?.ok !== 1) throw new Error('D1 health check failed');
         const rows = await env.ACCOUNTS_DB.prepare('SELECT DISTINCT tour_code AS code FROM account_tours').all();
+        let failures = 0;
         for (const row of rows.results || []) {
-          const tour = env.GOLF_TOURS.getByName(row.code);
-          await tour.bindCode(row.code);
-          const due = await tour.endReminderDue(Date.now());
-          if (due?.userIds?.length) await notifyUsers(env, due.userIds, 'reminders', due.payload);
+          // One broken tour must not stop reminders for the tours after it.
+          try {
+            const tour = env.GOLF_TOURS.getByName(row.code);
+            await tour.bindCode(row.code);
+            const due = await tour.endReminderDue(Date.now());
+            if (due?.userIds?.length) await notifyUsers(env, due.userIds, 'reminders', due.payload);
+          } catch (error) {
+            failures++;
+            await reportOperationalError(env, 'scheduled_tour_reminder_failed', { component: 'cron', error: error?.message || String(error) });
+          }
         }
+        if (failures) throw new Error(`${failures} tour reminder check(s) failed`);
         structuredLog('info', 'scheduled_health_check_ok', { component: 'cron', toursChecked: rows.results?.length || 0, durationMs: Date.now() - startedAt });
       } catch (error) {
         await reportOperationalError(env, 'scheduled_health_check_failed', { component: 'cron', error: error?.message || String(error) }, null, { alert: true });
