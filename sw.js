@@ -123,7 +123,7 @@ self.addEventListener('fetch', event => {
       const cache = await currentCache();
       try {
         const response = await fetch(event.request);
-        if (cache) await cache.put('./index.html', response.clone());
+        if (cache && response.ok) await cache.put('./index.html', response.clone());
         return response;
       } catch (error) {
         const fallback = cache && await cache.match('./index.html');
