@@ -68,9 +68,15 @@ export async function deletePushSubscription(request, env) {
 export async function notifyUsers(env, userIds, category, payload) {
   const ids = [...new Set((userIds || []).filter(Boolean))];
   if (!ids.length || !CATEGORIES.includes(category) || !env.VAPID_PUBLIC_KEY || !env.VAPID_PRIVATE_KEY || !env.VAPID_SUBJECT) return;
-  const placeholders = ids.map(() => '?').join(',');
-  const rows = await env.ACCOUNTS_DB.prepare(`SELECT id,endpoint,p256dh,auth,preferences FROM push_subscriptions WHERE user_id IN (${placeholders})`).bind(...ids).all();
-  await Promise.all((rows.results || []).map(async row => {
+  // D1 allows at most 100 bound parameters per statement.
+  const results = [];
+  for (let i = 0; i < ids.length; i += 50) {
+    const chunk = ids.slice(i, i + 50);
+    const placeholders = chunk.map(() => '?').join(',');
+    const rows = await env.ACCOUNTS_DB.prepare(`SELECT id,endpoint,p256dh,auth,preferences FROM push_subscriptions WHERE user_id IN (${placeholders})`).bind(...chunk).all();
+    results.push(...(rows.results || []));
+  }
+  await Promise.all(results.map(async row => {
     if (!preferences(JSON.parse(row.preferences))[category]) return;
     try {
       await webpush.sendNotification({ endpoint: row.endpoint, keys: { p256dh: row.p256dh, auth: row.auth } }, JSON.stringify(payload), {

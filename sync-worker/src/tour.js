@@ -86,6 +86,16 @@ function publicTour(tour) {
 }
 
 export class Tour extends DurableObject {
+  mutationTail = Promise.resolve();
+
+  // Every method below reads TOUR_KEY, awaits crypto, then writes the whole tour
+  // back; without serialization concurrent calls overwrite each other.
+  serializedMutation(operation) {
+    const result = this.mutationTail.then(operation, operation);
+    this.mutationTail = result.catch(() => {});
+    return result;
+  }
+
   broadcast(tour, event = 'tour_updated') {
     for (const socket of this.ctx.getWebSockets()) {
       try {
@@ -463,10 +473,11 @@ export class Tour extends DurableObject {
     if (!tour) return result(404, { error: 'Tour not found' });
     const actor = await this.actorForToken(tour, token, accountUserId);
     if (!actor) return result(403, { error: 'Not authorized' });
+    // Retries of an already-recorded round stay idempotent even after the tour closed.
+    const existing = typeof body?.clientRoundId === 'string' && tour.rounds.find(round => round.clientRoundId === body.clientRoundId);
+    if (existing) return result(200, { tour: publicTour(tour), round: existing, duplicate: true });
     const invalid = validateTourRoundSubmission(body, tour);
     if (invalid) return result(invalid.startsWith('Unsupported') ? 426 : 400, { error: invalid });
-    const existing = tour.rounds.find(round => round.clientRoundId === body.clientRoundId);
-    if (existing) return result(200, { tour: publicTour(tour), round: existing, duplicate: true });
     const course = tour.courses.find(item => item.id === body.courseId);
     const memberById = new Map(tour.members.map(member => [member.id, member]));
     const submittedAt = Date.now();
@@ -762,4 +773,16 @@ export class Tour extends DurableObject {
     await this.ctx.storage.put(TOUR_KEY, tour);
     return { userIds: accountUsers(tour), payload: pushPayload(tour, `${tour.name} avslutas i morgon`, 'Registrera eventuella återstående rundor innan touren stängs.') };
   }
+}
+
+for (const name of [
+  'create', 'bindOrganizerAccount', 'detachAccount', 'bindCode', 'getPublicState', 'join', 'access', 'manage',
+  'getActivity', 'rotateInvitation', 'update', 'complete', 'cancel', 'delete', 'submitRound', 'startRound',
+  'setAdministrator', 'editRound', 'announce', 'revokeContributor', 'updateMyMembership', 'updateContributor',
+  'leave', 'restoreContributor', 'transferOwnership', 'alarm', 'endReminderDue',
+]) {
+  const original = Tour.prototype[name];
+  Tour.prototype[name] = function serialized(...args) {
+    return this.serializedMutation(() => original.apply(this, args));
+  };
 }

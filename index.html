@@ -1532,6 +1532,9 @@ function sortTees(tees) {
   });
 }
 
+// Strokes received are shown as +N; a plus handicap (negative playing handicap) as −N.
+function formatPlayingHcp(ph) { return ph >= 0 ? `+${ph}` : `−${Math.abs(ph)}`; }
+
 function escapeHtml(s) {
   return String(s).replace(/[&<>"]/g, c => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;' }[c]));
 }
@@ -2444,7 +2447,7 @@ function buildPlayerCards() {
         <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px;">
           <div>
             <label style="margin-top:0;">Namn</label>
-            <input type="text" id="pname_${p}" placeholder="Spelare ${p+1}" value="${nameVal}"
+            <input type="text" id="pname_${p}" placeholder="Spelare ${p+1}" value="${escapeHtml(String(nameVal))}"
               oninput="onPlayerInput(${p})"${tourMembers.length ? ' readonly' : ''}>
           </div>
           <div>
@@ -2564,7 +2567,7 @@ function updatePlayerPH(p) {
   const ph = calcPlayingHandicap(hi, td.slope, td.cr, td.par, state.holes);
   const teeNote = (td.tee && td.tee !== state.teeColor)
     ? ` <span style="color:var(--muted);font-weight:400;">(${teeIconFor(td.tee)} ${escapeHtml(td.tee)})</span>` : '';
-  dispEl.innerHTML = `Spelhandicap: <span class="ph-badge">+${ph}</span>${teeNote}`;
+  dispEl.innerHTML = `Spelhandicap: <span class="ph-badge">${formatPlayingHcp(ph)}</span>${teeNote}`;
 }
 
 // ============================================================
@@ -2721,7 +2724,7 @@ function buildScoreTable() {
     const ph    = c.playingHandicap;
     const teeTag = mixedTees && c.tee
       ? `<span style="display:block;font-size:0.65rem;font-weight:400;">${teeIconFor(c.tee)} ${escapeHtml(c.tee)}</span>` : '';
-    hd += `<th style="min-width:52px;">${label}<span class="ph-header-badge">+${ph}</span>${teeTag}</th>`;
+    hd += `<th style="min-width:52px;">${label}<span class="ph-header-badge">${formatPlayingHcp(ph)}</span>${teeTag}</th>`;
   });
   thead.innerHTML = hd + '</tr>';
 
@@ -2759,7 +2762,7 @@ function buildScoreTable() {
       const val = state.scores[p] && state.scores[p][i] !== '' ? state.scores[p][i] : '';
       let teeTag = '';
       if (isFoursome) {
-        teeTag = `<div class="tee-order">🎯 ${foursomeStarterName(c, i)}</div>`;
+        teeTag = `<div class="tee-order">🎯 ${escapeHtml(foursomeStarterName(c, i) || '')}</div>`;
       } else if (isScramble && c.members && c.members.length === 2) {
         const sel = state.teeShots?.[p]?.[i];
         teeTag = `<select class="tee-shot-select" style="font-size:0.7rem;margin-bottom:2px;" onchange="setTeeShotPlayer(${p},${i},this.value)">
@@ -3254,6 +3257,9 @@ function updateTeeShotSummary() {
 }
 
 function onScoreInput(p, i, el) {
+  // 0/negative scores make the points calculation throw; the backup format caps scores at 20.
+  if (el.value !== '' && !(parseInt(el.value) >= 1)) el.value = '';
+  else if (parseInt(el.value) > 20) el.value = '20';
   el.classList.toggle('has-value', el.value !== '');
   if (!state.scores[p]) state.scores[p] = new Array(state.holes).fill('');
   state.scores[p][i] = el.value === '' ? '' : parseInt(el.value);
@@ -3275,8 +3281,12 @@ function onScoreInput(p, i, el) {
   renderTournamentLivePanel();
   inprogressSave();
   if (state.liveRoomCode && isSeatEditableByMe(p)) liveSyncPush(p);
+  clearTimeout(el._advanceTimer);
   if (el.value !== '') {
-    setTimeout(() => {
+    // Scores are 1–15: a lone "1" may still become 10–15, so wait briefly for a
+    // second digit; any other value is complete and advances immediately.
+    // Advancing on a fixed delay used to split "10" across two holes.
+    const advance = () => {
       let next;
       if (state.liveRoomCode && state.liveSeat != null) {
         // Advance sideways to the next seat this device may edit, skipping
@@ -3300,13 +3310,19 @@ function onScoreInput(p, i, el) {
           : document.getElementById(`score_0_${i+1}`);
       }
       if (next) next.focus();
-    }, 50);
+    };
+    if (el.value === '1') {
+      el._advanceTimer = setTimeout(() => { if (document.activeElement === el) advance(); }, 800);
+    } else {
+      advance();
+    }
   }
 }
 
 function scoreKeyDown(event, p, i) {
   if (event.key === 'Tab' || event.key === 'Enter') {
     event.preventDefault();
+    clearTimeout(event.target._advanceTimer);
     const n = numColumns();
     const nextP = p + 1;
     const next = nextP < n
@@ -3643,10 +3659,10 @@ function renderResults(playerResults, rankContainerId = 'rankingContainer', prCo
     const name     = r.subj.name;
     const teeLbl = (mixedTees && r.subj.tee) ? ` · ${teeIconFor(r.subj.tee)} ${escapeHtml(r.subj.tee)}` : '';
     const subLabel = isFourball
-      ? `Lag ${r.teamId} (bästboll)${r.teammateName ? ' · med ' + escapeHtml(r.teammateName) : ''} · HI ${r.subj.hi} · Spelhandicap +${r.ph}${teeLbl}`
+      ? `Lag ${r.teamId} (bästboll)${r.teammateName ? ' · med ' + escapeHtml(r.teammateName) : ''} · HI ${r.subj.hi} · Spelhandicap ${formatPlayingHcp(r.ph)}${teeLbl}`
       : (isScramble || isFoursome)
-      ? `Spelhandicap +${r.ph} · ${r.subj.members.map(m=>escapeHtml(m.name)).join(' & ')}${isFoursome ? ' · Foursome' : ''}`
-      : `HI ${r.subj.hi} · Spelhandicap +${r.ph}${teeLbl} · ${holesPlayed} hål`;
+      ? `Spelhandicap ${formatPlayingHcp(r.ph)} · ${r.subj.members.map(m=>escapeHtml(m.name)).join(' & ')}${isFoursome ? ' · Foursome' : ''}`
+      : `HI ${r.subj.hi} · Spelhandicap ${formatPlayingHcp(r.ph)}${teeLbl} · ${holesPlayed} hål`;
     const photo = _photoForName(name);
     rankContainer.innerHTML += `
       <div class="ranking-card">
@@ -3703,10 +3719,10 @@ function renderResults(playerResults, rankContainerId = 'rankingContainer', prCo
 
     const teeLbl2 = (mixedTees && r.subj.tee) ? ` · ${teeIconFor(r.subj.tee)} ${escapeHtml(r.subj.tee)}` : '';
     const subLabel = isFourball
-      ? `Lag ${r.teamId} (bästboll)${r.teammateName ? ' · med ' + escapeHtml(r.teammateName) : ''} · Spelhandicap +${r.ph}${teeLbl2} · Brutto ${r.totalBrutto} · ${holesPlayed} hål`
+      ? `Lag ${r.teamId} (bästboll)${r.teammateName ? ' · med ' + escapeHtml(r.teammateName) : ''} · Spelhandicap ${formatPlayingHcp(r.ph)}${teeLbl2} · Brutto ${r.totalBrutto} · ${holesPlayed} hål`
       : (isScramble || isFoursome)
-      ? `Spelhandicap +${r.ph} · ${r.subj.members.map(m=>escapeHtml(m.name)).join(' & ')}${isFoursome ? ' · Foursome' : ''}`
-      : `Spelhandicap +${r.ph}${teeLbl2} · Brutto ${r.totalBrutto} · ${holesPlayed} hål`;
+      ? `Spelhandicap ${formatPlayingHcp(r.ph)} · ${r.subj.members.map(m=>escapeHtml(m.name)).join(' & ')}${isFoursome ? ' · Foursome' : ''}`
+      : `Spelhandicap ${formatPlayingHcp(r.ph)}${teeLbl2} · Brutto ${r.totalBrutto} · ${holesPlayed} hål`;
 
     let teeShotSummary = '';
     if (isScramble && r.subj.members && r.subj.members.length === 2) {
@@ -4869,16 +4885,20 @@ function roundsLoad() {
 }
 
 function roundsSave(rounds) {
-  if (!_lsOk) return;
-  if (!storageDb.save(ROUNDS_KEY, rounds)) alert('Lagringsutrymmet är fullt — ta bort några rundor eller spelarbilder för att göra plats.');
-  else scheduleAccountSync('rounds');
+  if (!_lsOk) return false;
+  if (!storageDb.save(ROUNDS_KEY, rounds)) {
+    alert('Lagringsutrymmet är fullt — ta bort några rundor eller spelarbilder för att göra plats.');
+    return false;
+  }
+  scheduleAccountSync('rounds');
+  return true;
 }
 
 function roundSaveNew(roundData) {
   roundClearDeletion(roundData.id);
   const rounds = roundsLoad();
   rounds.unshift(roundData); // newest first
-  roundsSave(rounds);
+  return roundsSave(rounds);
 }
 
 function roundUpdate(roundData) {
@@ -5314,7 +5334,8 @@ function saveCurrentRound(playerResults) {
   };
   if (isEditing) roundUpdate(roundData);
   else {
-    roundSaveNew(roundData);
+    // Keep the in-progress snapshot if the round could not be stored, so it can be recovered.
+    if (!roundSaveNew(roundData)) return;
     if (state.tourContext?.code && state.tourContext.submissionOwner !== false) queueSharedTourRound(roundData, state.tourContext.code);
     inprogressClear();
   }
@@ -5498,7 +5519,7 @@ function openPlayerHistory(id) {
   const medals = ['🥇','🥈','🥉','🪙'];
 
   // Find all rounds this player participated in
-  const rounds = roundsLoad().filter(r => roundIncludesPlayer(r, player))
+  const rounds = roundsLoad().filter(r => r.gameMode !== 'scramble' && r.gameMode !== 'foursome' && roundIncludesPlayer(r, player))
     .sort((a, b) => b.id - a.id);
 
   // Header with avatar + name
@@ -5849,7 +5870,7 @@ function computeSeasonStandings() {
 
   const fromStr = document.getElementById('seasonFrom').value;
   const toStr   = document.getElementById('seasonTo').value;
-  const rounds = roundsLoad().filter(r => (!fromStr || r.date >= fromStr) && (!toStr || r.date <= toStr));
+  const rounds = roundsLoad().filter(r => r.gameMode !== 'scramble' && r.gameMode !== 'foursome' && (!fromStr || r.date >= fromStr) && (!toStr || r.date <= toStr));
 
   const stats = {};
   players.forEach(p => {
@@ -6019,6 +6040,7 @@ function renderTourView() {
 }
 
 function tourAutoCloseIfExpired(tour) {
+  if (!tour) return tour;
   const today = new Date().toLocaleDateString('sv-SE');
   if (tour.status === 'open' && tour.endDate && tour.endDate < today) {
     tour.status = 'completed';
@@ -7576,7 +7598,7 @@ function renderHistoryList() {
         <div class="hi-rank-row">
           <span>${medals[i]||''}</span>
           <span class="hi-rank-name">${escapeHtml(s.name)}${s.members ? ` <span style="font-weight:400;color:var(--muted)">(${s.members.map(escapeHtml).join(' & ')})</span>` : ''}${s.teamId ? ` <span style="font-weight:400;color:var(--muted)">(Lag ${escapeHtml(s.teamId)}${s.teammate ? ' · med ' + escapeHtml(s.teammate) : ''})</span>` : ''}</span>
-          <span style="color:var(--muted);font-size:0.75rem;margin-right:6px;">HCP +${s.ph}${hasMixedTees(r.subjects) && s.tee ? ` · ${teeIconFor(s.tee)}` : ''}</span>
+          <span style="color:var(--muted);font-size:0.75rem;margin-right:6px;">HCP ${formatPlayingHcp(s.ph)}${hasMixedTees(r.subjects) && s.tee ? ` · ${teeIconFor(s.tee)}` : ''}</span>
           <span style="text-align:right;"><span class="hi-rank-pts">${s.totalPoints} p</span><br><span style="color:var(--muted);font-size:.72rem;">${Number.isFinite(s.totalBrutto) ? s.totalBrutto : '–'} slag</span></span>
         </div>`).join('');
     }

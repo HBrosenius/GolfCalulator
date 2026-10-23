@@ -86,10 +86,11 @@
   }
 
   function isResultRow(row, holes) {
-    const keys = new Set(['h', 'par', 'si', 'strokes', 'score', 'netto', 'pts', 'skipped', 'teeShotBy']);
+    const keys = new Set(['h', 'par', 'si', 'strokes', 'score', 'netto', 'pts', 'skipped', 'teeShotBy', 'countsForTeam']);
     return hasOnlyKeys(row, keys) && isInteger(row.h, 1, holes) && isInteger(row.par, 3, 6) &&
       isInteger(row.si, 1, 18) && isInteger(row.strokes, -20, 20) && typeof row.skipped === 'boolean' &&
       optional(row.teeShotBy, value => isText(value, 50)) &&
+      optional(row.countsForTeam, value => typeof value === 'boolean') &&
       (row.skipped
         ? (row.score === '–' || row.score === null) && (row.netto === '–' || row.netto === null) && row.pts === 0
         : isInteger(row.score, 1, 20) && isInteger(row.netto, -20, 40) && isInteger(row.pts, 0, 8));
