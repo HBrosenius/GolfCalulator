@@ -170,9 +170,37 @@
           optional(course.holes, value => value === 9 || value === 18)));
   }
 
+  function isRoundSetup(setup) {
+    const keys = new Set(['id', 'name', 'createdAt', 'updatedAt', 'courses', 'players', 'gameMode', 'minTeeShots']);
+    if (!hasOnlyKeys(setup, keys) || !isText(setup.id, 80) || !isText(setup.name, 80) ||
+      !isInteger(setup.createdAt, 1, Number.MAX_SAFE_INTEGER) || !isInteger(setup.updatedAt, 1, Number.MAX_SAFE_INTEGER) ||
+      !['individual', 'match', 'scramble', 'fourball', 'foursome'].includes(setup.gameMode) ||
+      !Array.isArray(setup.courses) || !setup.courses.length || setup.courses.length > 12 || !setup.courses.every(isCourse) ||
+      !Array.isArray(setup.players) || !setup.players.length || setup.players.length > 4 ||
+      !optional(setup.minTeeShots, value => isInteger(value, 0, 18))) return false;
+    const course = setup.courses[0];
+    if (setup.courses.some(item => item.name !== course.name || item.holes !== course.holes) ||
+      new Set(setup.courses.map(item => item.tee)).size !== setup.courses.length) return false;
+    if (!setup.players.every(player => hasOnlyKeys(player, new Set(['playerId', 'name', 'hi', 'tee', 'team'])) &&
+      optional(player.playerId, id => isInteger(id, 1, Number.MAX_SAFE_INTEGER)) && isText(player.name, 50) &&
+      optional(player.hi, hi => isNumber(hi, -10, 54)) && setup.courses.some(item => item.tee === player.tee) &&
+      ['A', 'B'].includes(player.team))) return false;
+    if (new Set(setup.players.map(player => player.name.trim().toLocaleLowerCase('sv-SE'))).size !== setup.players.length) return false;
+    const ids = setup.players.filter(player => player.playerId != null).map(player => player.playerId);
+    if (new Set(ids).size !== ids.length) return false;
+    if (['scramble', 'foursome'].includes(setup.gameMode) && setup.players.some(player => player.tee !== course.tee)) return false;
+    if (setup.gameMode === 'match' && setup.players.length !== 2) return false;
+    if (setup.gameMode === 'fourball' && setup.players.length !== 4) return false;
+    if (['scramble', 'foursome'].includes(setup.gameMode) &&
+      !(setup.players.length === 4 || (setup.gameMode === 'scramble' && setup.players.length === 2))) return false;
+    if (['scramble', 'foursome', 'fourball'].includes(setup.gameMode) && setup.players.length === 4 &&
+      setup.players.filter(player => player.team === 'A').length !== 2) return false;
+    return true;
+  }
+
   function isBackupPayload(value) {
-    const keys = new Set(['version', 'exportedAt', 'courses', 'rounds', 'players', 'playerDeletions', 'courseDeletions', ...(value?.version === 2 ? ['tours'] : [])]);
-    return ['playerDeletions', 'courseDeletions'].every(key => optional(value[key], entries => Array.isArray(entries) && entries.length <= 5000 && entries.every(item => hasOnlyKeys(item, new Set(['id', 'deletedAt'])) && isText(item.id, 128) && isInteger(item.deletedAt, 1, Number.MAX_SAFE_INTEGER)))) && hasOnlyKeys(value, keys) && (value.version === 1 || value.version === 2) &&
+    const keys = new Set(['version', 'exportedAt', 'courses', 'rounds', 'players', 'playerDeletions', 'courseDeletions', 'setups', 'setupDeletions', ...(value?.version === 2 ? ['tours'] : [])]);
+    return optional(value?.setups, items => Array.isArray(items) && items.length <= 100 && items.every(isRoundSetup)) && ['playerDeletions', 'courseDeletions', 'setupDeletions'].every(key => optional(value?.[key], entries => Array.isArray(entries) && entries.length <= 5000 && entries.every(item => hasOnlyKeys(item, new Set(['id', 'deletedAt'])) && isText(item.id, 128) && isInteger(item.deletedAt, 1, Number.MAX_SAFE_INTEGER)))) && hasOnlyKeys(value, keys) && (value.version === 1 || value.version === 2) &&
       (value.version === 1 || (Array.isArray(value.tours) && value.tours.length <= 500 && value.tours.every(isLocalTour))) && optional(value.exportedAt, date => {
       if (!isText(date, 40)) return false;
       const parsed = new Date(date);
@@ -182,5 +210,5 @@
       Array.isArray(value.players) && value.players.length <= 500 && value.players.every(isPlayer);
   }
 
-  return Object.freeze({ isBackupPayload, isJoinCode, isPhotoDataUrl, isPositiveInteger });
+  return Object.freeze({ isBackupPayload, isRoundSetup, isJoinCode, isPhotoDataUrl, isPositiveInteger });
 }));

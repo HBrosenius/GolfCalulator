@@ -20,9 +20,11 @@
     "check:vendor": "node scripts/check-vendor.mjs"
   },
   "devDependencies": {
-    "@playwright/test": "1.62.1"
+    "@playwright/test": "1.62.1",
+    "jsqr": "1.4.0"
   },
   "dependencies": {
-    "dompurify": "3.4.17"
+    "dompurify": "3.4.17",
+    "qrcode-generator": "2.0.4"
   }
 }

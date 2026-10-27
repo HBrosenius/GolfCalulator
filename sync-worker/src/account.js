@@ -1,3 +1,4 @@
+import '../../src/validation.js';
 import '../../src/account-sync.js';
 import { bearerToken, generateToken, hashToken } from './auth.js';
 import { reportOperationalError, structuredLog } from './observability.js';
@@ -21,10 +22,11 @@ function accountJson(data, status = 200) {
 function validSnapshot(value) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
   const keys = Object.keys(value);
-  if (keys.some(key => !['courses', 'rounds', 'roundDeletions', 'players', 'tours', 'tourDeletions', 'playerDeletions', 'courseDeletions'].includes(key))) return false;
-  if (!['courses', 'rounds', 'roundDeletions', 'players', 'tours', 'tourDeletions', 'playerDeletions', 'courseDeletions']
+  if (keys.some(key => !['courses', 'rounds', 'roundDeletions', 'players', 'tours', 'tourDeletions', 'playerDeletions', 'courseDeletions', 'setups', 'setupDeletions'].includes(key))) return false;
+  if (!['courses', 'rounds', 'roundDeletions', 'players', 'tours', 'tourDeletions', 'playerDeletions', 'courseDeletions', 'setups', 'setupDeletions']
     .every(key => value[key] === undefined || Array.isArray(value[key]))) return false;
-  return [...(value.roundDeletions || []), ...(value.tourDeletions || []), ...(value.playerDeletions || []), ...(value.courseDeletions || [])]
+  if (value.setups !== undefined && (value.setups.length > 100 || !value.setups.every(globalThis.GolfValidation.isRoundSetup))) return false;
+  return [...(value.roundDeletions || []), ...(value.tourDeletions || []), ...(value.playerDeletions || []), ...(value.courseDeletions || []), ...(value.setupDeletions || [])]
     .every(item => item && typeof item === 'object' && !Array.isArray(item) &&
     Object.keys(item).every(key => ['id', 'deletedAt'].includes(key)) &&
     typeof item.id === 'string' && item.id.length > 0 && item.id.length <= 128 &&
@@ -40,12 +42,12 @@ function preserveSnapshotDeletions(existingData, incomingData) {
     });
     return [...deletions.values()];
   };
-  const data = { ...incomingData };
-  for (const collection of ['rounds', 'tours', 'players', 'courses']) {
+  const data = { ...incomingData, setups: incomingData.setups ?? existingData?.setups ?? [] };
+  for (const collection of ['rounds', 'tours', 'players', 'courses', 'setups']) {
     const key = `${collection.slice(0, -1)}Deletions`;
     data[key] = preserve(key);
     const deleted = new Set(data[key].map(item => item.id));
-    data[collection] = (incomingData[collection] || []).filter(item => !deleted.has(collection === 'courses' ? globalThis.GolfAccountSync.courseId(item) : String(item?.id)));
+    data[collection] = (data[collection] || []).filter(item => !deleted.has(collection === 'courses' ? globalThis.GolfAccountSync.courseId(item) : String(item?.id)));
   }
   return data;
 }

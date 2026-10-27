@@ -283,3 +283,26 @@ describe('passwordless accounts and cloud snapshots', () => {
     expect((await SELF.fetch('https://worker.test/account/push', { method: 'DELETE', headers })).status).toBe(200);
   });
 });
+
+it('syncs validated saved groups, preserves them for older clients and keeps deletion tombstones', async () => {
+  const userId = crypto.randomUUID(), token = crypto.randomUUID().replace(/-/g, '') + '12345678901', now = Date.now();
+  await env.ACCOUNTS_DB.batch([
+    env.ACCOUNTS_DB.prepare('INSERT INTO users (id,email,created_at,last_login_at) VALUES (?,?,?,?)').bind(userId, `${userId}@example.com`, now, now),
+    env.ACCOUNTS_DB.prepare('INSERT INTO sessions (token_hash,user_id,expires_at,created_at,last_seen_at) VALUES (?,?,?,?,?)').bind(await hashToken(token), userId, now + 60_000, now, now),
+  ]);
+  const headers = { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' };
+  const group = { id: 'group', name: 'Thursday', createdAt: now, updatedAt: now, gameMode: 'individual', minTeeShots: null,
+    players: [{ playerId: 1, name: 'Ada', hi: 10, tee: 'Gul', team: 'A' }],
+    courses: [{ name: 'Course', tee: 'Gul', holes: 9, slope: 113, cr: 36, par: 36, hpar: Array(9).fill(4), si: [1,3,5,7,9,11,13,15,17] }] };
+  const put = (baseVersion, data) => SELF.fetch('https://worker.test/account/snapshot', { method: 'PUT', headers, body: JSON.stringify({ baseVersion, data }) });
+  expect((await put(0, { setups: [group] })).status).toBe(200);
+  expect((await put(1, { rounds: [] })).status).toBe(200);
+  let snapshot = await (await SELF.fetch('https://worker.test/account/snapshot', { headers })).json();
+  expect(snapshot.data.setups).toEqual([group]);
+  expect((await put(2, { setups: [{ ...group, liveHostToken: 'secret' }] })).status).toBe(400);
+  expect((await put(2, { setups: [], setupDeletions: [{ id: 'group', deletedAt: now }] })).status).toBe(200);
+  expect((await put(3, { setups: [group] })).status).toBe(200);
+  snapshot = await (await SELF.fetch('https://worker.test/account/snapshot', { headers })).json();
+  expect(snapshot.data.setups).toEqual([]);
+  expect(snapshot.data.setupDeletions).toEqual([{ id: 'group', deletedAt: now }]);
+});

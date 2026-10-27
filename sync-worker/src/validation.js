@@ -63,7 +63,7 @@ export function validateCreate(body) {
   if (!isInteger(body.seatCount, 1, 12)) return 'Invalid round configuration';
   if (!Array.isArray(body.players) || body.players.length < 1 || body.players.length > 12) return 'Invalid round configuration';
   const sharedScores = body.gameMode === 'scramble' || body.gameMode === 'foursome';
-  if (body.seatCount !== (sharedScores ? 2 : body.players.length)) return 'Invalid round configuration';
+  if (body.seatCount !== (sharedScores ? body.teams?.length : body.players.length)) return 'Invalid round configuration';
   if (!Array.isArray(body.hpar) || body.hpar.length !== body.holes || !body.hpar.every(value => isInteger(value, 3, 6))) return 'Invalid round configuration';
   if (!Array.isArray(body.si) || body.si.length !== body.holes || !body.si.every(value => isInteger(value, 1, 18))) return 'Invalid round configuration';
   if (new Set(body.si).size !== body.si.length) return 'Invalid round configuration';
@@ -115,7 +115,7 @@ function validateMarkers(markers, room) {
 
 function validateTeams(teams, players, gameMode) {
   if (teams == null) return gameMode !== 'scramble' && gameMode !== 'foursome';
-  if (!Array.isArray(teams) || teams.length !== 2) return false;
+  if (!Array.isArray(teams) || !(teams.length === 2 || (gameMode === 'scramble' && teams.length === 1 && players.length === 2))) return false;
   const names = new Set(players.map(player => player.name));
   const teamKeys = new Set(['name', 'members', 'playingHandicap']);
   return teams.every(team => hasOnlyKeys(team, teamKeys) && isText(team.name, 30) &&

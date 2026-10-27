@@ -79,6 +79,7 @@
       rounds: Array.isArray(data.rounds) ? data.rounds : [],
       players: Array.isArray(data.players) ? data.players : [],
       tours: Array.isArray(data.tours) ? data.tours : [],
+      ...(data.setups ? { setups: data.setups, setupDeletions: data.setupDeletions || [] } : {}),
       ...(data.playerDeletions ? { playerDeletions: data.playerDeletions } : {}),
       ...(data.courseDeletions ? { courseDeletions: data.courseDeletions } : {}),
     };

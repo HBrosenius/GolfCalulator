@@ -255,3 +255,13 @@ it('shows only a minimal preview before joining and protects notes and scores wi
   const full = await (await SELF.fetch(`https://worker.test/room/${created.code}`, { headers: mutationHeaders(created.seatToken) })).json();
   expect(full.note).toBe('Private note');
 });
+
+it('creates a one-team two-player scramble invitation', async () => {
+  const payload = round(2);
+  payload.gameMode = 'scramble'; payload.seatCount = 1;
+  payload.teams = [{ name: 'Team', playingHandicap: 9, members: payload.players.map(player => ({ name: player.name })) }];
+  const response = await SELF.fetch('https://worker.test/room', { method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'CF-Connecting-IP': crypto.randomUUID() }, body: JSON.stringify(payload) });
+  expect(response.status).toBe(201);
+  expect((await response.json()).room.seats).toHaveLength(1);
+});

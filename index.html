@@ -13,14 +13,18 @@
 <meta name="apple-mobile-web-app-title" content="Poängbogey">
 <script src="src/vendor/dompurify.min.js?v=3.4.17"></script>
 <script src="src/scoring.js?v=20260809-2"></script>
-<script src="src/storage.js?v=20261027-1"></script>
+<script src="src/storage.js?v=20261027-2"></script>
 <script src="src/live-sync.js?v=20260809-2"></script>
-<script src="src/validation.js?v=20261027-1"></script>
+<script src="src/validation.js?v=20261027-2"></script>
+<script src="src/score-explanations.js?v=20261027-1"></script>
+<script src="src/round-setup.js?v=20261027-1"></script>
+<script src="src/live-invitation.js?v=20261027-1"></script>
+<script src="src/vendor/qrcode.js?v=2.0.4"></script>
 <script src="src/round-extras.js?v=20260809-2"></script>
 <script src="src/live-round.js?v=20260809-2"></script>
 <script src="src/tour-rules.js?v=20260809-3"></script>
 <script src="src/tour-sync.js?v=20260809-7"></script>
-<script src="src/account-sync.js?v=20261027-1"></script>
+<script src="src/account-sync.js?v=20261027-2"></script>
 <script src="src/course-catalog.js?v=20260814-1"></script>
 <script>
 // Apply saved/system theme before first paint to avoid a flash of the wrong theme.
@@ -900,6 +904,11 @@
   }
 .single-hole .score-input { min-height:64px; font-size:1.6rem; width:100%; min-width:60px; }
   #holeEntryControls button { min-height:44px; }
+.explanation-button { cursor:pointer;border:0;font:inherit; }
+  .live-pts.explanation-button { display:block;width:100%;min-height:28px;background:transparent;font-size:.78rem; }
+  .explanation-button:focus-visible { outline:3px solid var(--green);outline-offset:2px; }
+  #scoreExplanationDialog::backdrop { background:rgba(0,0,0,.5); }
+#liveCodeModal .crop-sheet, #joinLiveModal .crop-sheet { max-height:calc(100dvh - 32px);overflow-y:auto; }
 </style>
 </head>
 <body>
@@ -984,6 +993,7 @@
           <input type="checkbox" id="exportPlayers" checked style="width:16px;height:16px;accent-color:var(--green);"> Spelare
         </label>
         <label style="display:flex;align-items:center;gap:6px;font-size:0.9rem;cursor:pointer;margin:0;"><input type="checkbox" id="exportTours" checked style="width:16px;height:16px;accent-color:var(--green);"> Lokala tourer (inklusive spelare)</label>
+        <label style="display:flex;align-items:center;gap:6px;font-size:.9rem;margin:0;"><input type="checkbox" id="exportSetups" checked style="width:16px;height:16px;"> Sparade spelgrupper (inklusive uppställning)</label>
       </div>
       <div style="display:flex;gap:10px;flex-wrap:wrap;">
         <button class="btn" style="flex:1;" onclick="exportData()">⬇ Exportera</button>
@@ -1162,6 +1172,11 @@
       </div>
     </div>
 
+    <div id="savedSetupsCard" class="card hidden">
+      <div class="card-title">Spela igen och sparade spelgrupper</div>
+      <div id="savedSetupsList" style="display:grid;gap:8px;"></div>
+    </div>
+
     <!-- Pågående tourer -->
     <div id="activeToursCard" class="card hidden" style="margin-bottom:10px;">
       <div class="card-title" style="margin-bottom:10px;"><span class="icon">🚌</span> Pågående tourer</div>
@@ -1338,6 +1353,13 @@
 
       <div id="playerCardsContainer" style="margin-top:14px;"></div>
 
+      <div id="setupReviewNotice" class="info-box hidden" role="status"></div>
+      <label for="savedSetupName">Spara hela uppställningen som spelgrupp</label>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;">
+        <input id="savedSetupName" maxlength="80" placeholder="t.ex. Torsdagsgolf" style="flex:1;min-width:140px;">
+        <button class="btn secondary" style="width:auto;" onclick="saveNamedSetup()">Spara spelgrupp</button>
+      </div>
+      <p id="savedSetupStatus" role="status" style="font-size:.82rem;"></p>
       <!-- Scramble/Bästboll lagöversikt -->
       <div id="scrambleTeamInfo" class="hidden" style="margin-top:4px;"></div>
     </div>
@@ -1415,40 +1437,53 @@
 
 </div><!-- /container -->
 
+<dialog id="scoreExplanationDialog" aria-labelledby="scoreExplanationTitle" style="width:min(90vw,440px);max-height:85vh;overflow:auto;border:1px solid var(--border);border-radius:16px;padding:20px;background:var(--card);color:var(--text);margin:auto;">
+  <h2 id="scoreExplanationTitle" style="font-size:1.1rem;"></h2>
+  <div id="scoreExplanationBody" style="line-height:1.65;margin:12px 0;"></div>
+  <form method="dialog"><button class="btn" autofocus>Stäng förklaringen</button></form>
+</dialog>
+
 <footer class="app-footer no-print">Poängbogey-kalkylator v2.3.0</footer>
 
 <!-- LIVE-RUNDA KOD MODAL -->
-<div id="liveCodeModal" class="crop-modal hidden">
+<div id="liveCodeModal" class="crop-modal hidden" role="dialog" aria-modal="true" aria-labelledby="liveCodeTitle">
   <div class="crop-sheet">
-    <h3>📡 Live-runda startad</h3>
+    <h3 id="liveCodeTitle">📡 Live-runda startad</h3>
     <p style="font-size:0.85rem;color:var(--muted);text-align:center;margin:0;">
       Dela koden med de andra spelarna så de kan ansluta från sina egna enheter.
     </p>
-    <div style="font-size:1.4rem;font-weight:700;letter-spacing:0.06em;overflow-wrap:anywhere;text-align:center;color:var(--heading);padding:10px 0;" id="liveCodeText"></div>
+    <div style="font-size:1.1rem;font-weight:700;letter-spacing:0.06em;overflow-wrap:anywhere;text-align:center;color:var(--heading);padding:10px 0;" id="liveCodeText"></div>
     <p style="font-size:.82rem;">Koden är en privat inbjudan. Dela den bara med rundans spelare.</p>
+    <div id="liveInvitationQr" role="img" aria-label="QR-kod för privat inbjudan" style="display:flex;justify-content:center;background:white;padding:8px;"></div>
+    <label for="liveInvitationLink">Privat inbjudningslänk</label>
+    <input id="liveInvitationLink" readonly style="width:100%;" onclick="this.select()">
+    <button class="btn" onclick="shareLiveInvitation()">Dela inbjudan</button>
+    <button class="btn secondary" onclick="copyLiveInvitation()">Kopiera länk</button>
+    <p id="liveInvitationStatus" role="status"></p>
     <button class="btn secondary" onclick="copyLiveCode()">📋 Kopiera kod</button>
     <button class="btn" onclick="closeLiveCodeModal()">Fortsätt →</button>
   </div>
 </div>
 
 <!-- ANSLUT TILL LIVE-RUNDA MODAL -->
-<div id="joinLiveModal" class="crop-modal hidden">
+<div id="joinLiveModal" class="crop-modal hidden" role="dialog" aria-modal="true" aria-labelledby="joinLiveTitle">
   <div class="crop-sheet">
-    <h3>📡 Anslut till live-runda</h3>
+    <h3 id="joinLiveTitle">📡 Anslut till live-runda</h3>
     <div id="joinLiveError" class="hidden" style="background:#fdecea;border-left:3px solid var(--danger);border-radius:0 8px 8px 0;padding:8px 12px;font-size:0.82rem;color:var(--danger);"></div>
 
     <div id="joinLiveCodeStep">
       <p style="font-size:0.85rem;color:var(--muted);text-align:center;margin:0;">
         Ange koden du fått av den som startade rundan.
       </p>
-      <input type="text" id="joinLiveCodeInput" maxlength="20" placeholder="Klistra in inbjudningskoden"
+      <input type="text" id="joinLiveCodeInput" aria-label="Kod eller inbjudningslänk till live-runda" maxlength="2048" placeholder="Klistra in kod eller inbjudningslänk"
         style="text-align:center;font-size:1.6rem;letter-spacing:0.15em;text-transform:uppercase;margin-top:10px;"
-        oninput="this.value = this.value.toUpperCase()" onkeydown="if(event.key==='Enter') fetchLiveRoom()">
+        onkeydown="if(event.key==='Enter') fetchLiveRoom()">
       <button class="btn" id="joinLiveFetchBtn" style="margin-top:12px;" onclick="fetchLiveRoom()">Hämta runda</button>
       <button class="btn secondary" style="margin-top:8px;" onclick="closeJoinLiveModal()">Avbryt</button>
     </div>
 
     <div id="joinLiveSeatStep" class="hidden">
+      <p id="liveJoinPreview" role="status"></p>
       <p style="font-size:0.85rem;color:var(--muted);text-align:center;margin:0 0 10px;">
         Vem är du? Grå platser är redan upptagna.
       </p>
@@ -1572,7 +1607,7 @@ const DB_KEY = 'golf_courses_db';
 // Guest collections keep their existing keys; signed-in accounts have separate vaults.
 const scopedKeys = new Set(['golf_courses_db', 'golf_rounds_db', 'golf_players_db', 'golf_tours_db',
   'golf_round_deletions', 'golf_tour_deletions', 'golf_player_deletions', 'golf_course_deletions',
-  'golf_account_sync_meta', 'golf_account_baseline', 'golf_shared_tours_db', 'golf_inprogress_round']);
+  'golf_account_sync_meta', 'golf_account_baseline', 'golf_shared_tours_db', 'golf_inprogress_round', 'golf_setups_db', 'golf_setup_deletions']);
 let _dataOwner = localStorage.getItem('golf_data_owner');
 try {
   const existing = JSON.parse(localStorage.getItem('golf_account_session') || 'null');
@@ -1604,6 +1639,93 @@ try {
 } catch (_) {}
 const sharedTourStore = GolfTourSync.createStore(scopedStorage);
 const sharedTourClient = GolfTourSync.createClient();
+
+const SETUPS_KEY = 'golf_setups_db';
+const SETUP_DELETIONS_KEY = 'golf_setup_deletions';
+function setupsLoad() {
+  const data = storageDb.load(SETUPS_KEY, []);
+  return Array.isArray(data) ? data.filter(GolfValidation.isRoundSetup) : [];
+}
+function setupsSave(setups) {
+  if (!storageDb.save(SETUPS_KEY, setups, true)) return false;
+  scheduleAccountSync('setups'); renderSavedSetups(); return true;
+}
+function renderSavedSetups() {
+  const card = document.getElementById('savedSetupsCard');
+  const list = document.getElementById('savedSetupsList');
+  if (!card || !list) return;
+  const previous = roundsLoad().find(round => round.subjects?.length);
+  const setups = setupsLoad().sort((a, b) => b.updatedAt - a.updatedAt);
+  card.classList.toggle('hidden', !previous && !setups.length);
+  list.replaceChildren();
+  if (previous) {
+    const button = document.createElement('button'); button.className = 'btn secondary';
+    button.textContent = `Spela igen: ${previous.courseName} · ${previous.date}`;
+    button.addEventListener('click', () => playAgain(previous.id)); list.append(button);
+  }
+  setups.forEach(setup => {
+    const row = document.createElement('div'); row.style.cssText = 'display:flex;gap:8px;';
+    const button = document.createElement('button'); button.className = 'btn secondary';
+    button.style.textAlign = 'left';
+    button.textContent = `${setup.name} · ${setup.courses[0].name} · ${setup.players.map(player => player.name).join(', ')}`;
+    button.addEventListener('click', () => startRoundSetup(setup));
+    const remove = document.createElement('button'); remove.textContent = 'Ta bort';
+    remove.setAttribute('aria-label', `Ta bort spelgruppen ${setup.name}`);
+    remove.addEventListener('click', () => {
+      if (!confirm(`Ta bort spelgruppen ${setup.name}?`)) return;
+      if (!markCollectionDeleted('setup', setup.id) || !setupsSave(setupsLoad().filter(item => item.id !== setup.id))) alert('Kunde inte spara ändringen.');
+    });
+    row.append(button, remove); list.append(row);
+  });
+}
+function saveNamedSetup() {
+  const status = document.getElementById('savedSetupStatus');
+  try {
+    const name = document.getElementById('savedSetupName').value.trim();
+    if (!name) throw new Error('Ange ett namn på spelgruppen.');
+    const base = { name: state.courseName, tee: state.teeColor, holes: state.holes, ...teeData(state.teeColor) };
+    const players = Array.from({ length: state.numPlayers }, (_, p) => ({
+      playerId: state.playerIds?.[p] || null,
+      name: document.getElementById(`pname_${p}`)?.value.trim() || `Spelare ${p + 1}`,
+      hi: parseFloat(document.getElementById(`phi_${p}`)?.value), tee: isSharedScoreMode(state.gameMode) ? state.teeColor : playerTee(p), team: state.teamAssign[p] || 'A',
+    }));
+    if (players.some(player => !Number.isFinite(player.hi))) throw new Error('Ange handicapindex för alla spelare först.');
+    const tees = [...new Set([state.teeColor, ...players.map(player => player.tee)])];
+    const courses = tees.map(tee => GolfRoundSetup.copyCourse({ ...base, ...teeData(tee) }));
+    const existing = setupsLoad().find(setup => setup.name.toLocaleLowerCase('sv-SE') === name.toLocaleLowerCase('sv-SE'));
+    if (existing && !confirm(`Ersätta spelgruppen ${existing.name}?`)) return;
+    const now = Date.now();
+    const setup = { id: existing?.id || crypto.randomUUID(), name, createdAt: existing?.createdAt || now, updatedAt: now,
+      gameMode: state.gameMode, courses, players, minTeeShots: state.minTeeShots ?? null };
+    if (!GolfValidation.isRoundSetup(setup)) throw new Error('Kontrollera bana, spelare, handicap och lagindelning innan du sparar.');
+    if (!existing && setupsLoad().length >= 100) throw new Error('Du kan spara högst 100 spelgrupper.');
+    if (!setupsSave([...setupsLoad().filter(item => item.id !== setup.id), setup])) throw new Error('Spelgruppen kunde inte sparas på enheten.');
+    status.textContent = `Spelgruppen ${name} är sparad.`;
+  } catch (error) { status.textContent = error.message; }
+}
+function playAgain(id) {
+  try {
+    const round = roundFind(id); if (!round) return;
+    const setup = { ...GolfRoundSetup.fromRound(round, playersLoad()), id: 'replay', name: 'Spela igen', createdAt: Date.now(), updatedAt: Date.now() };
+    startRoundSetup(setup);
+  } catch (_) { alert('Den här äldre rundan saknar uppgifter för att återanvändas. Välj bana och spelare manuellt.'); }
+}
+function startRoundSetup(setup) {
+  if (!GolfValidation.isRoundSetup(setup)) { alert('Uppställningen saknar giltiga ban- eller spelaruppgifter.'); return; }
+  if (inprogressLoad() && !confirm('En pågående runda finns sparad. När du börjar mata in den nya rundan ersätts den. Fortsätta?')) return;
+  liveSyncStop(); _singleHole = null;
+  state = GolfRoundSetup.freshState(setup, playersLoad());
+  state.baseHoles = state.holes;
+  renderStep2CourseInfo(); buildHoleDataTable();
+  document.getElementById('playModeToggle').classList.add('hidden');
+  setNumPlayers(state.numPlayers); setGameMode(state.gameMode);
+  const notice = document.getElementById('setupReviewNotice');
+  notice.classList.remove('hidden');
+  notice.textContent = `${state.courseName} · ${state.teeColor} · ${state.holes} hål. Kontrollera dagens handicapindex och tee för varje spelare. Saknat handicap måste fyllas i. Inga gamla scorer eller live-kopplingar följer med.`;
+  document.getElementById('savedSetupName').value = setup.name === 'Spela igen' ? '' : setup.name;
+  document.getElementById('savedSetupStatus').textContent = '';
+  goToStep(3);
+}
 
 function dbLoad() {
   const entries = storageDb.load(DB_KEY, []);
@@ -1811,6 +1933,7 @@ function renderRecentCourses() {
 function renderSavedCourses() {
   _savedCourses = getSavedCourses();
   renderRecentCourses();
+  renderSavedSetups();
 
   const list = document.getElementById('savedCoursesList');
   const noTxt = document.getElementById('noCoursesTxt');
@@ -1905,6 +2028,8 @@ document.getElementById('savedCoursesList').addEventListener('click', function(e
 });
 
 function loadSavedCourseAndAdvance(entry) {
+  state.setupCourses = null;
+  document.getElementById('setupReviewNotice')?.classList.add('hidden');
   clearStep1Error();
   state.courseName    = entry.name;
   state.teeColor      = entry.tee;
@@ -2276,6 +2401,9 @@ function goToStep3Players() {
     if (state._originalTee && newTee !== state._originalTee) {
       const result = renameCourseTee(state.courseName, state._originalTee, newTee);
       if (!result.ok) { expandHoleData(); showStep2Error(result.error); return; }
+      if (Array.isArray(state.setupCourses)) state.setupCourses = state.setupCourses.map(course =>
+        course.tee === state._originalTee ? { ...course, tee: newTee } : course);
+      state.playerTees = (state.playerTees || []).map(tee => tee === state._originalTee ? newTee : tee);
       renderSavedCourses();
     }
     state.teeColor     = newTee;
@@ -2341,12 +2469,15 @@ function availableTees() {
     .filter(e => e.name === state.courseName && e.holes === state.holes)
     .map(e => e.tee);
   if (state.teeColor && !tees.includes(state.teeColor)) tees.unshift(state.teeColor);
+  (state.setupCourses || []).filter(course => course.name === state.courseName && course.holes === state.holes).forEach(course => { if (!tees.includes(course.tee)) tees.push(course.tee); });
   return sortTees(tees);
 }
 
 // Slope/CR/par for a given tee, falling back to the round-level values.
 function teeData(teeColor) {
-  const entry = teeColor ? dbFind(state.courseName, teeColor, state.holes) : null;
+  // The selected tee follows edits made in step 2, including a replayed setup.
+  if (teeColor === state.teeColor) return { tee: state.teeColor, slope: state.slope, cr: state.cr, par: state.par, hpar: state.hpar, si: state.si };
+  const entry = (state.setupCourses || []).find(course => course.name === state.courseName && course.holes === state.holes && course.tee === teeColor) || (teeColor ? dbFind(state.courseName, teeColor, state.holes) : null);
   if (entry) return { tee: teeColor, slope: entry.slope, cr: entry.cr, par: entry.par, hpar: entry.hpar, si: entry.si };
   return { tee: state.teeColor, slope: state.slope, cr: state.cr, par: state.par, hpar: state.hpar, si: state.si };
 }
@@ -2610,7 +2741,7 @@ function updatePlayerPH(p) {
   const ph = calcPlayingHandicap(hi, td.slope, td.cr, td.par, state.holes);
   const teeNote = (td.tee && td.tee !== state.teeColor)
     ? ` <span style="color:var(--muted);font-weight:400;">(${teeIconFor(td.tee)} ${escapeHtml(td.tee)})</span>` : '';
-  dispEl.innerHTML = `Spelhandicap: <span class="ph-badge">${formatPlayingHcp(ph)}</span>${teeNote}`;
+  dispEl.innerHTML = `Spelhandicap: <button type="button" class="ph-badge explanation-button" aria-label="Förklara spelhandicap för spelare ${p + 1}" onclick="explainPlayingHandicap(${p},true,this)">${formatPlayingHcp(ph)} ⓘ</button>${teeNote}`;
 }
 
 // ============================================================
@@ -2776,12 +2907,12 @@ function buildScoreTable() {
   // Header — show each player's tee when the group isn't all on the same one
   const mixedTees = !isSharedScore && hasMixedTees(cols);
   let hd = '<tr><th>Hål</th><th>Par</th><th>Hcp</th>';
-  cols.forEach(c => {
+  cols.forEach((c, p) => {
     const label = escapeHtml(c.name);
     const ph    = c.playingHandicap;
     const teeTag = mixedTees && c.tee
       ? `<span style="display:block;font-size:0.65rem;font-weight:400;">${teeIconFor(c.tee)} ${escapeHtml(c.tee)}</span>` : '';
-    hd += `<th scope="col" style="min-width:52px;">${label}<span class="ph-header-badge">${formatPlayingHcp(ph)}</span>${teeTag}</th>`;
+    hd += `<th scope="col" style="min-width:52px;">${label}<button type="button" class="ph-header-badge explanation-button" aria-label="Förklara spelhandicap för ${label}" onclick="explainPlayingHandicap(${p},false,this)">${formatPlayingHcp(ph)} ⓘ</button>${teeTag}</th>`;
   });
   thead.innerHTML = hd + '</tr>';
 
@@ -2830,13 +2961,14 @@ function buildScoreTable() {
       }
       // In a live round, only seats this device may edit are writable — see isSeatEditableByMe().
       const isReadonly = state.liveRoomCode && !isSeatEditableByMe(p);
-      const strokes = strokesOnHole(c.playingHandicap, si, state.holes);
-      const strokeHint = strokes > 0 ? `<div class="stroke-hint">+${strokes} slag</div>` : '';
+      const holeData = isSharedScore ? state : teeData(c.tee);
+      const strokes = strokesOnHole(c.playingHandicap, holeData.si[i] || si, state.holes);
+      const strokeHint = strokes ? `<div class="stroke-hint">${strokes > 0 ? '+' : '−'}${Math.abs(strokes)} slag</div>` : '';
       cells += `<td>${teeTag}<input type="number" class="score-input${val ? ' has-value' : ''}${isReadonly ? ' live-readonly' : ''}" id="score_${p}_${i}" aria-label="${escapeHtml(c.name)}, hål ${h}, slag"
         min="0" max="20" inputmode="numeric" value="${val}"${isReadonly ? ' readonly tabindex="-1"' : ''}
         oninput="onScoreInput(${p},${i},this)" onkeydown="scoreKeyDown(event,${p},${i})">
         <button type="button" aria-label="Plocka upp, ${escapeHtml(c.name)}, hål ${h}" onclick="pickUpHole(${p},${i})"${isReadonly ? ' disabled' : ''}>Plocka upp</button>
-        ${strokeHint}<div class="live-pts" id="pts_${p}_${i}"></div></td>`;
+        ${strokeHint}<button type="button" class="live-pts explanation-button" id="pts_${p}_${i}" aria-label="Förklara poäng för ${escapeHtml(c.name)}, hål ${h}" onclick="explainHolePoints(${p},${i},this)"></button></td>`;
     });
     let extra = '';
     // Scramble with a single team (2 players, no opponent) has no one to compare
@@ -2863,6 +2995,7 @@ function buildScoreTable() {
   controls.innerHTML = `<button class="btn secondary" onclick="showSingleHole(0)">Ett hål i taget</button><button class="btn secondary" onclick="showSingleHole(null)">Översikt</button><div style="display:flex;align-items:center;gap:8px"><button onclick="showSingleHole((_singleHole ?? 0)-1)" aria-label="Föregående hål">←</button><span id="singleHoleLabel" aria-live="polite">Alla hål</span><button onclick="showSingleHole((_singleHole ?? -1)+1)" aria-label="Nästa hål">→</button></div>`;
   document.querySelector('.score-table').parentElement.before(controls);
   showSingleHole(_singleHole);
+  document.querySelectorAll('.live-pts').forEach(button => { button.textContent = 'ⓘ'; });
   restoreScoresToTable();
   updateLiveLeader();
   updateMatchStatus();
@@ -3148,6 +3281,63 @@ function matchResultText(results) {
   return `${results[mr.winnerIdx].subj.name} vann ${mr.text}`;
 }
 
+let _scoreExplanationReturnFocus = null;
+document.getElementById('scoreExplanationDialog').addEventListener('close', () => {
+  if (_scoreExplanationReturnFocus?.isConnected) _scoreExplanationReturnFocus.focus({ preventScroll: true });
+  _scoreExplanationReturnFocus = null;
+});
+function showScoreExplanation(title, lines, trigger) {
+  _scoreExplanationReturnFocus = trigger || document.activeElement;
+  document.getElementById('scoreExplanationTitle').textContent = title;
+  const body = document.getElementById('scoreExplanationBody'); body.replaceChildren();
+  lines.forEach(text => { const p = document.createElement('p'); p.textContent = text; body.append(p); });
+  const dialog = document.getElementById('scoreExplanationDialog');
+  if (!dialog.open) dialog.showModal();
+}
+function explainHolePoints(p, i, trigger) {
+  const subjects = isSharedScoreMode(state.gameMode) ? state.teams : state.players;
+  const subject = subjects?.[p]; if (!subject) return;
+  const td = isSharedScoreMode(state.gameMode) ? state : teeData(subject.tee);
+  const result = GolfScoreExplanations.hole(state.scores?.[p]?.[i], td.hpar[i], td.si[i], subject.playingHandicap, state.holes);
+  const lines = [`Par ${result.par} · hålets handicapindex ${result.strokeIndex}.`,
+    result.strokes >= 0 ? `Du får ${result.strokes} extra slag på hålet.` : `Du ger ${Math.abs(result.strokes)} slag på hålet (plus-handicap).`];
+  if (result.status === 'unfinished') lines.push('Hålet är inte färdigspelat. Ingen poäng har registrerats ännu.');
+  else if (result.status === 'pickup') lines.push('Hålet är upplockat. Det ger 0 poäng och inget registrerat bruttoscore.');
+  else {
+    lines.push(`Bruttoscore ${result.score} − tilldelade slag (${result.strokes}) = nettoscore ${result.net}.`);
+    lines.push(`Poängbogey: max(0, par ${result.par} + 2 − netto ${result.net}) = ${result.points} poäng.`);
+  }
+  if (state.gameMode === 'fourball') lines.push('Bästboll: det bästa poängresultatet bland lagkamraterna räknas på hålet. Här visas din egen bolls poäng.');
+  if (state.gameMode === 'match') lines.push('Matchspel: era poäng på hålet jämförs för att avgöra vem som vinner hålet.');
+  showScoreExplanation(`${subject.name} · hål ${i + 1}`, lines, trigger);
+}
+function explainPlayingHandicap(p, setup = false, trigger) {
+  if (!setup && isSharedScoreMode(state.gameMode)) {
+    const team = state.teams?.[p]; if (!team) return;
+    const members = team.members || [];
+    const lines = [`Lagets spelhandicap är ${team.playingHandicap}.`];
+    if (state.gameMode === 'scramble') {
+      lines.push('Scramble: lägsta handicapindex × 50 % + högsta handicapindex × 20 %, avrundat till heltal.');
+      if (members.length === 2 && members.every(member => Number.isFinite(member.hi))) lines.push(`${Math.min(...members.map(member => member.hi))} × 0,5 + ${Math.max(...members.map(member => member.hi))} × 0,2 → ${team.playingHandicap}.`);
+    } else {
+      lines.push('Foursome: medelvärdet av lagkamraternas spelhandicap, avrundat till heltal.');
+      if (members.length === 2 && members.every(member => Number.isFinite(member.playingHandicap))) lines.push(`(${members[0].playingHandicap} + ${members[1].playingHandicap}) / 2 → ${team.playingHandicap}.`);
+    }
+    showScoreExplanation(`Spelhandicap · ${team.name}`, lines, trigger); return;
+  }
+  const player = state.players[p];
+  const hi = setup ? parseFloat(document.getElementById(`phi_${p}`)?.value) : player?.hi;
+  if (!Number.isFinite(hi)) return;
+  const td = teeData(setup ? playerTee(p) : player.tee);
+  const result = GolfScoreExplanations.playingHandicap(hi, td.slope, td.cr, td.par, state.holes);
+  const lines = [`Handicapindex ${hi} · tee ${td.tee} · Slope ${td.slope} · Course Rating ${td.cr} · Par ${td.par}.`,
+    `${hi} × (${td.slope} / 113) + (${td.cr} − ${td.par}) = ${Number(result.unrounded.toFixed(3))}.`,
+    `Avrundat spelhandicap för 18 hål: ${result.rounded18}.`];
+  if (state.holes === 9) lines.push(`9 hål: ${result.rounded18} / 2, avrundat till heltal = ${result.playingHandicap}.`);
+  lines.push(result.playingHandicap < 0 ? 'Ett negativt värde är plus-handicap: du ger slag på de lättaste hålen först.' : 'Slagen fördelas efter hålens handicapindex, med extraslag på de svåraste hålen först.');
+  showScoreExplanation(`Spelhandicap · ${player?.name || `Spelare ${p + 1}`}`, lines, trigger);
+}
+
 function calcLivePts(p, i, score) {
   if (score === 0) return 0;
   const td = isSharedScoreMode(state.gameMode) ? state : teeData(state.players[p]?.tee);
@@ -3373,10 +3563,10 @@ function onScoreInput(p, i, el) {
     if (el.value !== '') {
       const pts = calcLivePts(p, i, parseInt(el.value));
       ptsEl.textContent = pts + 'p';
-      ptsEl.className = `live-pts pts-${Math.min(pts, 4)}`;
+      ptsEl.className = `live-pts explanation-button pts-${Math.min(pts, 4)}`;
     } else {
-      ptsEl.textContent = '';
-      ptsEl.className = 'live-pts';
+      ptsEl.textContent = 'ⓘ';
+      ptsEl.className = 'live-pts explanation-button';
     }
   }
   updateLiveLeader();
@@ -4424,6 +4614,7 @@ async function exchangeAccountLink(token, apiBase) {
 function localAccountSnapshot() {
   return {
     courseDeletions: storageDb.load('golf_course_deletions', []), playerDeletions: storageDb.load('golf_player_deletions', []),
+    setups: setupsLoad(), setupDeletions: storageDb.load(SETUP_DELETIONS_KEY, []),
     courses: dbLoad(), rounds: roundsLoad(), roundDeletions: roundDeletionsLoad(),
     players: playersLoad(), tours: toursLoad(), tourDeletions: tourDeletionsLoad()
   };
@@ -4431,6 +4622,7 @@ function localAccountSnapshot() {
 
 function saveAccountSnapshot(data) {
   const entries = {
+    [SETUPS_KEY]: data.setups || [], [SETUP_DELETIONS_KEY]: data.setupDeletions || [],
     [DB_KEY]: data.courses || [], [ROUNDS_KEY]: data.rounds || [], [PLAYERS_KEY]: data.players || [],
     [TOURS_KEY]: data.tours || [], [ROUND_DELETIONS_KEY]: data.roundDeletions || [],
     [TOUR_DELETIONS_KEY]: data.tourDeletions || [],
@@ -4446,7 +4638,7 @@ function importGuestData() {
   const session = accountSessionLoad();
   if (!session || !confirm('Importera gästdata från den här webbläsaren till ditt konto?')) return;
   const guest = {};
-  for (const [name, key] of Object.entries({ courses: DB_KEY, rounds: ROUNDS_KEY, players: PLAYERS_KEY, tours: TOURS_KEY })) {
+  for (const [name, key] of Object.entries({ courses: DB_KEY, rounds: ROUNDS_KEY, players: PLAYERS_KEY, tours: TOURS_KEY, setups: SETUPS_KEY })) {
     try { guest[name] = JSON.parse(localStorage.getItem(key) || '[]'); } catch (_) { guest[name] = []; }
   }
   try { saveAccountSnapshot(GolfAccountSync.mergeSnapshots(localAccountSnapshot(), guest)); scheduleAccountSync('guest-import'); }
@@ -4730,10 +4922,10 @@ function renderLiveSeatCells(room) {
         const pts = calcLivePts(p, i, val);
         if (ptsEl) {
           ptsEl.textContent = pts + 'p';
-          ptsEl.className = `live-pts pts-${Math.min(pts, 4)}`;
+          ptsEl.className = `live-pts explanation-button pts-${Math.min(pts, 4)}`;
         }
       } else {
-        if (ptsEl) { ptsEl.textContent = ''; ptsEl.className = 'live-pts'; }
+        if (ptsEl) { ptsEl.textContent = 'ⓘ'; ptsEl.className = 'live-pts explanation-button'; }
       }
     }
   }
@@ -4786,7 +4978,10 @@ function startLiveRound() {
     hpar: state.hpar, si: state.si,
     gameMode: state.gameMode,
     teams: state.teams,
-    players: state.players,
+    players: state.players.map(player => ({
+      name: player.name, hi: player.hi, tee: player.tee, slope: player.slope, cr: player.cr, par: player.par,
+      ph: player.playingHandicap, playingHandicap: player.playingHandicap,
+    })),
     seatCount: numColumns(),
     markers: state.markers,
     ...(state.tourContext ? { tourRef: { code: state.tourContext.code } } : {}),
@@ -4819,9 +5014,55 @@ function startLiveRound() {
     });
 }
 
+let _liveDialogReturnFocus = null;
+['liveCodeModal', 'joinLiveModal'].forEach(id => {
+  document.getElementById(id).addEventListener('keydown', event => {
+    if (event.key === 'Escape') {
+      event.preventDefault(); id === 'liveCodeModal' ? closeLiveCodeModal() : closeJoinLiveModal(); return;
+    }
+    if (event.key !== 'Tab') return;
+    const items = [...document.getElementById(id).querySelectorAll('button:not(:disabled), input:not(:disabled), select:not(:disabled)')]
+      .filter(element => element.getClientRects().length);
+    const first = items[0], last = items[items.length - 1];
+    if (!first) return;
+    if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
+    else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
+  });
+});
+
 function showLiveCodeModal(code) {
   document.getElementById('liveCodeText').textContent = code;
+  const link = GolfLiveInvitation.link(location.href, code);
+  document.getElementById('liveInvitationLink').value = link;
+  const qr = qrcode(0, 'M'); qr.addData(link); qr.make();
+  document.getElementById('liveInvitationQr').innerHTML = qr.createSvgTag({ cellSize: 4, margin: 16, scalable: true });
+  document.getElementById('liveInvitationQr').querySelector('svg').style.cssText = 'width:min(100%,260px);height:auto;';
+  document.getElementById('liveInvitationStatus').textContent = '';
   document.getElementById('liveCodeModal').classList.remove('hidden');
+  document.querySelector('#liveCodeModal button').focus();
+}
+
+async function copyLiveInvitation() {
+  const input = document.getElementById('liveInvitationLink');
+  try {
+    await navigator.clipboard.writeText(input.value);
+    document.getElementById('liveInvitationStatus').textContent = 'Inbjudningslänken är kopierad.';
+  } catch (_) { input.focus(); input.select(); document.getElementById('liveInvitationStatus').textContent = 'Markera och kopiera länken ovan.'; }
+}
+async function shareLiveInvitation() {
+  const url = document.getElementById('liveInvitationLink').value;
+  if (!navigator.share) { await copyLiveInvitation(); return; }
+  try { await navigator.share({ title: 'Spela live i Poängbogey', text: `Anslut till ${state.courseName}`, url }); }
+  catch (error) { if (error.name !== 'AbortError') await copyLiveInvitation(); }
+}
+function acceptLiveInvitationIfPresent() {
+  if (!new URLSearchParams(location.hash.slice(1)).has('live_join')) return;
+  const code = GolfLiveInvitation.parse(location.href);
+  history.replaceState(null, '', location.pathname + location.search);
+  openJoinLiveModal();
+  if (!code) { showJoinLiveError('Inbjudningslänken är ogiltig. Be värden om en ny länk.'); return; }
+  document.getElementById('joinLiveCodeInput').value = code;
+  fetchLiveRoom();
 }
 
 function closeLiveCodeModal() {
@@ -4839,18 +5080,27 @@ function copyLiveCode() {
 // ============================================================
 let _joinLiveRoom = null; // last fetched room, kept while the seat-picker step is open
 let _joinLiveCode = null;
+let _joinLiveRequest = 0;
 
 function openJoinLiveModal() {
+  _liveDialogReturnFocus = document.activeElement;
+  _joinLiveRequest++;
   _joinLiveRoom = null;
   _joinLiveCode = null;
   document.getElementById('joinLiveCodeInput').value = '';
+  document.getElementById('joinLiveFetchBtn').disabled = false;
+  document.getElementById('joinLiveFetchBtn').textContent = 'Hämta runda';
   document.getElementById('joinLiveError').classList.add('hidden');
   backToJoinLiveCodeStep();
   document.getElementById('joinLiveModal').classList.remove('hidden');
+  document.getElementById('joinLiveCodeInput').focus();
 }
 
 function closeJoinLiveModal() {
+  _joinLiveRequest++;
   document.getElementById('joinLiveModal').classList.add('hidden');
+  if (_liveDialogReturnFocus?.isConnected) _liveDialogReturnFocus.focus({ preventScroll: true });
+  _liveDialogReturnFocus = null;
 }
 
 function backToJoinLiveCodeStep() {
@@ -4877,9 +5127,10 @@ async function revokeLiveSeat(seat) {
 }
 
 function fetchLiveRoom() {
-  const code = document.getElementById('joinLiveCodeInput').value.trim().toUpperCase();
-  if (!GolfValidation.isJoinCode(code)) { showJoinLiveError('Ange en kod.'); return; }
+  const code = GolfLiveInvitation.parse(document.getElementById('joinLiveCodeInput').value);
+  if (!code) { showJoinLiveError('Ange en kod.'); return; }
 
+  const requestId = ++_joinLiveRequest;
   const btn = document.getElementById('joinLiveFetchBtn');
   document.getElementById('joinLiveError').classList.add('hidden');
   btn.disabled = true; btn.textContent = 'Hämtar…';
@@ -4887,18 +5138,23 @@ function fetchLiveRoom() {
   liveSyncClient.request(`/room/${code}`)
     .then(r => r.ok ? r.json() : Promise.reject(new Error('http ' + r.status)))
     .then(room => {
+      if (requestId !== _joinLiveRequest) return;
       _joinLiveRoom = room;
       _joinLiveCode = code;
       document.getElementById('joinLiveError').classList.add('hidden');
       renderJoinLiveSeatList(room, code);
       document.getElementById('joinLiveCodeStep').classList.add('hidden');
       document.getElementById('joinLiveSeatStep').classList.remove('hidden');
+      document.querySelector('#joinLiveSeatList button:not(:disabled)')?.focus();
     })
-    .catch(() => showJoinLiveError('Hittade ingen live-runda med den koden.'))
-    .finally(() => { btn.disabled = false; btn.textContent = 'Hämta runda'; });
+    .catch(() => { if (requestId === _joinLiveRequest) showJoinLiveError('Hittade ingen live-runda med den koden.'); })
+    .finally(() => { if (requestId === _joinLiveRequest) { btn.disabled = false; btn.textContent = 'Hämta runda'; } });
 }
 
 function renderJoinLiveSeatList(room, code) {
+  const preview = document.getElementById('liveJoinPreview');
+  if (preview) preview.textContent = `${room.courseName || 'Live-runda'} · ${room.holes || ''} hål · Värdens plats: ${room.hostName || room.players?.[0]?.name || 'spelare 1'} · ${(room.seats || []).filter(seat => !seat.claimed).length} lediga platser`;
+
   const shared = isSharedScoreMode(room.gameMode);
   const seatNames = shared
     ? (room.teams || []).map(t => t.name)
@@ -4938,6 +5194,7 @@ function renderJoinLiveSeatList(room, code) {
 }
 
 function claimLiveSeat(code, seat) {
+  if (inprogressLoad() && !confirm('En pågående runda finns på enheten. Ersätta den med live-rundan?')) return;
   const selectedPlayerId = parseInt(document.getElementById('joinLivePlayerSelect')?.value || '');
   liveSyncClient.request(`/room/${code}/claim`, {
     method: 'POST',
@@ -5040,7 +5297,7 @@ function restoreScoresToTable() {
       if (ptsEl) {
         const pts = calcLivePts(p, i, val);
         ptsEl.textContent = pts + 'p';
-        ptsEl.className = `live-pts pts-${Math.min(pts, 4)}`;
+        ptsEl.className = `live-pts explanation-button pts-${Math.min(pts, 4)}`;
       }
     }
   }
@@ -5107,12 +5364,13 @@ function roundDelete(id) {
   roundsSave(roundsLoad().filter(round => !roundIdMatches(round, id)));
 }
 
-function _buildDataPayload(inclCourses, inclRounds, inclPlayers, inclTours = false) {
+function _buildDataPayload(inclCourses, inclRounds, inclPlayers, inclTours = false, inclSetups = true) {
   return GolfStorage.createBackupPayload({
     courses:  inclCourses  ? dbLoad()        : [],
     rounds:   inclRounds   ? roundsLoad()    : [],
     players:  (inclPlayers || inclTours) ? playersLoad() : [],
     tours:    inclTours ? toursLoad() : [],
+    setups: inclSetups ? setupsLoad() : [], setupDeletions: inclSetups ? storageDb.load(SETUP_DELETIONS_KEY, []) : [],
     playerDeletions: (inclPlayers || inclTours) ? storageDb.load('golf_player_deletions', []) : [],
     courseDeletions: inclCourses ? storageDb.load('golf_course_deletions', []) : []
   });
@@ -5123,7 +5381,8 @@ function exportData() {
   const inclCourses  = document.getElementById('exportCourses').checked;
   const inclPlayers  = document.getElementById('exportPlayers').checked;
   const inclTours = document.getElementById('exportTours').checked;
-  if (!inclRounds && !inclCourses && !inclPlayers && !inclTours) {
+  const inclSetups = document.getElementById('exportSetups').checked;
+  if (!inclRounds && !inclCourses && !inclPlayers && !inclTours && !inclSetups) {
     const r = document.getElementById('importResult');
     r.style.display = 'block';
     r.style.background = '#fff8e1';
@@ -5131,7 +5390,7 @@ function exportData() {
     r.textContent = '⚠️ Välj minst ett alternativ att exportera.';
     return;
   }
-  const payload = _buildDataPayload(inclCourses, inclRounds, inclPlayers, inclTours);
+  const payload = _buildDataPayload(inclCourses, inclRounds, inclPlayers, inclTours, inclSetups);
   const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
@@ -5203,6 +5462,12 @@ function _applyImportPayload(payload) {
     if (!storageDb.save(key, deletions, true)) throw new Error('Kunde inte spara raderingar.');
     const deleted = new Set(deletions.map(item => item.id));
     save(load().filter(item => !deleted.has(String(item.id))));
+  }
+  if (payload.setups || payload.setupDeletions) {
+    const merged = GolfAccountSync.mergeSnapshots({ setups: setupsLoad(), setupDeletions: storageDb.load(SETUP_DELETIONS_KEY, []) },
+      { setups: payload.setups || [], setupDeletions: payload.setupDeletions || [] });
+    if (!storageDb.saveMany({ [SETUPS_KEY]: merged.setups, [SETUP_DELETIONS_KEY]: merged.setupDeletions })) throw new Error('Spelgrupperna kunde inte importeras.');
+    scheduleAccountSync('setup-import'); renderSavedSetups();
   }
   return { addedCourses, addedRounds, addedPlayers, addedTours };
 }
@@ -7840,11 +8105,11 @@ function renderHistoryList() {
     return `
       <div class="history-item" data-id="${escapeHtml(String(r.id))}">
         <div class="hi-header" onclick="toggleHistoryItem(this)">
-          <div style="flex:1;min-width:0;">
-            <div class="hi-date">${r.date} · ${r.holes} hål · ${hasMixedTees(r.subjects) ? '⛳ Blandat tee' : `${teeIconFor(r.tee)} ${escapeHtml(r.tee || '')}`}${r.weather && WEATHER[r.weather] ? ' · ' + WEATHER[r.weather].e : ''}</div>
-            <div class="hi-course">${escapeHtml(r.courseName)}</div>
-            <div class="hi-meta">${topLine}</div>
-          </div>
+          <button type="button" class="hi-summary" aria-expanded="false" aria-label="Visa detaljer för ${escapeHtml(r.courseName)}, ${r.date}" style="flex:1;min-width:0;text-align:left;border:0;background:transparent;color:inherit;padding:0;" onclick="event.stopPropagation();toggleHistoryItem(this.parentElement)">
+            <span style="display:block;" class="hi-date">${r.date} · ${r.holes} hål · ${hasMixedTees(r.subjects) ? '⛳ Blandat tee' : `${teeIconFor(r.tee)} ${escapeHtml(r.tee || '')}`}${r.weather && WEATHER[r.weather] ? ' · ' + WEATHER[r.weather].e : ''}</span>
+            <span style="display:block;" class="hi-course">${escapeHtml(r.courseName)}</span>
+            <span style="display:block;" class="hi-meta">${topLine}</span>
+          </button>
           <span class="hi-chevron">▶</span>
           <button class="hi-edit" data-round-action="edit" data-round-id="${escapeHtml(String(r.id))}" title="Redigera">✏️</button>
           <button class="hi-share" data-round-action="share" data-round-id="${escapeHtml(String(r.id))}" title="Dela">📤</button>
@@ -7852,6 +8117,7 @@ function renderHistoryList() {
           <button class="hi-del" data-round-action="delete" data-round-id="${escapeHtml(String(r.id))}" title="Ta bort">🗑</button>
         </div>
         <div class="hi-body">
+          <button class="btn secondary" data-round-action="replay" data-round-id="${escapeHtml(String(r.id))}">Spela igen med uppställningen</button>
           ${r.note ? `<div style="font-style:italic;color:var(--muted);font-size:0.85rem;margin:4px 0 8px;">📝 "${escapeHtml(r.note)}"</div>` : ''}
           <div class="hi-ranking">${rankRows}</div>
           ${buildRoundHighlights(r.subjects.map(s => ({ subj: { name: s.name }, rows: s.rows })), r.markers)}
@@ -7873,6 +8139,7 @@ function handleHistoryRoundAction(event) {
   const button = event.currentTarget;
   const id = button.dataset.roundId;
   if (button.dataset.roundAction === 'edit') editRound(id);
+  else if (button.dataset.roundAction === 'replay') playAgain(id);
   else if (button.dataset.roundAction === 'share') shareRound(id);
   else if (button.dataset.roundAction === 'print') printRound(id);
   else if (button.dataset.roundAction === 'delete' && confirm('Ta bort rundan? Går inte att ångra.')) {
@@ -7886,6 +8153,7 @@ function toggleHistoryItem(header) {
   const chevron = header.querySelector('.hi-chevron');
   body.classList.toggle('open');
   chevron.classList.toggle('open');
+  header.querySelector('.hi-summary')?.setAttribute('aria-expanded', String(body.classList.contains('open')));
 }
 
 function editRound(id) {
@@ -8297,6 +8565,7 @@ if ('serviceWorker' in navigator) {
     .catch(() => {});
 }
 goToStep(1);
+try { acceptLiveInvitationIfPresent(); } catch (_) {}
 try {
   const notificationTour = new URLSearchParams(location.hash.slice(1)).get('shared_tour');
   if (notificationTour) setTimeout(async () => {

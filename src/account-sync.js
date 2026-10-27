@@ -68,7 +68,7 @@
   function mergeSnapshots(remote, local, baseline) {
     const output = {};
     const conflicts = [];
-    for (const collection of ['courses', 'rounds', 'players', 'tours']) {
+    for (const collection of ['courses', 'rounds', 'players', 'tours', 'setups']) {
       const keyOf = item => collection === 'courses' ? courseId(item) : String(item.id);
       const deletionKey = `${collection.slice(0, -1)}Deletions`;
       const deletions = mergeDeletions(remote?.[deletionKey], local?.[deletionKey]);
