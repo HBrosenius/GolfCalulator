@@ -115,12 +115,13 @@ function validateResultRow(row, expectedHole) {
 export function validateTourRoundSubmission(body, tour) {
   const allowed = new Set([
     'protocolVersion', 'schemaVersion', 'clientRoundId', 'playedDate', 'courseId',
-    'gameMode', 'subjects', 'liveRoomCode',
+    'gameMode', 'subjects', 'liveRoomCode', 'roundKind',
   ]);
   if (!body || body.protocolVersion !== PROTOCOL_VERSION) return 'Unsupported protocol version';
   if (body.schemaVersion !== TOUR_SCHEMA_VERSION) return 'Unsupported tour schema version';
   if (!hasOnlyKeys(body, allowed) || !isText(body.clientRoundId, 80) || !isDate(body.playedDate)) return 'Invalid round submission';
   if (tour.status !== 'open' || body.playedDate < tour.startDate || body.playedDate > tour.endDate) return 'Round is outside the open tour';
+  if (body.roundKind !== undefined && body.roundKind !== 'competitive') return 'Practice rounds cannot be submitted to a tour';
   if (!['individual', 'scramble', 'fourball', 'foursome', 'match'].includes(body.gameMode)) return 'Unsupported tour game mode';
   if (body.liveRoomCode !== undefined && !/^([A-HJ-KM-NP-Z2-9]{4}|[A-HJ-KM-NP-Z2-9]{20})$/.test(body.liveRoomCode)) return 'Invalid live room code';
   const course = tour.courses.find(item => item.id === body.courseId);

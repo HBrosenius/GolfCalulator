@@ -53,9 +53,12 @@ export function validateCreate(body) {
   if (!hasProtocol(body)) return 'Unsupported protocol version';
   const allowed = new Set([
     'protocolVersion', 'courseName', 'teeColor', 'holes', 'slope', 'cr', 'par',
-    'hpar', 'si', 'gameMode', 'teams', 'players', 'seatCount', 'markers', 'tourRef',
+    'hpar', 'si', 'gameMode', 'teams', 'players', 'seatCount', 'markers', 'tourRef', 'playedDate', 'roundKind',
   ]);
   if (!hasOnlyKeys(body, allowed)) return 'Invalid round configuration';
+  if (body.roundKind !== undefined && !['competitive', 'practice'].includes(body.roundKind)) return 'Invalid round kind';
+  if (body.roundKind === 'practice' && body.tourRef) return 'Practice rounds cannot join a tour';
+  if (body.playedDate !== undefined && (typeof body.playedDate !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(body.playedDate) || Number.isNaN(Date.parse(body.playedDate + 'T00:00:00Z')) || new Date(body.playedDate + 'T00:00:00Z').toISOString().slice(0,10) !== body.playedDate)) return 'Invalid played date';
   if (!isText(body.courseName, 80) || !isText(body.teeColor, 20)) return 'Invalid round configuration';
   if (body.holes !== 9 && body.holes !== 18) return 'Invalid round configuration';
   if (!isNumber(body.slope, 55, 155) || !isNumber(body.cr, 25, 85) || !isInteger(body.par, 27, 90)) return 'Invalid round configuration';

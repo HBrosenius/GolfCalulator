@@ -489,6 +489,7 @@ export class Tour extends DurableObject {
       courseName: course.name,
       holes: course.holes,
       gameMode: body.gameMode,
+      roundKind: 'competitive',
       liveRoomCode: body.liveRoomCode || null,
       submittedAt,
       submittedBy: actor.id,

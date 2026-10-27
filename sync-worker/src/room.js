@@ -23,7 +23,7 @@ function publicRoom(room) {
     par: room.par,
     hpar: room.hpar,
     si: room.si,
-    gameMode: room.gameMode,
+    gameMode: room.gameMode, playedDate: room.playedDate || null, roundKind: room.roundKind || 'competitive',
     teams: room.teams,
     players: room.players,
     seats: room.seats.map(seat => ({ scores: seat.scores, claimed: !!seat.tokenHash })),
@@ -66,7 +66,7 @@ export class GolfRoom extends DurableObject {
       par: config.par,
       hpar: config.hpar,
       si: config.si,
-      gameMode: config.gameMode,
+      gameMode: config.gameMode, playedDate: config.playedDate || null, roundKind: config.roundKind || 'competitive',
       teams: config.teams ? config.teams.map(team => ({
         name: team.name,
         playingHandicap: team.playingHandicap,

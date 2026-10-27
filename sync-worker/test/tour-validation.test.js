@@ -170,3 +170,12 @@ it('accepts the production smoke fixture using the real nine-hole handicap', asy
   expect(body.subjects[0].totalBrutto).toBe(41);
   expect(validateTourRoundSubmission(body, tour)).toBeNull();
 });
+
+it('rejects practice rounds while keeping historical competitive round submissions valid', async () => {
+  const { buildSmokeSubmission } = await import('../../scripts/smoke-round.mjs');
+  const config = validTour();
+  const tour = { ...config, status: 'open', members: [{ id: 'member', name: 'Ada', hi: 10 }], courses: [{ ...config.courses[0], id: 'course' }] };
+  const body = buildSmokeSubmission(tour, '2026-07-01');
+  expect(validateTourRoundSubmission({ ...body, roundKind: 'competitive' }, tour)).toBeNull();
+  expect(validateTourRoundSubmission({ ...body, roundKind: 'practice' }, tour)).toMatch(/Practice rounds/);
+});

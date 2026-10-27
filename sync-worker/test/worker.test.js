@@ -37,7 +37,7 @@ async function createRoom(seatCount = 3) {
 
 async function claim(code, seat) {
   const response = await SELF.fetch(`https://worker.test/room/${code}/claim`, {
-    method: 'POST', headers: mutationHeaders(),
+    method: 'POST', headers: { ...mutationHeaders(), 'CF-Connecting-IP': crypto.randomUUID() },
     body: JSON.stringify({ protocolVersion: PROTOCOL_VERSION, seat }),
   });
   return { response, body: await response.json() };
@@ -264,4 +264,15 @@ it('creates a one-team two-player scramble invitation', async () => {
     headers: { 'Content-Type': 'application/json', 'CF-Connecting-IP': crypto.randomUUID() }, body: JSON.stringify(payload) });
   expect(response.status).toBe(201);
   expect((await response.json()).room.seats).toHaveLength(1);
+});
+
+it('keeps the played date and practice classification consistent for live joiners', async () => {
+  const payload = { ...round(2), playedDate: '2026-05-15', roundKind: 'practice' };
+  const response = await SELF.fetch('https://worker.test/room', { method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'CF-Connecting-IP': crypto.randomUUID() }, body: JSON.stringify(payload) });
+  expect(response.status).toBe(201);
+  const created = await response.json();
+  const joined = await claim(created.code, 1);
+  expect(joined.response.status).toBe(200);
+  expect(joined.body.room).toMatchObject({ playedDate: '2026-05-15', roundKind: 'practice' });
 });
