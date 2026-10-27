@@ -25,7 +25,7 @@ const ALLOWED_ORIGINS = new Set([
   'http://127.0.0.1:8765',
 ]);
 
-function randomCode(length = 4) {
+function randomCode(length = 20) {
   const bytes = new Uint8Array(length);
   crypto.getRandomValues(bytes);
   return [...bytes].map(byte => CODE_CHARS[byte % CODE_CHARS.length]).join('');
@@ -275,11 +275,16 @@ async function route(request, env, ctx = null) {
   if (parts[0] !== 'room') return json({ error: 'Not found' }, 404);
 
   if (parts.length === 1 && request.method === 'POST') return createRoom(request, env);
-  if (parts.length < 2 || !/^[A-HJ-KM-NP-Z2-9]{4}$/.test(parts[1].toUpperCase())) return json({ error: 'Room not found' }, 404);
+  if (parts.length < 2 || !/^[A-HJ-KM-NP-Z2-9]{20}$/.test(parts[1].toUpperCase())) return json({ error: 'Room not found' }, 404);
 
   const code = parts[1].toUpperCase();
+  const caller = request.headers.get('CF-Connecting-IP') || 'local';
+  const operation = parts[2] === 'claim' ? 'claim' : 'lookup';
+  // Count failed discovery and claims by caller, never against the whole room.
+  if ((request.method === 'GET' || parts[2] === 'claim') &&
+      !await env.CREATE_LIMITER.getByName(`room-${operation}:${caller}`).check(operation === 'lookup' ? 120 : 10)) return json({ error: 'Too many attempts' }, 429);
   const room = env.GOLF_ROOMS.getByName(code);
-  if (parts.length === 2 && request.method === 'GET') return fromRoomResult(await room.getPublicState());
+  if (parts.length === 2 && request.method === 'GET') return fromRoomResult(await room.getPublicState(bearerToken(request)));
   if (!protocolHeaderValid(request)) return json({ error: 'Unsupported protocol version' }, 426);
 
   const parsed = await bodyOrResponse(request);
@@ -287,6 +292,7 @@ async function route(request, env, ctx = null) {
   const token = bearerToken(request);
 
   if (parts.length === 2 && request.method === 'PATCH') return fromRoomResult(await room.patch(parsed.body, token));
+  if (parts.length === 3 && parts[2] === 'revoke' && request.method === 'POST') return fromRoomResult(await room.revokeSeat(parsed.body, token));
   if (parts.length === 3 && parts[2] === 'claim' && request.method === 'POST') return fromRoomResult(await room.claimSeat(parsed.body));
   if (parts.length === 3 && parts[2] === 'bets' && request.method === 'POST') return fromRoomResult(await room.proposeBet(parsed.body, token));
   if (parts.length === 5 && parts[2] === 'bets' && request.method === 'POST') {

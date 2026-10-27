@@ -35,6 +35,24 @@
           return !verify || storage.getItem(key) === json;
         } catch (error) { return false; }
       },
+      saveMany(entries) {
+        if (!available) return false;
+        const before = new Map();
+        try {
+          for (const [key, value] of Object.entries(entries)) {
+            before.set(key, storage.getItem(key));
+            const json = JSON.stringify(value);
+            storage.setItem(key, json);
+            if (storage.getItem(key) !== json) throw new Error('Storage verification failed');
+          }
+          return true;
+        } catch (_) {
+          for (const [key, raw] of before) {
+            try { if (raw == null) storage.removeItem(key); else storage.setItem(key, raw); } catch (_) {}
+          }
+          return false;
+        }
+      },
       remove(key) {
         if (!available) return false;
         try { storage.removeItem(key); return true; }
@@ -61,6 +79,8 @@
       rounds: Array.isArray(data.rounds) ? data.rounds : [],
       players: Array.isArray(data.players) ? data.players : [],
       tours: Array.isArray(data.tours) ? data.tours : [],
+      ...(data.playerDeletions ? { playerDeletions: data.playerDeletions } : {}),
+      ...(data.courseDeletions ? { courseDeletions: data.courseDeletions } : {}),
     };
   }
 

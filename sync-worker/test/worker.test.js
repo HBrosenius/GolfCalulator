@@ -79,14 +79,14 @@ describe('secure live-room protocol', () => {
 
   it('creates public state without leaking stored credentials', async () => {
     const created = await createRoom(2);
-    expect(created.code).toMatch(/^[A-HJ-KM-NP-Z2-9]{4}$/);
+    expect(created.code).toMatch(/^[A-HJ-KM-NP-Z2-9]{20}$/);
     expect(created.hostToken).toMatch(/^[A-Za-z0-9_-]{40,64}$/);
     expect(created.seatToken).toMatch(/^[A-Za-z0-9_-]{40,64}$/);
     expect(created.room.seats[0].claimed).toBe(true);
     expect(created.room.seats[1].claimed).toBe(false);
     expect(JSON.stringify(created.room)).not.toMatch(/token|hash|owner|device/i);
 
-    const read = await SELF.fetch(`https://worker.test/room/${created.code}`);
+    const read = await SELF.fetch(`https://worker.test/room/${created.code}`, { headers: mutationHeaders(created.hostToken) });
     expect(read.status).toBe(200);
     expect(read.headers.get('Cache-Control')).toBe('no-store');
     expect(JSON.stringify(await read.json())).not.toContain(created.hostToken);
@@ -150,7 +150,7 @@ describe('secure live-room protocol', () => {
       patch(created.code, guest.body.seatToken, { seat: 1, scores: second }),
     ]);
     expect(responses.map(response => response.status)).toEqual([200, 200]);
-    const state = await (await SELF.fetch(`https://worker.test/room/${created.code}`)).json();
+    const state = await (await SELF.fetch(`https://worker.test/room/${created.code}`, { headers: mutationHeaders(created.hostToken) })).json();
     expect(state.seats[0].scores).toEqual(first);
     expect(state.seats[1].scores).toEqual(second);
   });
@@ -163,13 +163,13 @@ describe('secure live-room protocol', () => {
 
     // A reconnect carries no credentials while reading. The locally persisted
     // seat token is only sent again when that seat resumes mutating its score.
-    const reconnected = await SELF.fetch(`https://worker.test/room/${created.code}`);
+    const reconnected = await SELF.fetch(`https://worker.test/room/${created.code}`, { headers: mutationHeaders(created.hostToken) });
     expect(reconnected.status).toBe(200);
     expect((await reconnected.json()).seats[1].scores).toEqual(beforeDisconnect);
 
     const afterReconnect = [5, 4, 3, '', '', '', '', '', ''];
     expect((await patch(created.code, guest.body.seatToken, { seat: 1, scores: afterReconnect })).status).toBe(200);
-    const finalState = await (await SELF.fetch(`https://worker.test/room/${created.code}`)).json();
+    const finalState = await (await SELF.fetch(`https://worker.test/room/${created.code}`, { headers: mutationHeaders(created.hostToken) })).json();
     expect(finalState.seats[1].scores).toEqual(afterReconnect);
   });
 
@@ -190,7 +190,7 @@ describe('secure live-room protocol', () => {
     });
     const responses = await Promise.all([respond(1, seat1.body.seatToken), respond(2, seat2.body.seatToken)]);
     expect(responses.map(response => response.status)).toEqual([200, 200]);
-    const state = await (await SELF.fetch(`https://worker.test/room/${created.code}`)).json();
+    const state = await (await SELF.fetch(`https://worker.test/room/${created.code}`, { headers: mutationHeaders(created.hostToken) })).json();
     expect(state.bets[0].status).toBe('locked');
 
     const secondBet = await SELF.fetch(`https://worker.test/room/${created.code}/bets`, {
@@ -215,6 +215,43 @@ describe('secure live-room protocol', () => {
     const created = await createRoom(2);
     const stub = env.GOLF_ROOMS.getByName(created.code);
     expect(await runDurableObjectAlarm(stub)).toBe(true);
-    expect((await SELF.fetch(`https://worker.test/room/${created.code}`)).status).toBe(404);
+    expect((await SELF.fetch(`https://worker.test/room/${created.code}`, { headers: mutationHeaders(created.hostToken) })).status).toBe(404);
   });
+});
+
+it('rejects old discoverable codes and lets only the host revoke a seat credential', async () => {
+  expect((await SELF.fetch('https://worker.test/room/ABCD')).status).toBe(404);
+  const created = await createRoom(2);
+  const guest = await claim(created.code, 1);
+  const revoke = token => SELF.fetch(`https://worker.test/room/${created.code}/revoke`, {
+    method: 'POST', headers: mutationHeaders(token), body: JSON.stringify({ protocolVersion: PROTOCOL_VERSION, seat: 1 }),
+  });
+  expect((await revoke(guest.body.seatToken)).status).toBe(403);
+  expect((await revoke(created.hostToken)).status).toBe(200);
+  expect((await patch(created.code, guest.body.seatToken, { seat: 1, scores: Array(9).fill(4) })).status).toBe(403);
+  expect((await claim(created.code, 1)).response.status).toBe(200);
+});
+
+it('limits discovery and claims by caller without blocking another device', async () => {
+  const created = await createRoom(2);
+  for (let i = 0; i < 11; i++) {
+    await SELF.fetch(`https://worker.test/room/${created.code}/claim`, {
+      method: 'POST', headers: { ...mutationHeaders(), 'CF-Connecting-IP': 'abusive-caller' }, body: JSON.stringify({ protocolVersion: PROTOCOL_VERSION, seat: 0 }),
+    });
+  }
+  const response = await SELF.fetch(`https://worker.test/room/${created.code}/claim`, {
+    method: 'POST', headers: { ...mutationHeaders(), 'CF-Connecting-IP': 'legitimate-caller' }, body: JSON.stringify({ protocolVersion: PROTOCOL_VERSION, seat: 1 }),
+  });
+  expect(response.status).toBe(200);
+});
+
+it('shows only a minimal preview before joining and protects notes and scores with a seat token', async () => {
+  const created = await createRoom(2);
+  await patch(created.code, created.hostToken, { note: 'Private note' });
+  const preview = await (await SELF.fetch(`https://worker.test/room/${created.code}`)).json();
+  expect(preview.note).toBeUndefined();
+  expect(preview.players[0].hi).toBeUndefined();
+  expect(preview.seats[0].scores).toBeUndefined();
+  const full = await (await SELF.fetch(`https://worker.test/room/${created.code}`, { headers: mutationHeaders(created.seatToken) })).json();
+  expect(full.note).toBe('Private note');
 });

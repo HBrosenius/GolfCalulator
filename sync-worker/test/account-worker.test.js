@@ -107,7 +107,7 @@ describe('passwordless accounts and cloud snapshots', () => {
       env.ACCOUNTS_DB.prepare('INSERT INTO account_snapshots (user_id,version,payload,updated_at) VALUES (?,?,?,?)')
         .bind(userId, 1, JSON.stringify({
           courses: [], rounds: [], roundDeletions: [{ id: 'deleted-round', deletedAt }], players: [], tours: [],
-          tourDeletions: [{ id: 'deleted-tour', deletedAt }],
+          tourDeletions: [{ id: 'deleted-tour', deletedAt }], playerDeletions: [{ id: 'deleted-player', deletedAt }], courseDeletions: [{ id: 'deleted-course', deletedAt }],
         }), now),
     ]);
     const headers = { Authorization: `Bearer ${sessionToken}`, 'Content-Type': 'application/json' };
@@ -115,7 +115,7 @@ describe('passwordless accounts and cloud snapshots', () => {
       method: 'PUT', headers, body: JSON.stringify({
         baseVersion: 1,
         data: {
-          courses: [], rounds: [{ id: 'deleted-round' }], players: [], tours: [{ id: 'deleted-tour' }],
+          courses: [{ id: 'deleted-course' }], rounds: [{ id: 'deleted-round' }], players: [{ id: 'deleted-player' }], tours: [{ id: 'deleted-tour' }],
         },
       }),
     });
@@ -127,6 +127,10 @@ describe('passwordless accounts and cloud snapshots', () => {
     expect(snapshot.data.roundDeletions).toEqual([{ id: 'deleted-round', deletedAt }]);
     expect(snapshot.data.tours).toEqual([]);
     expect(snapshot.data.tourDeletions).toEqual([{ id: 'deleted-tour', deletedAt }]);
+    expect(snapshot.data.players).toEqual([]);
+    expect(snapshot.data.courses).toEqual([]);
+    expect(snapshot.data.playerDeletions).toEqual([{ id: 'deleted-player', deletedAt }]);
+    expect(snapshot.data.courseDeletions).toEqual([{ id: 'deleted-course', deletedAt }]);
   });
 
   it('calculates cloud career statistics for the linked profile', async () => {

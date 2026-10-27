@@ -1,3 +1,5 @@
+import '../../src/scoring.js';
+const Scoring = globalThis.GolfScoring;
 import { SELF, env } from 'cloudflare:test';
 import { beforeAll, describe, expect, it } from 'vitest';
 import { hashToken } from '../src/auth.js';
@@ -95,8 +97,8 @@ function submission(created, overrides = {}) {
   const member = created.tour.members[0];
   const course = created.tour.courses[0];
   const rows = course.tees[0].hpar.map((par, index) => ({
-    h: index + 1, par, si: course.tees[0].si[index], strokes: 1,
-    score: par + 1, netto: par, pts: 2, skipped: false,
+    h: index + 1, par, si: course.tees[0].si[index], strokes: Scoring.strokesOnHole(Scoring.calculatePlayingHandicap(member.hi, course.tees[0].slope, course.tees[0].cr, course.tees[0].par, course.holes), course.tees[0].si[index], course.holes),
+    score: par + Scoring.strokesOnHole(Scoring.calculatePlayingHandicap(member.hi, course.tees[0].slope, course.tees[0].cr, course.tees[0].par, course.holes), course.tees[0].si[index], course.holes), netto: par, pts: 2, skipped: false,
   }));
   return {
     protocolVersion: PROTOCOL_VERSION, schemaVersion: TOUR_SCHEMA_VERSION,
@@ -537,4 +539,44 @@ describe('shared tour authorization', () => {
     expect(allowed.status).toBe(201);
     expect((await allowed.json()).room.tourRef).toEqual({ code: created.code });
   });
+});
+
+it('round-trips real client submissions through the Worker for every game mode', async () => {
+  await import('../../src/tour-rules.js');
+  const created = await createTour();
+  const course = created.tour.courses[0], tee = course.tees[0];
+  const links = Object.fromEntries(created.tour.members.map((member, index) => [index + 1, member.id]));
+  for (const gameMode of ['individual', 'match', 'scramble', 'foursome', 'fourball']) {
+    const shared = ['scramble', 'foursome'].includes(gameMode);
+    const phs = created.tour.members.map(member => Scoring.calculatePlayingHandicap(member.hi, tee.slope, tee.cr, tee.par, course.holes));
+    const makeRows = (ph, player = 0) => tee.hpar.map((par, h) => {
+      const strokes = Scoring.strokesOnHole(ph, tee.si[h], course.holes);
+      const score = par + strokes + (gameMode === 'fourball' ? (h + player) % 2 : 0);
+      return { h: h + 1, par, si: tee.si[h], strokes, score, netto: score - strokes, pts: Scoring.calculateStablefordPoints(score, par, strokes), skipped: false };
+    });
+    const teamPh = gameMode === 'scramble' ? Scoring.calculateScrambleHandicap(...created.tour.members.map(member => member.hi)) : Scoring.calculateFoursomeHandicap(...phs);
+    const subjects = (shared ? [teamPh] : phs).map((ph, player) => {
+      const rows = makeRows(ph, player);
+      return { name: shared ? 'Team A' : created.tour.members[player].name, playerId: player + 1,
+        memberIds: shared ? [1, 2] : undefined, tee: tee.name, teamId: gameMode === 'fourball' ? 'A' : null,
+        rows, totalPoints: rows.reduce((sum, row) => sum + row.pts, 0), totalBrutto: rows.reduce((sum, row) => sum + row.score, 0) };
+    });
+    if (gameMode === 'fourball') {
+      const total = Scoring.calculateFourballTeamPoints(subjects.map(subject => subject.rows.map(row => row.pts)));
+      subjects.forEach(subject => { subject.totalPoints = total; });
+    }
+    const round = { id: crypto.randomUUID(), date: daysFromNow(20), courseName: course.name, tee: tee.name, holes: course.holes, gameMode, subjects };
+    const body = globalThis.GolfTourRules.buildRoundSubmission(round, { tour: created.tour, memberLinks: links });
+    const response = await SELF.fetch(`https://worker.test/tour/${created.code}/rounds`, { method: 'POST', headers: headers(created.organizerToken), body: JSON.stringify(body) });
+    expect(response.status, gameMode).toBe(201);
+    const saved = (await response.json()).round;
+    expect(saved.subjects.map(subject => subject.totalPoints), gameMode).toEqual(body.subjects.map(subject => subject.totalPoints));
+    const forged = structuredClone(body); forged.clientRoundId = crypto.randomUUID();
+    forged.subjects.forEach(subject => {
+      subject.rows.forEach(row => { row.par = 6; row.strokes = 4; row.score = 4; row.netto = 0; row.pts = 8; });
+      subject.totalPoints = 72; subject.totalBrutto = 36;
+    });
+    const rejected = await SELF.fetch(`https://worker.test/tour/${created.code}/rounds`, { method: 'POST', headers: headers(created.organizerToken), body: JSON.stringify(forged) });
+    expect(rejected.status, gameMode).toBe(400);
+  }
 });

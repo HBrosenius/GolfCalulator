@@ -2,7 +2,7 @@
 <html lang="sv">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Poängbogey-kalkylator</title>
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⛳</text></svg>">
 <link rel="manifest" href="manifest.json">
@@ -11,16 +11,16 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Poängbogey">
-<script src="src/vendor/dompurify.min.js?v=3.4.13"></script>
+<script src="src/vendor/dompurify.min.js?v=3.4.17"></script>
 <script src="src/scoring.js?v=20260809-2"></script>
-<script src="src/storage.js?v=20260809-2"></script>
+<script src="src/storage.js?v=20261027-1"></script>
 <script src="src/live-sync.js?v=20260809-2"></script>
-<script src="src/validation.js?v=20260915-1"></script>
+<script src="src/validation.js?v=20261027-1"></script>
 <script src="src/round-extras.js?v=20260809-2"></script>
 <script src="src/live-round.js?v=20260809-2"></script>
 <script src="src/tour-rules.js?v=20260809-3"></script>
 <script src="src/tour-sync.js?v=20260809-7"></script>
-<script src="src/account-sync.js?v=20260809-7"></script>
+<script src="src/account-sync.js?v=20261027-1"></script>
 <script src="src/course-catalog.js?v=20260814-1"></script>
 <script>
 // Apply saved/system theme before first paint to avoid a flash of the wrong theme.
@@ -898,6 +898,8 @@
     body.printing-history #joinLiveModal { display: none !important; }
     body.printing-history #printOnlyResults { display: block !important; }
   }
+.single-hole .score-input { min-height:64px; font-size:1.6rem; width:100%; min-width:60px; }
+  #holeEntryControls button { min-height:44px; }
 </style>
 </head>
 <body>
@@ -1039,8 +1041,8 @@
             <input type="text" id="newPlayerNick" placeholder="t.ex. Birdie-Bengt">
           </div>
           <div>
-            <label style="margin-top:0;">Handicapindex</label>
-            <input type="number" id="newPlayerHI" placeholder="t.ex. 15.4" step="0.1" min="0" max="54" inputmode="decimal">
+            <label for="newPlayerHI" style="margin-top:0;">Handicapindex (plus-HCP: ange minus)</label>
+            <input type="number" id="newPlayerHI" placeholder="t.ex. 15.4" step="0.1" min="-10" max="54" inputmode="decimal">
           </div>
         </div>
         <button class="btn" style="margin-top:10px;width:100%;" onclick="addSavedPlayer()">+ Lägg till</button>
@@ -1244,6 +1246,7 @@
 
 
     <div id="step1Error" class="hidden" style="background:#fdecea;border-left:3px solid var(--danger);border-radius:0 8px 8px 0;padding:10px 14px;font-size:0.9rem;color:var(--danger);margin-bottom:8px;"></div>
+    <p style="font-size:.82rem;color:var(--muted);">Välj en sparad bana ovan eller ange en ny bana för att fortsätta.</p>
     <button class="btn" onclick="goToStep2()">Nästa →</button>
     <button class="btn secondary" style="margin-top:10px;" onclick="openJoinLiveModal()">📡 Anslut till live-runda</button>
   </div>
@@ -1421,7 +1424,8 @@
     <p style="font-size:0.85rem;color:var(--muted);text-align:center;margin:0;">
       Dela koden med de andra spelarna så de kan ansluta från sina egna enheter.
     </p>
-    <div style="font-size:2.4rem;font-weight:700;letter-spacing:0.15em;text-align:center;color:var(--heading);padding:10px 0;" id="liveCodeText"></div>
+    <div style="font-size:1.4rem;font-weight:700;letter-spacing:0.06em;overflow-wrap:anywhere;text-align:center;color:var(--heading);padding:10px 0;" id="liveCodeText"></div>
+    <p style="font-size:.82rem;">Koden är en privat inbjudan. Dela den bara med rundans spelare.</p>
     <button class="btn secondary" onclick="copyLiveCode()">📋 Kopiera kod</button>
     <button class="btn" onclick="closeLiveCodeModal()">Fortsätt →</button>
   </div>
@@ -1437,7 +1441,7 @@
       <p style="font-size:0.85rem;color:var(--muted);text-align:center;margin:0;">
         Ange koden du fått av den som startade rundan.
       </p>
-      <input type="text" id="joinLiveCodeInput" maxlength="4" placeholder="t.ex. 4GSP"
+      <input type="text" id="joinLiveCodeInput" maxlength="20" placeholder="Klistra in inbjudningskoden"
         style="text-align:center;font-size:1.6rem;letter-spacing:0.15em;text-transform:uppercase;margin-top:10px;"
         oninput="this.value = this.value.toUpperCase()" onkeydown="if(event.key==='Enter') fetchLiveRoom()">
       <button class="btn" id="joinLiveFetchBtn" style="margin-top:12px;" onclick="fetchLiveRoom()">Hämta runda</button>
@@ -1565,14 +1569,45 @@ let state = {
 // ============================================================
 // ── Enkel lagringsmodul – ett enda localStorage-objekt ───────
 const DB_KEY = 'golf_courses_db';
-const storageDb = GolfStorage.createJsonStore(localStorage);
+// Guest collections keep their existing keys; signed-in accounts have separate vaults.
+const scopedKeys = new Set(['golf_courses_db', 'golf_rounds_db', 'golf_players_db', 'golf_tours_db',
+  'golf_round_deletions', 'golf_tour_deletions', 'golf_player_deletions', 'golf_course_deletions',
+  'golf_account_sync_meta', 'golf_account_baseline', 'golf_shared_tours_db', 'golf_inprogress_round']);
+let _dataOwner = localStorage.getItem('golf_data_owner');
+try {
+  const existing = JSON.parse(localStorage.getItem('golf_account_session') || 'null');
+  _dataOwner = existing?.user?.id ? `${existing.apiBase || ''}|${existing.user.id}` : null;
+  if (_dataOwner) localStorage.setItem('golf_data_owner', _dataOwner);
+  else localStorage.removeItem('golf_data_owner');
+} catch (_) {}
+const scopedStorage = {
+  key(key) {
+    const owner = _dataOwner;
+    return owner && scopedKeys.has(key) ? `account:${encodeURIComponent(owner)}:${key}` : key;
+  },
+  getItem(key) { return localStorage.getItem(this.key(key)); },
+  setItem(key, value) { localStorage.setItem(this.key(key), value); },
+  removeItem(key) { localStorage.removeItem(this.key(key)); },
+};
+window.addEventListener('storage', event => {
+  if (event.key === 'golf_account_session' || event.key === 'golf_data_owner') location.reload();
+});
+const storageDb = GolfStorage.createJsonStore(scopedStorage);
 const _lsOk = storageDb.available;
-const sharedTourStore = GolfTourSync.createStore(localStorage);
+// Older releases kept account credentials in the guest tour cache. Retain the
+// public cached tour, but remove its account credential during migration.
+try {
+  const legacyTours = JSON.parse(localStorage.getItem('golf_shared_tours_db') || '[]');
+  if (Array.isArray(legacyTours) && legacyTours.some(record => record.accountBound && record.token)) {
+    localStorage.setItem('golf_shared_tours_db', JSON.stringify(legacyTours.map(record => record.accountBound ? { ...record, token: null } : record)));
+  }
+} catch (_) {}
+const sharedTourStore = GolfTourSync.createStore(scopedStorage);
 const sharedTourClient = GolfTourSync.createClient();
 
 function dbLoad() {
   const entries = storageDb.load(DB_KEY, []);
-  return Array.isArray(entries) ? entries : [];
+  return Array.isArray(entries) ? entries.map(entry => ({ ...entry, id: GolfAccountSync.courseId(entry) })) : [];
 }
 
 function dbSave(entries) {
@@ -1589,11 +1624,13 @@ function dbUpsert(entry) {
   const entries = dbLoad();
   const idx = entries.findIndex(e => e.name === entry.name && e.tee === entry.tee && e.holes === entry.holes);
   if (idx >= 0) entries[idx] = { ...entries[idx], ...entry };
-  else entries.push(entry);
+  else entries.push({ ...entry, id: entry.id || crypto.randomUUID() });
   return dbSave(entries);
 }
 
 function dbDelete(name, tee, holes) {
+  const course = dbFind(name, tee, holes);
+  if (course && !markCollectionDeleted('course', course.id)) return false;
   return dbSave(dbLoad().filter(e => !(e.name === name && e.tee === tee && e.holes === holes)));
 }
 
@@ -1723,7 +1760,7 @@ function filterCourses(query) {
   const q = query.trim().toLowerCase();
   const noMatch = document.getElementById('noMatchTxt');
   if (!q) {
-    document.getElementById('savedCoursesList').innerHTML = '';
+    document.getElementById('savedCoursesList').innerHTML = renderGroups(_courseGroups);
     noMatch.classList.add('hidden');
     return;
   }
@@ -1796,7 +1833,7 @@ function renderSavedCourses() {
   // Reset search on re-render — start with empty list
   document.getElementById('courseSearchInput').value = '';
   noMatch.classList.add('hidden');
-  list.innerHTML = '';
+  list.innerHTML = renderGroups(_courseGroups);
 }
 
 function openCourseCatalog() {
@@ -2310,8 +2347,8 @@ function availableTees() {
 // Slope/CR/par for a given tee, falling back to the round-level values.
 function teeData(teeColor) {
   const entry = teeColor ? dbFind(state.courseName, teeColor, state.holes) : null;
-  if (entry) return { tee: teeColor, slope: entry.slope, cr: entry.cr, par: entry.par };
-  return { tee: state.teeColor, slope: state.slope, cr: state.cr, par: state.par };
+  if (entry) return { tee: teeColor, slope: entry.slope, cr: entry.cr, par: entry.par, hpar: entry.hpar, si: entry.si };
+  return { tee: state.teeColor, slope: state.slope, cr: state.cr, par: state.par, hpar: state.hpar, si: state.si };
 }
 
 // The tee player p plays from (defaults to the round tee chosen in step 1).
@@ -2432,7 +2469,7 @@ function buildPlayerCards() {
     const myTee = playerTee(p);
     const teeHtml = tees.length > 1 ? `
       <div style="margin-top:8px;">
-        <label style="margin-top:0;">Tee</label>
+        <label for="ptee_${p}" style="margin-top:0;">Tee</label>
         <select id="ptee_${p}" onchange="setPlayerTee(${p}, this.value)">
           ${tees.map(t => `<option value="${escapeHtml(t)}"${t === myTee ? ' selected' : ''}>${teeIconFor(t)} ${escapeHtml(t)}</option>`).join('')}
         </select>
@@ -2447,13 +2484,13 @@ function buildPlayerCards() {
         ${pickerHtml}
         <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px;">
           <div>
-            <label style="margin-top:0;">Namn</label>
+            <label for="pname_${p}" style="margin-top:0;">Namn</label>
             <input type="text" id="pname_${p}" placeholder="Spelare ${p+1}" value="${escapeHtml(String(nameVal))}"
               oninput="onPlayerInput(${p})"${tourMembers.length ? ' readonly' : ''}>
           </div>
           <div>
-            <label style="margin-top:0;">Handicapindex</label>
-            <input type="number" id="phi_${p}" placeholder="t.ex. 15.4" step="0.1" min="0" max="54"
+            <label for="phi_${p}" style="margin-top:0;">Handicapindex (plus-HCP: ange minus)</label>
+            <input type="number" id="phi_${p}" placeholder="t.ex. 15.4" step="0.1" min="-10" max="54"
               value="${hiVal}" oninput="onPlayerInput(${p}, true)" inputmode="decimal"${tourMembers.length ? ' readonly' : ''}>
           </div>
         </div>
@@ -2597,8 +2634,8 @@ function buildStep4State() {
     const nameEl = document.getElementById(`pname_${p}`);
     const hiEl   = document.getElementById(`phi_${p}`);
     const hi = parseFloat(hiEl ? hiEl.value : '');
-    if (!Number.isFinite(hi) || hi < 0 || hi > 54) {
-      alert(`Ange ett giltigt handicapindex (0–54) för spelare ${p+1}.`);
+    if (!Number.isFinite(hi) || hi < -10 || hi > 54) {
+      alert(`Ange ett giltigt handicapindex (−10–54; plus-HCP anges med minus) för spelare ${p+1}.`);
       return false;
     }
     const name = (nameEl && nameEl.value.trim()) ? nameEl.value.trim() : `Spelare ${p+1}`;
@@ -2744,7 +2781,7 @@ function buildScoreTable() {
     const ph    = c.playingHandicap;
     const teeTag = mixedTees && c.tee
       ? `<span style="display:block;font-size:0.65rem;font-weight:400;">${teeIconFor(c.tee)} ${escapeHtml(c.tee)}</span>` : '';
-    hd += `<th style="min-width:52px;">${label}<span class="ph-header-badge">${formatPlayingHcp(ph)}</span>${teeTag}</th>`;
+    hd += `<th scope="col" style="min-width:52px;">${label}<span class="ph-header-badge">${formatPlayingHcp(ph)}</span>${teeTag}</th>`;
   });
   thead.innerHTML = hd + '</tr>';
 
@@ -2778,7 +2815,7 @@ function buildScoreTable() {
     const si  = state.si[i] || h;
     let rowClass = state.holes === 18 && i === 9 ? ' class="half-divider"' : '';
 
-    let cells = `<td class="hole-num">${h}</td><td class="par">${par}</td><td class="si">${si}</td>`;
+    let cells = `<th scope="row" class="hole-num">${h}</th><td class="par">${par}</td><td class="si">${si}</td>`;
     cols.forEach((c, p) => {
       const val = state.scores[p] && state.scores[p][i] !== '' ? state.scores[p][i] : '';
       let teeTag = '';
@@ -2795,9 +2832,10 @@ function buildScoreTable() {
       const isReadonly = state.liveRoomCode && !isSeatEditableByMe(p);
       const strokes = strokesOnHole(c.playingHandicap, si, state.holes);
       const strokeHint = strokes > 0 ? `<div class="stroke-hint">+${strokes} slag</div>` : '';
-      cells += `<td>${teeTag}<input type="number" class="score-input${val ? ' has-value' : ''}${isReadonly ? ' live-readonly' : ''}" id="score_${p}_${i}"
-        min="1" max="20" inputmode="numeric" value="${val}"${isReadonly ? ' readonly tabindex="-1"' : ''}
+      cells += `<td>${teeTag}<input type="number" class="score-input${val ? ' has-value' : ''}${isReadonly ? ' live-readonly' : ''}" id="score_${p}_${i}" aria-label="${escapeHtml(c.name)}, hål ${h}, slag"
+        min="0" max="20" inputmode="numeric" value="${val}"${isReadonly ? ' readonly tabindex="-1"' : ''}
         oninput="onScoreInput(${p},${i},this)" onkeydown="scoreKeyDown(event,${p},${i})">
+        <button type="button" aria-label="Plocka upp, ${escapeHtml(c.name)}, hål ${h}" onclick="pickUpHole(${p},${i})"${isReadonly ? ' disabled' : ''}>Plocka upp</button>
         ${strokeHint}<div class="live-pts" id="pts_${p}_${i}"></div></td>`;
     });
     let extra = '';
@@ -2812,6 +2850,19 @@ function buildScoreTable() {
     extra += `<tr class="bet-row" id="betrow_${i}"><td colspan="${totalCols}" id="betcell_${i}"></td></tr>`;
     tbody.innerHTML += `<tr${rowClass}>${cells}</tr>${extra}`;
   }
+  if (state.liveHostToken) {
+    const recovery = document.createElement('div');
+    recovery.style.marginTop = '8px';
+    recovery.innerHTML = cols.slice(1).map((c, offset) => `<button class="btn secondary" onclick="revokeLiveSeat(${offset + 1})">Återställ plats: ${escapeHtml(c.name)}</button>`).join('');
+    document.getElementById('liveSeatRecovery')?.remove();
+    recovery.id = 'liveSeatRecovery';
+    document.querySelector('.score-table').parentElement.appendChild(recovery);
+  }
+  document.getElementById('holeEntryControls')?.remove();
+  const controls = document.createElement('div'); controls.id = 'holeEntryControls';
+  controls.innerHTML = `<button class="btn secondary" onclick="showSingleHole(0)">Ett hål i taget</button><button class="btn secondary" onclick="showSingleHole(null)">Översikt</button><div style="display:flex;align-items:center;gap:8px"><button onclick="showSingleHole((_singleHole ?? 0)-1)" aria-label="Föregående hål">←</button><span id="singleHoleLabel" aria-live="polite">Alla hål</span><button onclick="showSingleHole((_singleHole ?? -1)+1)" aria-label="Nästa hål">→</button></div>`;
+  document.querySelector('.score-table').parentElement.before(controls);
+  showSingleHole(_singleHole);
   restoreScoresToTable();
   updateLiveLeader();
   updateMatchStatus();
@@ -3098,8 +3149,10 @@ function matchResultText(results) {
 }
 
 function calcLivePts(p, i, score) {
-  const par = state.hpar[i] || 4;
-  const si  = state.si[i] || (i + 1);
+  if (score === 0) return 0;
+  const td = isSharedScoreMode(state.gameMode) ? state : teeData(state.players[p]?.tee);
+  const par = td.hpar[i] || 4;
+  const si  = td.si[i] || (i + 1);
   const ph  = (isSharedScoreMode(state.gameMode) ? state.teams : state.players)[p].playingHandicap;
   const strokes = strokesOnHole(ph, si, state.holes);
   const netto = score - strokes;
@@ -3286,9 +3339,31 @@ function updateTeeShotSummary() {
   box.style.display = 'block';
 }
 
+function pickUpHole(p, i) {
+  const input = document.getElementById(`score_${p}_${i}`);
+  if (!input || input.readOnly || input.disabled) return;
+  input.value = '0'; onScoreInput(p, i, input);
+  document.getElementById(`pts_${p}_${i}`).textContent = 'Upplockad · 0p';
+}
+
+// Keep one scorecard and move its active hole into a large field-entry view.
+let _singleHole = null;
+function showSingleHole(hole) {
+  _singleHole = hole == null ? null : Math.max(0, Math.min(state.holes - 1, hole));
+  document.querySelectorAll('#scoreTableBody > tr').forEach(row => {
+    const input = row.querySelector('.score-input');
+    const index = input ? Number(input.id.split('_')[2]) : Number(row.id.replace('betrow_', ''));
+    row.hidden = _singleHole != null && index !== _singleHole;
+  });
+  document.querySelector('.score-table')?.classList.toggle('single-hole', _singleHole != null);
+  const label = document.getElementById('singleHoleLabel');
+  if (label) label.textContent = _singleHole == null ? 'Alla hål' : `Hål ${_singleHole + 1} av ${state.holes}`;
+  if (_singleHole != null) document.querySelector(`#score_0_${_singleHole}`)?.focus();
+}
+
 function onScoreInput(p, i, el) {
   // 0/negative scores make the points calculation throw; the backup format caps scores at 20.
-  if (el.value !== '' && !(parseInt(el.value) >= 1)) el.value = '';
+  if (el.value !== '' && !(parseInt(el.value) >= 0)) el.value = '';
   else if (parseInt(el.value) > 20) el.value = '20';
   el.classList.toggle('has-value', el.value !== '');
   if (!state.scores[p]) state.scores[p] = new Array(state.holes).fill('');
@@ -3445,7 +3520,9 @@ function calculateAll() {
     }
   }
 
-  const anyScore = state.scores.some(ps => ps.some(s => s !== null && s > 0));
+  const unfinished = state.scores.reduce((sum, row) => sum + row.filter(score => score == null || score === '').length, 0);
+  if (unfinished && !confirm(`${unfinished} hålresultat saknas. Avsluta ändå och räkna dessa som upplockade (0 poäng)? Avbryt för att fortsätta spela.`)) return;
+  const anyScore = state.scores.some(ps => ps.some(s => s !== null && s >= 0));
   if (!anyScore) { alert('Mata in minst ett hålresultat.'); return; }
 
   const isScramble = state.gameMode === 'scramble';
@@ -3460,8 +3537,9 @@ function calculateAll() {
     const rows = [];
     for (let i = 0; i < state.holes; i++) {
       const score   = state.scores[p][i];
-      const par     = state.hpar[i] || 4;
-      const si      = state.si[i] || (i + 1);
+      const td = isSharedScoreMode(state.gameMode) ? state : teeData(subj.tee);
+      const par     = td.hpar[i] || 4;
+      const si      = td.si[i] || (i + 1);
       const strokes = strokesOnHole(ph, si, state.holes);
       const teeShotByIdx = isScramble ? state.teeShots?.[p]?.[i] : null;
       const teeShotBy = (teeShotByIdx != null && subj.members) ? subj.members[teeShotByIdx]?.name || null : null;
@@ -3908,9 +3986,45 @@ function accountSessionLoad() {
 }
 
 function accountSessionSave(session) {
-  if (session) storageDb.save(ACCOUNT_SESSION_KEY, session);
-  else storageDb.remove(ACCOUNT_SESSION_KEY);
+  const previous = accountSessionLoad();
+  if (previous?.user?.id !== session?.user?.id) {
+    clearTimeout(_accountSyncTimer);
+    _accountPendingConflict = null;
+    window._recoverableAccountSnapshot = null;
+    _singleHole = null;
+    _accountSyncAgain = false;
+    liveSyncStop();
+    state = {
+  courseName: null, teeColor: null, holes: 18,
+  slope: null, cr: null, par: null,
+  hpar: [], si: [],
+  numPlayers: 1, players: [], playerIds: [], playerMemberIds: [], scores: [],
+  gameMode: 'individual', teamAssign: ['A','A','B','B'], teams: null,
+  playerTees: [],
+  note: '', weather: null,
+  markers: { ctp: { hole: null, player: '' }, ld: { hole: null, player: '' } },
+  liveRoomCode: null, liveSeat: null, liveSeatsClaimed: null,
+  liveHostToken: null, liveSeatToken: null, bets: [], tourContext: null
+};
+  }
+  if (session) {
+    if (!storageDb.save(ACCOUNT_SESSION_KEY, session, true)) throw new Error('Kunde inte spara sessionen.');
+    _dataOwner = `${session.apiBase || ''}|${session.user.id}`;
+    localStorage.setItem('golf_data_owner', _dataOwner);
+  } else {
+    storageDb.remove(ACCOUNT_SESSION_KEY);
+    _dataOwner = null;
+    localStorage.removeItem('golf_data_owner');
+  }
+  renderSavedCourses();
+  renderSavedPlayersList();
   updateAccountButton();
+}
+
+function markCollectionDeleted(kind, id) {
+  const key = `golf_${kind}_deletions`;
+  const records = storageDb.load(key, []).filter(item => item.id !== String(id));
+  return storageDb.save(key, [...records, { id: String(id), deletedAt: Date.now() }], true);
 }
 
 function roundDeletionsLoad() {
@@ -4041,6 +4155,7 @@ function renderAccountView() {
   const playerOptions = players.map(player =>
     `<option value="${escapeHtml(String(player.id))}"${profile?.localPlayerId != null && String(profile.localPlayerId) === String(player.id) ? ' selected' : ''}>${escapeHtml(player.nick || player.name)} (HCP ${player.hi})</option>`).join('');
   content.innerHTML = `
+    <button class="btn secondary" onclick="importGuestData()">Importera gästdata från enheten</button>
     <div style="background:#f0faf5;border-radius:10px;padding:12px;margin-bottom:14px;">
       <strong style="color:var(--heading);">${escapeHtml(session.user.email)}</strong>
       <div style="font-size:0.78rem;color:var(--muted);margin-top:3px;">Inloggad · lokal användning fungerar även offline</div>
@@ -4251,10 +4366,12 @@ async function syncAccountTours(session = accountSessionLoad()) {
   // module. Tour discovery is optional and must never invalidate login.
   if (typeof client.tours !== 'function') return;
   const response = await client.tours(session.token);
+  if (accountSessionLoad()?.token !== session.token) return;
   for (const membership of response?.tours || []) {
     try {
       const access = await sharedTourClient.access(membership.code, session.token);
       const tour = await sharedTourClient.get(membership.code);
+      if (accountSessionLoad()?.token !== session.token) return;
       const existing = sharedTourStore.find(membership.code) || {};
       sharedTourStore.upsert({
         ...existing, code: membership.code, role: access.role, token: session.token, accountBound: true,
@@ -4306,21 +4423,34 @@ async function exchangeAccountLink(token, apiBase) {
 
 function localAccountSnapshot() {
   return {
+    courseDeletions: storageDb.load('golf_course_deletions', []), playerDeletions: storageDb.load('golf_player_deletions', []),
     courses: dbLoad(), rounds: roundsLoad(), roundDeletions: roundDeletionsLoad(),
     players: playersLoad(), tours: toursLoad(), tourDeletions: tourDeletionsLoad()
   };
 }
 
 function saveAccountSnapshot(data) {
-  _accountSyncApplyingRemote = true;
-  try {
-    dbSave(data.courses || []);
-    storageDb.save(ROUND_DELETIONS_KEY, data.roundDeletions || []);
-    roundsSave(data.rounds || []);
-    playersSave(data.players || []);
-    storageDb.save(TOUR_DELETIONS_KEY, data.tourDeletions || []);
-    toursSave(data.tours || []);
-  } finally { _accountSyncApplyingRemote = false; }
+  const entries = {
+    [DB_KEY]: data.courses || [], [ROUNDS_KEY]: data.rounds || [], [PLAYERS_KEY]: data.players || [],
+    [TOURS_KEY]: data.tours || [], [ROUND_DELETIONS_KEY]: data.roundDeletions || [],
+    [TOUR_DELETIONS_KEY]: data.tourDeletions || [],
+    golf_course_deletions: data.courseDeletions || [], golf_player_deletions: data.playerDeletions || [],
+  };
+  if (!storageDb.saveMany(entries)) {
+    window._recoverableAccountSnapshot = data;
+    throw new Error('Kunde inte spara molndatan på enheten. Frigör lagringsutrymme och försök igen.');
+  }
+}
+
+function importGuestData() {
+  const session = accountSessionLoad();
+  if (!session || !confirm('Importera gästdata från den här webbläsaren till ditt konto?')) return;
+  const guest = {};
+  for (const [name, key] of Object.entries({ courses: DB_KEY, rounds: ROUNDS_KEY, players: PLAYERS_KEY, tours: TOURS_KEY })) {
+    try { guest[name] = JSON.parse(localStorage.getItem(key) || '[]'); } catch (_) { guest[name] = []; }
+  }
+  try { saveAccountSnapshot(GolfAccountSync.mergeSnapshots(localAccountSnapshot(), guest)); scheduleAccountSync('guest-import'); }
+  catch (error) { setAccountStatus(error.message, 'error'); }
 }
 
 async function syncAccountNow(options = {}) {
@@ -4338,36 +4468,55 @@ async function syncAccountNow(options = {}) {
   if (!silent) setAccountStatus('Synkroniserar…');
   _accountSyncPromise = (async () => {
    try {
-    let remote = await accountApi().snapshot(session.token);
-    let merged = GolfAccountSync.mergeSnapshots(remote.data, localAccountSnapshot());
-    const uploadNeeded = JSON.stringify(merged) !== JSON.stringify(remote.data);
-    saveAccountSnapshot(merged);
+    const client = accountApi(session.apiBase);
+    const stillCurrent = () => accountSessionLoad()?.token === session.token;
+    let remote = await client.snapshot(session.token);
+    if (!stillCurrent()) return;
+    const local = localAccountSnapshot();
+    let merged;
+    try { merged = GolfAccountSync.mergeSnapshots(remote.data, local, storageDb.load('golf_account_baseline', null)); }
+    catch (error) { if (error.status === 409) _accountPendingConflict = { remote, local }; throw error; }
+    const uploadNeeded = JSON.stringify(merged) !== JSON.stringify(GolfAccountSync.mergeSnapshots(remote.data, remote.data));
     if (uploadNeeded) {
       try {
-        await accountApi().saveSnapshot(session.token, remote.version, merged);
+        await client.saveSnapshot(session.token, remote.version, merged);
+        if (!stillCurrent()) return;
       } catch (error) {
         if (error.status !== 409) throw error;
-        remote = await accountApi().snapshot(session.token);
+        remote = await client.snapshot(session.token);
+        if (!stillCurrent()) return;
         _accountPendingConflict = { remote, local: localAccountSnapshot() };
         const conflict = new Error('Data ändrades på en annan enhet. Välj hur konflikten ska lösas.');
         conflict.status = 409;
         throw conflict;
       }
     }
+    if (!stillCurrent()) return;
+    const latestLocal = localAccountSnapshot();
+    const applied = GolfAccountSync.mergeSnapshots(merged, latestLocal, local);
+    saveAccountSnapshot(applied);
+    if (JSON.stringify(applied) !== JSON.stringify(merged)) _accountSyncAgain = true;
+    if (!storageDb.save('golf_account_baseline', merged, true)) throw new Error('Kunde inte spara synkstatus.');
     renderSavedCourses();
     renderSavedPlayersList();
     try { await syncAccountTours(session); } catch (_) {}
+    if (!stillCurrent()) return;
     renderActiveToursCard();
     saveAccountSyncMeta({ status: 'synced', lastSyncedAt: Date.now(), error: null });
     if (!silent) setAccountStatus('Synkroniseringen är klar på den här enheten.');
   } catch (error) {
+    if (accountSessionLoad()?.token !== session.token) return;
     if (error.status === 401) {
       accountSessionSave(null);
       if (document.getElementById('accountContent')) renderAccountView();
       setAccountStatus('Sessionen har gått ut. Be om en ny inloggningslänk.', 'error');
     } else {
       saveAccountSyncMeta({ status: error.status === 409 ? 'conflict' : 'error', error: error.message || 'Synkroniseringen misslyckades.' });
-      if (error.status === 409) renderAccountConflictPanel();
+      if (error.status === 409) {
+        if (!_accountPendingConflict) _accountPendingConflict = { remote: await accountApi().snapshot(session.token), local: localAccountSnapshot() };
+        if (accountSessionLoad()?.token !== session.token) return;
+        renderAccountConflictPanel();
+      }
       if (!silent) setAccountStatus(error.message || 'Synkroniseringen misslyckades.', 'error');
     }
    } finally {
@@ -4385,7 +4534,7 @@ function renderAccountConflictPanel() {
   const panel = document.getElementById('accountConflictPanel');
   if (!panel || !_accountPendingConflict) return;
   panel.classList.remove('hidden');
-  panel.innerHTML = '<strong>Synkkonflikt</strong><br><span style="font-size:.8rem;">Molndatan ändrades under synkningen. Välj vilken kopia som ska användas.</span><div style="display:grid;gap:6px;margin-top:8px;"><button class="btn secondary" onclick="resolveAccountConflict(\'merge\')">Slå ihop båda</button><button class="btn secondary" onclick="resolveAccountConflict(\'cloud\')">Använd molnets kopia</button><button class="btn secondary" onclick="resolveAccountConflict(\'local\')">Behåll den här enhetens kopia</button></div>';
+  panel.innerHTML = '<strong>Synkkonflikt</strong><br><span style="font-size:.8rem;">Samma data har ändrats på flera enheter. Välj vilken kopia som ska användas.</span><div style="display:grid;gap:6px;margin-top:8px;"><button class="btn secondary" onclick="resolveAccountConflict(\'cloud\')">Använd molnets kopia</button><button class="btn secondary" onclick="resolveAccountConflict(\'local\')">Behåll den här enhetens kopia</button></div>';
 }
 
 async function resolveAccountConflict(strategy) {
@@ -4393,10 +4542,12 @@ async function resolveAccountConflict(strategy) {
   const pending = _accountPendingConflict;
   if (!session || !pending) return;
   try {
-    const data = strategy === 'cloud' ? pending.remote.data : strategy === 'local' ? pending.local
+    const data = strategy === 'cloud' ? pending.remote.data : strategy === 'local' ? GolfAccountSync.mergeSnapshots(pending.remote.data, pending.local, pending.remote.data)
       : GolfAccountSync.mergeSnapshots(pending.remote.data, pending.local);
     if (strategy !== 'cloud') await accountApi().saveSnapshot(session.token, pending.remote.version, data);
+    if (accountSessionLoad()?.token !== session.token) return;
     saveAccountSnapshot(data);
+    if (!storageDb.save('golf_account_baseline', data, true)) throw new Error('Kunde inte spara synkstatus.');
     _accountPendingConflict = null;
     saveAccountSyncMeta({ status: 'synced', lastSyncedAt: Date.now(), error: null });
     renderAccountView();
@@ -4444,6 +4595,9 @@ async function deleteCloudAccount() {
 async function logoutAccount() {
   const session = accountSessionLoad();
   clearTimeout(_accountSyncTimer);
+  if (session) {
+    sharedTourStore.load().filter(record => record.accountBound).forEach(record => sharedTourStore.upsert({ ...record, token: null }));
+  }
   accountSessionSave(null);
   renderAccountView();
   if (session && navigator.onLine) accountApi().logout(session.token).catch(() => {});
@@ -4462,6 +4616,8 @@ function goToStep(n) {
     else if (i < n) dot.classList.add('done');
   });
   window.scrollTo({ top: 0, behavior: 'smooth' });
+  const heading = document.querySelector(`#step${n} h2, #step${n} .card-title`);
+  if (heading) { heading.tabIndex = -1; heading.focus({ preventScroll: true }); }
   if (n === 4) liveSyncStart(); else liveSyncStop();
   if (n === 1) renderActiveToursCard();
 }
@@ -4592,7 +4748,7 @@ function renderLiveSeatCells(room) {
 function liveSyncPollNow() {
   if (!state.liveRoomCode) return;
   const requestedCode = state.liveRoomCode;
-  liveSyncClient.request(`/room/${requestedCode}`)
+  liveSyncClient.request(`/room/${requestedCode}`, { headers: liveMutationHeaders(state.liveSeatToken || state.liveHostToken) })
     .then(r => r.ok ? r.json() : null)
     .then(room => { if (room && state.liveRoomCode === requestedCode) liveSyncApplyRoom(room); })
     .catch(() => {}); // offline: keep last-known scores, retry next tick
@@ -4706,6 +4862,18 @@ function showJoinLiveError(msg) {
   const el = document.getElementById('joinLiveError');
   el.textContent = msg;
   el.classList.remove('hidden');
+}
+
+async function revokeLiveSeat(seat) {
+  if (!state.liveHostToken || !confirm('Återkalla enhetens åtkomst till platsen? Spelaren kan sedan ansluta igen.')) return;
+  try {
+    const response = await liveSyncClient.request(`/room/${state.liveRoomCode}/revoke`, {
+      method: 'POST', headers: liveMutationHeaders(state.liveHostToken),
+      body: JSON.stringify({ protocolVersion: LIVE_PROTOCOL_VERSION, seat }),
+    });
+    if (!response.ok) throw new Error('Kunde inte återställa platsen.');
+    const body = await response.json(); liveSyncApplyRoom(body.room || body);
+  } catch (error) { alert(error.message); }
 }
 
 function fetchLiveRoom() {
@@ -4944,7 +5112,9 @@ function _buildDataPayload(inclCourses, inclRounds, inclPlayers, inclTours = fal
     courses:  inclCourses  ? dbLoad()        : [],
     rounds:   inclRounds   ? roundsLoad()    : [],
     players:  (inclPlayers || inclTours) ? playersLoad() : [],
-    tours:    inclTours ? toursLoad() : []
+    tours:    inclTours ? toursLoad() : [],
+    playerDeletions: (inclPlayers || inclTours) ? storageDb.load('golf_player_deletions', []) : [],
+    courseDeletions: inclCourses ? storageDb.load('golf_course_deletions', []) : []
   });
 }
 
@@ -4982,7 +5152,7 @@ function _applyImportPayload(payload) {
   if (Array.isArray(payload.courses)) {
     const existing = dbLoad();
     payload.courses.forEach(c => {
-      const idx = existing.findIndex(x => x.name === c.name && x.tee === c.tee && x.holes === c.holes);
+      const idx = existing.findIndex(x => (c.id && x.id === c.id) || (x.name === c.name && x.tee === c.tee && x.holes === c.holes));
       if (idx >= 0) existing[idx] = { ...existing[idx], ...c };
       else { existing.push(c); addedCourses++; }
     });
@@ -5024,6 +5194,15 @@ function _applyImportPayload(payload) {
     storageDb.save(TOUR_DELETIONS_KEY, tourDeletionsLoad().filter(item => !restoredIds.has(String(item.id))));
     toursSave(existing);
     renderActiveToursCard();
+  }
+  for (const [kind, key, load, save] of [
+    ['course', 'golf_course_deletions', dbLoad, dbSave], ['player', 'golf_player_deletions', playersLoad, playersSave],
+  ]) {
+    const incoming = payload[`${kind}Deletions`] || [];
+    const deletions = [...storageDb.load(key, []), ...incoming];
+    if (!storageDb.save(key, deletions, true)) throw new Error('Kunde inte spara raderingar.');
+    const deleted = new Set(deletions.map(item => item.id));
+    save(load().filter(item => !deleted.has(String(item.id))));
   }
   return { addedCourses, addedRounds, addedPlayers, addedTours };
 }
@@ -6593,7 +6772,7 @@ function renderSharedTourDetail(code) {
     return localPlayer?.photo || null;
   });
   const roundRows = (tour.rounds || []).slice().sort((a, b) => b.playedDate.localeCompare(a.playedDate)).map(round =>
-    `<div class="hi-row"><strong>${escapeHtml(round.courseName)}</strong> · ${round.playedDate}${round.correctedAt ? ' · korrigerad' : ''}<br><span style="color:var(--muted);font-size:0.8rem;">${round.subjects.map(subject => `${escapeHtml(subject.name)} <strong style="color:var(--heading);">${subject.totalPoints}p</strong> · ${Number.isFinite(subject.totalBrutto) ? subject.totalBrutto : '–'} slag`).join(', ')}</span>${canAdmin ? `<button class="btn secondary" style="margin-top:7px;" onclick="correctSharedTourRound('${escapeHtml(record.code)}','${escapeHtml(round.id)}','${escapeHtml(round.playedDate)}')">Korrigera datum</button>` : ''}</div>`).join('');
+    `<div class="hi-row"><strong>${escapeHtml(round.courseName)}</strong> · ${round.playedDate}${round.correctedAt ? ' · korrigerad' : ''}<br><span style="color:var(--muted);font-size:0.8rem;">${round.subjects.map(subject => `${escapeHtml(subject.name)} <strong style="color:var(--heading);">${subject.totalPoints}p</strong> · ${Number.isFinite(subject.totalBrutto) ? subject.totalBrutto : '–'} slag`).join(', ')}</span>${canAdmin ? `<button class="btn secondary" style="margin-top:7px;" data-action-click="correctSharedTourRound" data-args="${escapeHtml(JSON.stringify([record.code,round.id,round.playedDate]))}">Korrigera datum</button>` : ''}</div>`).join('');
   const courseRows = (tour.courses || []).map(course => {
     const tees = (course.tees || []).map(tee => escapeHtml(tee.name)).join(', ');
     const roundLimit = Number.isInteger(course.maxRounds)
@@ -6618,7 +6797,7 @@ function renderSharedTourDetail(code) {
     <label>Flera rundor på samma bana<select id="sharedTourEditRule"><option value="best"${tour.duplicateCourseRule === 'best' ? ' selected' : ''}>Bästa rundorna räknas</option><option value="first"${tour.duplicateCourseRule === 'first' ? ' selected' : ''}>Första rundorna räknas</option></select></label>
     ${(tour.courses || []).map(course => `<label>Max rundor · ${escapeHtml(course.name)}<input class="shared-tour-course-limit" data-course-id="${escapeHtml(course.id)}" type="number" min="1" max="50" value="${course.maxRounds}"></label>`).join('')}
     <p style="font-size:.78rem;color:var(--muted);">Banor och spelare är låsta efter publicering. Datum kan inte utesluta redan registrerade rundor.</p>
-    <div class="tour-admin-actions"><button class="btn" onclick="saveSharedTourConditions('${escapeHtml(record.code)}')">Spara villkor</button><button class="btn secondary" onclick="cancelSharedTourEdit('${escapeHtml(record.code)}')">Avbryt</button></div>
+    <div class="tour-admin-actions"><button class="btn" data-action-click="saveSharedTourConditions" data-args="${escapeHtml(JSON.stringify([record.code]))}">Spara villkor</button><button class="btn secondary" data-action-click="cancelSharedTourEdit" data-args="${escapeHtml(JSON.stringify([record.code]))}">Avbryt</button></div>
   </div>` : '';
   const pending = record.pendingSubmissions || [];
   const syncPanel = pending.length ? `<div class="tour-sync-panel"><strong>⚠ ${pending.length} ${pending.length === 1 ? 'runda väntar' : 'rundor väntar'} på synkning</strong>
@@ -6627,7 +6806,7 @@ function renderSharedTourDetail(code) {
       const course = (tour.courses || []).find(entry => entry.id === item.payload.courseId);
       return `<div class="tour-sync-row"><strong>${escapeHtml(course?.name || 'Tourrunda')}</strong> · ${escapeHtml(item.payload.playedDate || '')}<span class="tour-sync-error">Försök: ${item.attempts || 0}${item.lastError ? ` · Senaste fel: ${escapeHtml(item.lastError)}` : ''}</span></div>`;
     }).join('')}
-    <button class="btn" ${_retryingSharedTourCode === record.code ? 'disabled' : ''} onclick="retrySharedTourSubmissions('${escapeHtml(record.code)}')">${_retryingSharedTourCode === record.code ? 'Försöker synka…' : 'Försök synka igen'}</button>
+    <button class="btn" ${_retryingSharedTourCode === record.code ? 'disabled' : ''} data-action-click="retrySharedTourSubmissions" data-args="${escapeHtml(JSON.stringify([record.code]))}">${_retryingSharedTourCode === record.code ? 'Försöker synka…' : 'Försök synka igen'}</button>
   </div>` : '';
   const contributors = (record.contributors || []).slice().sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
   const memberName = memberId => (tour.members || []).find(member => member.id === memberId)?.name || null;
@@ -6645,10 +6824,10 @@ function renderSharedTourDetail(code) {
         ${!inactive && contributor.accountLinked ? `<select id="tourMember-${escapeHtml(contributor.id)}" style="margin-top:7px;">${memberOptions}</select>` : ''}
       </div>
       <div style="display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end;">
-        ${inactive ? `<button class="btn secondary" onclick="restoreSharedTourContributor('${escapeHtml(record.code)}','${escapeHtml(contributor.id)}')">Återställ</button>` : `
-          ${contributor.accountLinked ? `<button class="btn secondary" onclick="updateSharedTourContributor('${escapeHtml(record.code)}','${escapeHtml(contributor.id)}')">Spara roll</button>
-          ${record.role === 'organizer' ? `<button class="btn secondary" onclick="toggleSharedTourAdministrator('${escapeHtml(record.code)}','${escapeHtml(contributor.id)}',${!contributor.isAdmin})">${contributor.isAdmin ? 'Ta bort admin' : 'Gör till admin'}</button><button class="btn secondary" onclick="transferSharedTourOwnership('${escapeHtml(record.code)}','${escapeHtml(contributor.id)}')">Gör till ägare</button>` : ''}` : ''}
-          <button class="tour-revoke-btn" onclick="revokeSharedTourContributor('${escapeHtml(record.code)}','${escapeHtml(contributor.id)}')">Ta bort</button>`}
+        ${inactive ? `<button class="btn secondary" data-action-click="restoreSharedTourContributor" data-args="${escapeHtml(JSON.stringify([record.code,contributor.id]))}">Återställ</button>` : `
+          ${contributor.accountLinked ? `<button class="btn secondary" data-action-click="updateSharedTourContributor" data-args="${escapeHtml(JSON.stringify([record.code,contributor.id]))}">Spara roll</button>
+          ${record.role === 'organizer' ? `<button class="btn secondary" data-action-click="toggleSharedTourAdministrator" data-args="${escapeHtml(JSON.stringify([record.code,contributor.id,!contributor.isAdmin]))}">${contributor.isAdmin ? 'Ta bort admin' : 'Gör till admin'}</button><button class="btn secondary" data-action-click="transferSharedTourOwnership" data-args="${escapeHtml(JSON.stringify([record.code,contributor.id]))}">Gör till ägare</button>` : ''}` : ''}
+          <button class="tour-revoke-btn" data-action-click="revokeSharedTourContributor" data-args="${escapeHtml(JSON.stringify([record.code,contributor.id]))}">Ta bort</button>`}
       </div>
     </div>`;
   }).join('');
@@ -6661,8 +6840,8 @@ function renderSharedTourDetail(code) {
     <p style="color:var(--muted);font-size:.8rem;margin:8px 0;">Alla aktiva medlemmar kan registrera rundor för alla tourspelare.</p>
     ${contributorRows ? `<div class="tour-contributor-list">${contributorRows}</div>` : '<p style="color:var(--muted);font-size:0.85rem;">Ingen har accepterat inbjudan ännu.</p>'}
     <div class="tour-admin-actions">
-      <button class="btn secondary" onclick="beginSharedTourEdit('${escapeHtml(record.code)}')">✎ Redigera villkor</button>
-      ${record.role === 'organizer' ? `<button class="btn tour-admin-invite" onclick="rotateSharedTourInvitation('${escapeHtml(record.code)}')">🔄 Skapa ny inbjudningslänk</button>${tour.status === 'open' ? `<button class="btn tour-admin-complete" onclick="completeSharedTour('${escapeHtml(record.code)}')">✓ Avsluta touren</button><button class="btn secondary" style="color:var(--danger);" onclick="cancelSharedTour('${escapeHtml(record.code)}')">× Avbryt touren</button>` : ''}<button class="btn secondary" style="color:var(--danger);" onclick="removeSharedTour('${escapeHtml(record.code)}')">🗑 Ta bort touren permanent</button>` : ''}
+      <button class="btn secondary" data-action-click="beginSharedTourEdit" data-args="${escapeHtml(JSON.stringify([record.code]))}">✎ Redigera villkor</button>
+      ${record.role === 'organizer' ? `<button class="btn tour-admin-invite" data-action-click="rotateSharedTourInvitation" data-args="${escapeHtml(JSON.stringify([record.code]))}">🔄 Skapa ny inbjudningslänk</button>${tour.status === 'open' ? `<button class="btn tour-admin-complete" data-action-click="completeSharedTour" data-args="${escapeHtml(JSON.stringify([record.code]))}">✓ Avsluta touren</button><button class="btn secondary" style="color:var(--danger);" data-action-click="cancelSharedTour" data-args="${escapeHtml(JSON.stringify([record.code]))}">× Avbryt touren</button>` : ''}<button class="btn secondary" style="color:var(--danger);" data-action-click="removeSharedTour" data-args="${escapeHtml(JSON.stringify([record.code]))}">🗑 Ta bort touren permanent</button>` : ''}
     </div>` : '';
   const activityLabels = {
     tour_created: 'skapade touren', organizer_account_linked: 'kopplade touren till sitt konto',
@@ -6694,22 +6873,22 @@ function renderSharedTourDetail(code) {
       <span style="color:var(--muted);font-size:.8rem;">Du kan registrera rundor för alla tourspelare.</span>
       <select id="mySharedTourMember" style="margin-top:8px;"><option value=""${!record.accountMemberId ? ' selected' : ''}>Jag registrerar bara poäng</option>
         ${(tour.members || []).map(member => `<option value="${escapeHtml(member.id)}"${record.accountMemberId === member.id ? ' selected' : ''}>Jag är ${escapeHtml(member.name)}</option>`).join('')}</select>
-      <button class="btn secondary" style="margin-top:7px;" onclick="updateMySharedTourMembership('${escapeHtml(record.code)}')">Spara min koppling</button>
+      <button class="btn secondary" style="margin-top:7px;" data-action-click="updateMySharedTourMembership" data-args="${escapeHtml(JSON.stringify([record.code]))}">Spara min koppling</button>
     </div></div>
-    <button class="btn secondary" style="margin-top:10px;color:var(--danger);" onclick="leaveSharedTour('${escapeHtml(record.code)}')">Lämna touren</button>` : '';
+    <button class="btn secondary" style="margin-top:10px;color:var(--danger);" data-action-click="leaveSharedTour" data-args="${escapeHtml(JSON.stringify([record.code]))}">Lämna touren</button>` : '';
   const sharedTourMarkup = `
-    <button class="btn secondary" style="margin-bottom:12px;" onclick="backToSharedTourList()">← Alla tourer</button>
+    <button class="btn secondary" style="margin-bottom:12px;" data-action-click="backToSharedTourList" data-args="${escapeHtml(JSON.stringify([]))}">← Alla tourer</button>
     <strong style="font-size:1.1rem;">🌐 ${escapeHtml(tour.name)}</strong><br>
     <span style="font-size:0.8rem;color:var(--muted);">${tour.startDate} – ${tour.endDate} · kod ${escapeHtml(record.code)} · ${_sharedTourSocket?.readyState === WebSocket.OPEN ? `live · ${_sharedTourOnline} online` : 'automatisk reservsynk'}</span>
     <div style="display:flex;gap:8px;margin-top:12px;">
-      ${tour.status === 'open' ? `<button class="btn" style="flex:1;" onclick="startSharedTourRound('${escapeHtml(record.code)}')">+ Ny tourrunda</button>` : `<span style="color:var(--muted);">${tour.status === 'cancelled' ? 'Touren är avbruten' : 'Touren är avslutad'}</span>`}
-      ${record.role === 'organizer' ? `<button class="btn secondary" style="flex:1;" onclick="shareSharedTourInvitation('${escapeHtml(record.code)}')">🔗 Bjud in</button>` : ''}
+      ${tour.status === 'open' ? `<button class="btn" style="flex:1;" data-action-click="startSharedTourRound" data-args="${escapeHtml(JSON.stringify([record.code]))}">+ Ny tourrunda</button>` : `<span style="color:var(--muted);">${tour.status === 'cancelled' ? 'Touren är avbruten' : 'Touren är avslutad'}</span>`}
+      ${record.role === 'organizer' ? `<button class="btn secondary" style="flex:1;" data-action-click="shareSharedTourInvitation" data-args="${escapeHtml(JSON.stringify([record.code]))}">🔗 Bjud in</button>` : ''}
     </div>
-    <button class="btn secondary" style="margin-top:8px;" onclick="shareSharedTourSpectator('${escapeHtml(record.code)}')">👀 Dela åskådarlänk</button>
+    <button class="btn secondary" style="margin-top:8px;" data-action-click="shareSharedTourSpectator" data-args="${escapeHtml(JSON.stringify([record.code]))}">👀 Dela åskådarlänk</button>
 
     ${syncPanel}
     <div class="card-title" style="margin-top:16px;">Meddelanden</div>
-    ${canAdmin ? `<div style="display:flex;gap:7px;"><input id="sharedTourAnnouncement" maxlength="500" placeholder="Skriv ett meddelande till touren" style="flex:1;"><button class="btn" onclick="postSharedTourAnnouncement('${escapeHtml(record.code)}')">Publicera</button></div>` : ''}
+    ${canAdmin ? `<div style="display:flex;gap:7px;"><input id="sharedTourAnnouncement" maxlength="500" placeholder="Skriv ett meddelande till touren" style="flex:1;"><button class="btn" data-action-click="postSharedTourAnnouncement" data-args="${escapeHtml(JSON.stringify([record.code]))}">Publicera</button></div>` : ''}
     ${(tour.announcements || []).map(item => `<div class="activity-row"><strong>${escapeHtml(item.author)}</strong> · ${new Date(item.at).toLocaleString('sv-SE')}<br>${escapeHtml(item.message)}</div>`).join('') || '<p style="color:var(--muted);font-size:.85rem;">Inga meddelanden ännu.</p>'}
     <div class="card-title" style="margin-top:16px;">Villkor</div><div class="tour-condition-list">${conditionRows}</div>${conditionEditor}
     <div class="card-title" style="margin-top:16px;">Inkluderade banor</div>${courseRows || '<p style="color:var(--muted);font-size:0.85rem;">Inga banor har lagts till.</p>'}
@@ -6721,7 +6900,7 @@ function renderSharedTourDetail(code) {
     <div class="card-title" style="margin-top:16px;">Rundor</div>${roundRows || '<p style="color:var(--muted);font-size:0.85rem;">Inga rundor ännu.</p>'}
     <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-top:16px;">
       <div class="card-title" style="margin:0;">Ändringslogg</div>
-      <select aria-label="Filtrera ändringslogg" onchange="setTourActivityFilter(this.value,'${escapeHtml(record.code)}')" style="width:auto;max-width:170px;">
+      <select aria-label="Filtrera ändringslogg" data-action-change="setTourActivityFilter" data-args="${escapeHtml(JSON.stringify(['__value__',record.code]))}" style="width:auto;max-width:170px;">
         <option value="all"${_tourActivityFilter === 'all' ? ' selected' : ''}>Alla händelser</option>
         <option value="rounds"${_tourActivityFilter === 'rounds' ? ' selected' : ''}>Rundor</option>
         <option value="members"${_tourActivityFilter === 'members' ? ' selected' : ''}>Medlemmar</option>
@@ -6730,13 +6909,19 @@ function renderSharedTourDetail(code) {
     </div>${activityRows || '<p style="color:var(--muted);font-size:0.85rem;">Inga händelser matchar filtret.</p>'}
     ${myMembership}
     ${organizerControls}
-    ${record.role !== 'organizer' ? `<button class="btn secondary" style="margin-top:16px;color:var(--danger);" onclick="removeSharedTour('${escapeHtml(record.code)}')">Ta bort från den här enheten</button>` : ''}
+    ${record.role !== 'organizer' ? `<button class="btn secondary" style="margin-top:16px;color:var(--danger);" data-action-click="removeSharedTour" data-args="${escapeHtml(JSON.stringify([record.code]))}">Ta bort från den här enheten</button>` : ''}
   `;
-  const sanitizedMarkup = DOMPurify.sanitize(sharedTourMarkup, {
-    ADD_ATTR: ['onclick', 'onchange'],
-    ALLOW_DATA_ATTR: true,
-  });
+  const sanitizedMarkup = DOMPurify.sanitize(sharedTourMarkup, { ALLOW_DATA_ATTR: true });
   el.innerHTML = sanitizedMarkup;
+  const actions = { backToSharedTourList, beginSharedTourEdit, cancelSharedTour, cancelSharedTourEdit, completeSharedTour, correctSharedTourRound, leaveSharedTour, postSharedTourAnnouncement, removeSharedTour, restoreSharedTourContributor, retrySharedTourSubmissions, revokeSharedTourContributor, rotateSharedTourInvitation, saveSharedTourConditions, setTourActivityFilter, shareSharedTourInvitation, shareSharedTourSpectator, startSharedTourRound, toggleSharedTourAdministrator, transferSharedTourOwnership, updateMySharedTourMembership, updateSharedTourContributor };
+  el.querySelectorAll('[data-action-click], [data-action-change]').forEach(element => {
+    for (const event of ['click', 'change']) {
+      const name = element.getAttribute(`data-action-${event}`);
+      if (!actions[name]) continue;
+      const args = JSON.parse(element.dataset.args || '[]');
+      element.addEventListener(event, () => actions[name](...args.map(arg => arg === '__value__' ? element.value : arg)));
+    }
+  });
 }
 
 function startSharedTourRound(code) {
@@ -7392,7 +7577,7 @@ function addSavedPlayer() {
   const nick     = document.getElementById('newPlayerNick').value.trim();
   const errEl = document.getElementById('addPlayerError');
   if (!name) { errEl.style.display='block'; errEl.textContent='Ange ett förnamn.'; return; }
-  if (isNaN(hi) || hi < 0 || hi > 54) { errEl.style.display='block'; errEl.textContent='Ange ett giltigt handicapindex (0–54).'; return; }
+  if (isNaN(hi) || hi < -10 || hi > 54) { errEl.style.display='block'; errEl.textContent='Ange ett giltigt handicapindex (−10–54; plus-HCP anges med minus).'; return; }
   errEl.style.display = 'none';
   const players = playersLoad();
   const entry = { id: Date.now(), name, hi };
@@ -7426,7 +7611,7 @@ function editSavedPlayer(id) {
         <div><label style="margin-top:0;font-size:0.8rem;">Smeknamn</label>
           <input type="text" id="edit_nick_${id}" value="${escapeHtml(p.nick || '')}" style="font-size:0.9rem;padding:6px 8px;"></div>
         <div><label style="margin-top:0;font-size:0.8rem;">Handicapindex</label>
-          <input type="number" id="edit_hi_${id}" value="${p.hi}" step="0.1" min="0" max="54" inputmode="decimal" style="font-size:0.9rem;padding:6px 8px;"></div>
+          <input type="number" id="edit_hi_${id}" value="${p.hi}" step="0.1" min="-10" max="54" inputmode="decimal" style="font-size:0.9rem;padding:6px 8px;"></div>
       </div>
       <div style="display:flex;gap:8px;">
         <button class="btn" style="flex:1;padding:8px;" onclick="savePlayerEdit(${id})">Spara</button>
@@ -7443,7 +7628,7 @@ function savePlayerEdit(id) {
   const hi       = parseFloat(document.getElementById(`edit_hi_${id}`)?.value);
   const errEl    = document.getElementById(`edit_err_${id}`);
   if (!name) { errEl.style.display='block'; errEl.textContent='Ange ett förnamn.'; return; }
-  if (isNaN(hi) || hi < 0 || hi > 54) { errEl.style.display='block'; errEl.textContent='Ange ett giltigt handicapindex (0–54).'; return; }
+  if (isNaN(hi) || hi < -10 || hi > 54) { errEl.style.display='block'; errEl.textContent='Ange ett giltigt handicapindex (−10–54; plus-HCP anges med minus).'; return; }
   const players = playersLoad();
   const p = players.find(x => x.id === id);
   if (p) {
@@ -7457,6 +7642,7 @@ function savePlayerEdit(id) {
 }
 
 function deleteSavedPlayer(id) {
+  if (!markCollectionDeleted('player', id)) return;
   playersSave(playersLoad().filter(p => p.id !== id));
   renderSavedPlayersList();
 }

@@ -5,7 +5,7 @@ const assert = require('node:assert/strict');
 const validation = require('../src/validation.js');
 
 test('join-code and bet validation reject malformed client input', () => {
-  assert.equal(validation.isJoinCode('ab2d'), true);
+  assert.equal(validation.isJoinCode('ab2d'.repeat(5)), true);
   assert.equal(validation.isJoinCode('ABOI'), false);
   assert.equal(validation.isJoinCode('ABC'), false);
   assert.equal(validation.isPositiveInteger(25), true);

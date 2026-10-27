@@ -44,13 +44,6 @@
     });
   }
 
-  function mergeCollection(remote, local, keyOf) {
-    const merged = new Map();
-    (Array.isArray(remote) ? remote : []).forEach((item, index) => merged.set(keyOf(item, index), item));
-    (Array.isArray(local) ? local : []).forEach((item, index) => merged.set(keyOf(item, index), item));
-    return [...merged.values()];
-  }
-
   function mergeDeletions(remote, local) {
     const merged = new Map();
     [...(Array.isArray(remote) ? remote : []), ...(Array.isArray(local) ? local : [])]
@@ -63,26 +56,52 @@
     return [...merged.values()];
   }
 
-  function mergeSnapshots(remote, local) {
-    const roundDeletions = mergeDeletions(remote?.roundDeletions, local?.roundDeletions);
-    const deletedRoundIds = new Set(roundDeletions.map(item => item.id));
-    const tourDeletions = mergeDeletions(remote?.tourDeletions, local?.tourDeletions);
-    const deletedTourIds = new Set(tourDeletions.map(item => item.id));
-    const rounds = mergeCollection(remote?.rounds, local?.rounds,
-      (round, index) => String(round?.id ?? `${round?.date}|${round?.courseName}|${index}`));
-    const tours = mergeCollection(remote?.tours, local?.tours,
-      (tour, index) => String(tour?.id ?? `${tour?.name}|${tour?.startDate}|${index}`));
-    return {
-      courses: mergeCollection(remote?.courses, local?.courses,
-        course => `${course?.name || ''}|${course?.tee || ''}|${course?.holes || ''}`),
-      rounds: rounds.filter(round => !deletedRoundIds.has(String(round?.id))),
-      roundDeletions,
-      players: mergeCollection(remote?.players, local?.players,
-        (player, index) => String(player?.id ?? `${player?.name}|${player?.lastName || ''}|${index}`)),
-      tours: tours.filter(tour => !deletedTourIds.has(String(tour?.id))),
-      tourDeletions,
-    };
+  // Legacy IDs are deterministic so devices migrate the same saved tee once.
+  function courseId(course) {
+    if (course.id) return String(course.id);
+    const key = JSON.stringify([course.name, course.tee, course.holes]);
+    let a = 2166136261, b = 5381;
+    for (const c of key) { a = Math.imul(a ^ c.charCodeAt(0), 16777619); b = Math.imul(b, 33) ^ c.charCodeAt(0); }
+    return `course-${(a >>> 0).toString(16)}-${(b >>> 0).toString(16)}`;
   }
 
-  return Object.freeze({ createClient, mergeSnapshots });
+  function mergeSnapshots(remote, local, baseline) {
+    const output = {};
+    const conflicts = [];
+    for (const collection of ['courses', 'rounds', 'players', 'tours']) {
+      const keyOf = item => collection === 'courses' ? courseId(item) : String(item.id);
+      const deletionKey = `${collection.slice(0, -1)}Deletions`;
+      const deletions = mergeDeletions(remote?.[deletionKey], local?.[deletionKey]);
+      const deleted = new Set(deletions.map(item => item.id));
+      const map = data => new Map((data?.[collection] || []).map(item => [keyOf(item), collection === 'courses' ? { ...item, id: keyOf(item) } : item]));
+      const r = map(remote), l = map(local), base = map(baseline);
+      const canonical = value => value && typeof value === 'object'
+        ? (Array.isArray(value) ? value.map(canonical) : Object.fromEntries(Object.keys(value).sort().map(key => [key, canonical(value[key])]))) : value;
+      const same = (a, b) => JSON.stringify(canonical(a)) === JSON.stringify(canonical(b));
+      const records = [];
+      for (const id of new Set([...r.keys(), ...l.keys(), ...base.keys()])) {
+        if (deleted.has(id)) continue;
+        const rv = r.get(id), lv = l.get(id), bv = base.get(id);
+        let value;
+        if (same(rv, lv)) value = rv;
+        else if (baseline && same(lv, bv)) value = rv;
+        else if (baseline && same(rv, bv)) value = lv;
+        else if (!rv) value = lv;
+        else if (!lv) value = rv;
+        else { conflicts.push({ collection, id }); continue; }
+        if (value) records.push(collection === 'courses' ? { ...value, id } : value);
+      }
+      output[collection] = records;
+      output[deletionKey] = deletions;
+    }
+    if (conflicts.length) {
+      const error = new Error('Data ändrades på flera enheter. Välj vilken kopia som ska användas.');
+      error.status = 409;
+      error.conflicts = conflicts;
+      throw error;
+    }
+    return output;
+  }
+
+  return Object.freeze({ createClient, mergeSnapshots, courseId });
 }));

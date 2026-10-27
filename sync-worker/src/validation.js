@@ -68,7 +68,7 @@ export function validateCreate(body) {
   if (!Array.isArray(body.si) || body.si.length !== body.holes || !body.si.every(value => isInteger(value, 1, 18))) return 'Invalid round configuration';
   if (new Set(body.si).size !== body.si.length) return 'Invalid round configuration';
   const playerKeys = new Set(['name', 'hi', 'ph', 'tee', 'slope', 'cr', 'par', 'playingHandicap']);
-  if (!body.players.every(player => hasOnlyKeys(player, playerKeys) && isText(player.name, 50) && isNumber(player.hi, 0, 54) &&
+  if (!body.players.every(player => hasOnlyKeys(player, playerKeys) && isText(player.name, 50) && isNumber(player.hi, -10, 54) &&
     (player.tee == null || isText(player.tee, 20)) &&
     (player.ph == null || isInteger(player.ph, -20, 72)) &&
     (player.playingHandicap == null || isInteger(player.playingHandicap, -20, 72)))) return 'Invalid round configuration';
@@ -86,7 +86,7 @@ export function validateClaim(body, seatCount) {
 
 export function validateScores(scores, holes) {
   return Array.isArray(scores) && scores.length === holes && scores.every(score =>
-    score === '' || score === null || isInteger(score, 1, 20));
+    score === '' || score === null || isInteger(score, 0, 20));
 }
 
 export function validatePatch(body, room) {

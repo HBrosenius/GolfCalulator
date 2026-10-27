@@ -7,8 +7,6 @@ import {
 
 const ROOM_KEY = 'room';
 const ROOM_TTL_MS = 24 * 60 * 60 * 1000;
-const CLAIM_WINDOW_MS = 60 * 1000;
-const CLAIM_FAILURE_LIMIT = 10;
 
 const result = (status, data = {}) => ({ status, ...data });
 
@@ -89,18 +87,26 @@ export class GolfRoom extends DurableObject {
     return result(201, { room: publicRoom(room) });
   }
 
-  async getPublicState() {
+  async getPublicState(token = null) {
     const room = await this.ctx.storage.get(ROOM_KEY);
-    return room ? result(200, { room: publicRoom(room) }) : result(404, { error: 'Room not found' });
+    if (!room) return result(404, { error: 'Room not found' });
+    if (token) {
+      let authorized = await tokenMatches(token, room.hostTokenHash);
+      for (const seat of room.seats) if (await tokenMatches(token, seat.tokenHash)) authorized = true;
+      return authorized ? result(200, { room: publicRoom(room) }) : result(403, { error: 'Not authorized' });
+    }
+    return result(200, { room: {
+      protocolVersion: PROTOCOL_VERSION, courseName: room.courseName, holes: room.holes, gameMode: room.gameMode,
+      players: room.players.map(player => ({ name: player.name })),
+      teams: room.teams?.map(team => ({ name: team.name, members: team.members.map(member => ({ name: member.name })) })) || null,
+      seats: room.seats.map(seat => ({ claimed: !!seat.tokenHash })),
+    } });
   }
 
   async claimSeat(body) {
     return this.serializedMutation(async () => {
     const room = await this.ctx.storage.get(ROOM_KEY);
     if (!room) return result(404, { error: 'Room not found' });
-    const now = Date.now();
-    room.failedClaims = (room.failedClaims || []).filter(time => time > now - CLAIM_WINDOW_MS);
-    if (room.failedClaims.length >= CLAIM_FAILURE_LIMIT) return result(429, { error: 'Too many attempts' });
     if (validateClaim(body, room.seats.length)) return this.failedClaim(room);
     if (room.seats[body.seat].tokenHash) return this.failedClaim(room, 409, 'Seat unavailable');
 
@@ -112,9 +118,19 @@ export class GolfRoom extends DurableObject {
   }
 
   async failedClaim(room, status = 400, error = 'Invalid request') {
-    room.failedClaims.push(Date.now());
-    await this.ctx.storage.put(ROOM_KEY, room);
-    return result(status, { error, room: publicRoom(room) });
+    return result(status, { error });
+  }
+
+  async revokeSeat(body, token) {
+    return this.serializedMutation(async () => {
+      const room = await this.ctx.storage.get(ROOM_KEY);
+      if (!room) return result(404, { error: 'Room not found' });
+      if (!await tokenMatches(token, room.hostTokenHash)) return result(403, { error: 'Not authorized' });
+      if (validateClaim(body, room.seats.length) || body.seat === 0) return result(400, { error: 'Invalid seat' });
+      room.seats[body.seat].tokenHash = null;
+      await this.ctx.storage.put(ROOM_KEY, room);
+      return result(200, { room: publicRoom(room) });
+    });
   }
 
   async patch(body, token) {
@@ -210,11 +226,11 @@ export class GolfRoom extends DurableObject {
 }
 
 export class CreateRateLimiter extends DurableObject {
-  async check() {
+  async check(limit = 10) {
     const now = Date.now();
     const windowMs = 60 * 1000;
     const attempts = ((await this.ctx.storage.get('attempts')) || []).filter(time => time > now - windowMs);
-    if (attempts.length >= 10) return false;
+    if (attempts.length >= limit) return false;
     attempts.push(now);
     await this.ctx.storage.put('attempts', attempts);
     await this.ctx.storage.setAlarm(now + windowMs);

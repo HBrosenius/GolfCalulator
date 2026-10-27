@@ -1,3 +1,4 @@
+import '../../src/account-sync.js';
 import { bearerToken, generateToken, hashToken } from './auth.js';
 import { reportOperationalError, structuredLog } from './observability.js';
 
@@ -20,10 +21,10 @@ function accountJson(data, status = 200) {
 function validSnapshot(value) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
   const keys = Object.keys(value);
-  if (keys.some(key => !['courses', 'rounds', 'roundDeletions', 'players', 'tours', 'tourDeletions'].includes(key))) return false;
-  if (!['courses', 'rounds', 'roundDeletions', 'players', 'tours', 'tourDeletions']
+  if (keys.some(key => !['courses', 'rounds', 'roundDeletions', 'players', 'tours', 'tourDeletions', 'playerDeletions', 'courseDeletions'].includes(key))) return false;
+  if (!['courses', 'rounds', 'roundDeletions', 'players', 'tours', 'tourDeletions', 'playerDeletions', 'courseDeletions']
     .every(key => value[key] === undefined || Array.isArray(value[key]))) return false;
-  return [...(value.roundDeletions || []), ...(value.tourDeletions || [])]
+  return [...(value.roundDeletions || []), ...(value.tourDeletions || []), ...(value.playerDeletions || []), ...(value.courseDeletions || [])]
     .every(item => item && typeof item === 'object' && !Array.isArray(item) &&
     Object.keys(item).every(key => ['id', 'deletedAt'].includes(key)) &&
     typeof item.id === 'string' && item.id.length > 0 && item.id.length <= 128 &&
@@ -39,17 +40,14 @@ function preserveSnapshotDeletions(existingData, incomingData) {
     });
     return [...deletions.values()];
   };
-  const roundDeletions = preserve('roundDeletions');
-  const deletedIds = new Set(roundDeletions.map(item => item.id));
-  const tourDeletions = preserve('tourDeletions');
-  const deletedTourIds = new Set(tourDeletions.map(item => item.id));
-  return {
-    ...incomingData,
-    rounds: (incomingData.rounds || []).filter(round => !deletedIds.has(String(round?.id))),
-    roundDeletions,
-    tours: (incomingData.tours || []).filter(tour => !deletedTourIds.has(String(tour?.id))),
-    tourDeletions,
-  };
+  const data = { ...incomingData };
+  for (const collection of ['rounds', 'tours', 'players', 'courses']) {
+    const key = `${collection.slice(0, -1)}Deletions`;
+    data[key] = preserve(key);
+    const deleted = new Set(data[key].map(item => item.id));
+    data[collection] = (incomingData[collection] || []).filter(item => !deleted.has(collection === 'courses' ? globalThis.GolfAccountSync.courseId(item) : String(item?.id)));
+  }
+  return data;
 }
 
 async function sendMagicLink(env, email, token, idempotencyKey) {
@@ -141,7 +139,7 @@ export async function putProfile(body, request, env) {
   const displayName = typeof body?.displayName === 'string' ? body.displayName.trim() : '';
   const playerId = body?.playerId === undefined || body.playerId === null ? null : String(body.playerId).slice(0, 64);
   if (!displayName || displayName.length > 50 || typeof body?.handicap !== 'number' ||
-    !Number.isFinite(body.handicap) || body.handicap < 0 || body.handicap > 54 ||
+    !Number.isFinite(body.handicap) || body.handicap < -10 || body.handicap > 54 ||
     Object.keys(body || {}).some(key => !['displayName', 'handicap', 'playerId'].includes(key))) {
     return accountJson({ error: 'Ogiltig spelarprofil' }, 400);
   }

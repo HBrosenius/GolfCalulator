@@ -7,7 +7,7 @@
     "check:version": "node scripts/sync-version.mjs --check",
     "version": "npm run sync:version",
     "test": "npm run test:unit && npm run test:browser",
-    "verify": "npm run check:version && npm run test && npm --prefix sync-worker run check",
+    "verify": "npm run check:version && npm run check:vendor && npm run test && npm --prefix sync-worker run check",
     "verify:release": "npm run verify && npm audit --audit-level=high && npm --prefix sync-worker audit --audit-level=high",
     "test:unit": "node --test tests/*.test.js && npm --prefix sync-worker test",
     "test:scoring": "node --test tests/scoring.test.js",
@@ -16,12 +16,13 @@
     "smoke:production": "node scripts/production-smoke.mjs",
     "catalog:inventory": "node scripts/swedish-course-inventory.mjs",
     "catalog:build": "node scripts/build-course-catalog-migration.mjs",
-    "docs:screenshots": "node scripts/take-readme-screenshots.mjs"
+    "docs:screenshots": "node scripts/take-readme-screenshots.mjs",
+    "check:vendor": "node scripts/check-vendor.mjs"
   },
   "devDependencies": {
     "@playwright/test": "1.62.1"
   },
   "dependencies": {
-    "dompurify": "3.4.16"
+    "dompurify": "3.4.17"
   }
 }

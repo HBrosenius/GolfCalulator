@@ -2,7 +2,7 @@ import { DurableObject } from 'cloudflare:workers';
 import { generateToken, hashToken, tokenMatches } from './auth.js';
 import { PROTOCOL_VERSION } from './validation.js';
 import { TOUR_SCHEMA_VERSION } from './tour-validation.js';
-import { validateTourRoundSubmission, validateTourUpdate } from './tour-validation.js';
+import { calculateTourSubjects, validateTourRoundSubmission, validateTourUpdate } from './tour-validation.js';
 import { notifyUsers } from './push.js';
 
 const TOUR_KEY = 'tour';
@@ -492,7 +492,7 @@ export class Tour extends DurableObject {
       liveRoomCode: body.liveRoomCode || null,
       submittedAt,
       submittedBy: actor.id,
-      subjects: body.subjects.map(subject => ({
+      subjects: calculateTourSubjects(body, tour).map(subject => ({
         ...subject,
         name: memberById.get(subject.memberId).name,
         rows: subject.rows.map(row => ({ ...row })),

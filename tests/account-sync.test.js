@@ -22,7 +22,7 @@ test('cloud snapshot merge preserves unique data and lets this device update mat
     courses: [{ name: 'B', tee: 'Gul', holes: 9 }],
     rounds: [{ id: 1, note: 'local' }, { id: 2 }], players: [{ id: 'p1', hi: 11 }], tours: [{ id: 3 }],
   };
-  const merged = mergeSnapshots(remote, local);
+  const merged = mergeSnapshots(remote, local, { rounds: remote.rounds, players: remote.players });
   assert.equal(merged.courses.length, 2);
   assert.deepEqual(merged.rounds, [{ id: 1, note: 'local' }, { id: 2 }]);
   assert.deepEqual(merged.players, [{ id: 'p1', hi: 11 }]);
@@ -132,4 +132,28 @@ test('push subscription methods keep keys in authenticated request bodies', asyn
   assert.equal(JSON.parse(calls[1].options.body).subscription.endpoint, subscription.endpoint);
   assert.equal(calls[1].options.headers.Authorization, 'Bearer session');
   assert.equal(calls[2].options.method, 'DELETE');
+});
+
+test('unchanged stale device preserves remote player and round edits', () => {
+  const baseline = { players: [{ id: 1, name: 'Old', hi: 20 }], rounds: [{ id: 2, note: 'Old' }] };
+  const remote = { players: [{ id: 1, name: 'Updated', hi: 8 }], rounds: [{ id: 2, note: 'Updated' }] };
+  const merged = mergeSnapshots(remote, structuredClone(baseline), baseline);
+  assert.deepEqual(merged.players, remote.players);
+  assert.deepEqual(merged.rounds, remote.rounds);
+  assert.throws(() => mergeSnapshots(remote, { ...baseline, players: [{ id: 1, name: 'Competing', hi: 10 }] }, baseline), error => error.status === 409);
+  assert.throws(() => mergeSnapshots(remote, baseline), error => error.status === 409);
+});
+
+test('player and stable course tombstones survive stale devices and renames', () => {
+  const { courseId } = require('../src/account-sync.js');
+  const course = { name: 'Old name', tee: 'Gul', holes: 9 };
+  const id = courseId(course);
+  const baseline = { players: [{ id: 1 }], courses: [course] };
+  const renamed = { ...course, id, name: 'New name' };
+  const merged = mergeSnapshots({ courses: [renamed] }, baseline, baseline);
+  assert.equal(merged.courses.length, 1);
+  assert.equal(merged.courses[0].name, 'New name');
+  const deleted = mergeSnapshots({ playerDeletions: [{ id: '1', deletedAt: 1 }], courseDeletions: [{ id, deletedAt: 1 }] }, baseline);
+  assert.deepEqual(deleted.players, []);
+  assert.deepEqual(deleted.courses, []);
 });

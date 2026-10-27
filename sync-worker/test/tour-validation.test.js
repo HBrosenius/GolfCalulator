@@ -1,3 +1,5 @@
+import '../../src/scoring.js';
+const Scoring = globalThis.GolfScoring;
 import { describe, expect, it } from 'vitest';
 import { TOUR_SCHEMA_VERSION, validateTourCreate, validateTourRoundSubmission, validateTourUpdate } from '../src/tour-validation.js';
 import { PROTOCOL_VERSION } from '../src/validation.js';
@@ -56,8 +58,8 @@ describe('shared tour round contract', () => {
       courses: [{ id: 'c1', ...config.courses[0] }],
     };
     const rows = config.courses[0].tees[0].hpar.map((par, index) => ({
-      h: index + 1, par, si: config.courses[0].tees[0].si[index], strokes: 1,
-      score: par + 1, netto: par, pts: 2, skipped: false,
+      h: index + 1, par, si: config.courses[0].tees[0].si[index], strokes: Scoring.strokesOnHole(6, config.courses[0].tees[0].si[index], 9),
+      score: par + Scoring.strokesOnHole(6, config.courses[0].tees[0].si[index], 9), netto: par, pts: 2, skipped: false,
     }));
     const body = {
       protocolVersion: PROTOCOL_VERSION, schemaVersion: TOUR_SCHEMA_VERSION,
@@ -93,5 +95,65 @@ describe('shared tour update contract', () => {
       duplicateCourseRule: 'best', courseLimits: [{ courseId: 'c1', maxRounds: 2 }],
     };
     expect(validateTourUpdate(update, tour)).toMatch(/existing rounds/i);
+  });
+});
+
+describe('server scoring authority', () => {
+  function setup(mode = 'individual') {
+    const config = validTour();
+    const tour = { ...config, status: 'open', members: [{ id: 'm1', name: 'Ada', hi: 0 }, { id: 'm2', name: 'Bo', hi: 0 }], courses: [{ id: 'c1', ...config.courses[0] }] };
+    const rows = tour.courses[0].tees[0].hpar.map((par, h) => ({ h: h + 1, par, si: h * 2 + 1, strokes: 0, score: par, netto: par, pts: 2, skipped: false }));
+    const body = { protocolVersion: PROTOCOL_VERSION, schemaVersion: TOUR_SCHEMA_VERSION, clientRoundId: 'authority', playedDate: '2026-07-01', courseId: 'c1', gameMode: mode,
+      subjects: [{ memberId: 'm1', teeName: 'Gul', totalPoints: 18, totalBrutto: 36, rows }] };
+    return { tour, body };
+  }
+
+  it('rejects internally consistent inflated par, stroke index and handicap allocations', () => {
+    const { tour, body } = setup();
+    body.subjects[0].rows.forEach(row => Object.assign(row, { par: 6, strokes: 4, score: 4, netto: 0, pts: 8 }));
+    body.subjects[0].totalPoints = 72;
+    expect(validateTourRoundSubmission(body, tour)).toMatch(/stored course|handicap|points/);
+    const changedIndex = setup(); changedIndex.body.subjects[0].rows[0].si = 18;
+    expect(validateTourRoundSubmission(changedIndex.body, changedIndex.tour)).toMatch(/stored course/);
+  });
+
+  it('round-trips actual fourball serialization with different teammate contributions', async () => {
+    await import('../../src/tour-rules.js');
+    const { tour, body } = setup('fourball');
+    const second = structuredClone(body.subjects[0]);
+    second.memberId = 'm2';
+    second.rows.forEach(row => Object.assign(row, { score: row.par + 1, netto: row.par + 1, pts: 1 }));
+    second.totalBrutto = 45;
+    body.subjects[0].teamId = second.teamId = 'A';
+    body.subjects.push(second);
+    const round = { id: 'fourball', date: body.playedDate, courseName: tour.courses[0].name, holes: 9, tee: 'Gul', gameMode: 'fourball',
+      subjects: body.subjects.map(subject => ({ ...subject, tee: 'Gul' })) };
+    const payload = globalThis.GolfTourRules.buildRoundSubmission(round, { tour });
+    expect(validateTourRoundSubmission(payload, tour)).toBeNull();
+    payload.subjects[0].totalPoints = 19;
+    expect(validateTourRoundSubmission(payload, tour)).toMatch(/points/);
+  });
+
+  it('validates each team mode and rejects incomplete or inconsistent teams', () => {
+    for (const mode of ['scramble', 'foursome', 'fourball']) {
+      const { tour, body } = setup(mode);
+      body.subjects[0].teamId = 'A';
+      expect(validateTourRoundSubmission(body, tour)).toMatch(/two distinct members/);
+      body.subjects.push({ ...structuredClone(body.subjects[0]), memberId: 'm2' });
+      expect(validateTourRoundSubmission(body, tour)).toBeNull();
+      if (mode !== 'fourball') {
+        body.subjects[1].rows[0] = { ...body.subjects[1].rows[0], score: 5, netto: 5, pts: 1 };
+        body.subjects[1].totalBrutto++;
+        expect(validateTourRoundSubmission(body, tour)).toMatch(/Shared team rows/);
+      }
+    }
+  });
+
+  it('accepts a signed plus handicap using the stored member and tee', () => {
+    const { tour, body } = setup();
+    tour.members[0].hi = -2;
+    body.subjects[0].rows[8] = { ...body.subjects[0].rows[8], strokes: -1, netto: 6, pts: 1 };
+    body.subjects[0].totalPoints = 17;
+    expect(validateTourRoundSubmission(body, tour)).toBeNull();
   });
 });

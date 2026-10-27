@@ -1,3 +1,5 @@
+import '../../src/scoring.js';
+const Scoring = globalThis.GolfScoring;
 import { PROTOCOL_VERSION } from './validation.js';
 
 export const TOUR_SCHEMA_VERSION = 1;
@@ -47,7 +49,7 @@ function validateCourse(course) {
 
 function validateMember(member) {
   const allowed = new Set(['name', 'hi']);
-  return hasOnlyKeys(member, allowed) && isText(member.name, 50) && isNumber(member.hi, 0, 54);
+  return hasOnlyKeys(member, allowed) && isText(member.name, 50) && isNumber(member.hi, -10, 54);
 }
 
 export function validateTourCreate(body) {
@@ -120,7 +122,7 @@ export function validateTourRoundSubmission(body, tour) {
   if (!hasOnlyKeys(body, allowed) || !isText(body.clientRoundId, 80) || !isDate(body.playedDate)) return 'Invalid round submission';
   if (tour.status !== 'open' || body.playedDate < tour.startDate || body.playedDate > tour.endDate) return 'Round is outside the open tour';
   if (!['individual', 'scramble', 'fourball', 'foursome', 'match'].includes(body.gameMode)) return 'Unsupported tour game mode';
-  if (body.liveRoomCode !== undefined && !/^[A-HJ-KM-NP-Z2-9]{4}$/.test(body.liveRoomCode)) return 'Invalid live room code';
+  if (body.liveRoomCode !== undefined && !/^([A-HJ-KM-NP-Z2-9]{4}|[A-HJ-KM-NP-Z2-9]{20})$/.test(body.liveRoomCode)) return 'Invalid live room code';
   const course = tour.courses.find(item => item.id === body.courseId);
   if (!course) return 'Round course is not in the tour';
   if (!Array.isArray(body.subjects) || body.subjects.length < 1 || body.subjects.length > tour.members.length) return 'Invalid round subjects';
@@ -134,10 +136,70 @@ export function validateTourRoundSubmission(body, tour) {
       (subject.teamId !== null && subject.teamId !== undefined && !isText(subject.teamId, 30)) ||
       !Array.isArray(subject.rows) || subject.rows.length !== course.holes ||
       !subject.rows.every((row, index) => validateResultRow(row, index + 1))) return 'Invalid round subjects';
-    if (subject.rows.reduce((sum, row) => sum + row.pts, 0) !== subject.totalPoints) return 'Round points do not match hole results';
+
     const gross = subject.rows.reduce((sum, row) => sum + (row.skipped ? 0 : row.score), 0);
     if (gross !== subject.totalBrutto) return 'Round gross score does not match hole results';
     seen.add(subject.memberId);
   }
+  try {
+    const calculated = calculateTourSubjects(body, tour);
+    for (let i = 0; i < calculated.length; i++) {
+      const actual = body.subjects[i], expected = calculated[i];
+      if (actual.totalPoints !== expected.totalPoints) return 'Round points do not match hole results';
+      if (actual.rows.some((row, h) => ['par', 'si', 'strokes', 'netto', 'pts'].some(key => row[key] !== expected.rows[h][key]))) {
+        return 'Round subjects do not match stored course and handicap rules';
+      }
+    }
+  } catch (error) { return error.message; }
   return null;
+}
+
+// Only gross scores and pickup choices come from the scorer. All derived fields
+// use the tour's immutable member and tee snapshots and the shared scoring engine.
+export function calculateTourSubjects(body, tour) {
+  const course = tour.courses.find(item => item.id === body.courseId);
+  const members = new Map(tour.members.map(member => [member.id, member]));
+  const shared = ['scramble', 'foursome'].includes(body.gameMode);
+  const teamMode = shared || body.gameMode === 'fourball';
+  const groups = new Map();
+  for (const subject of body.subjects) {
+    if (teamMode && !subject.teamId) throw new Error('Round team membership is required');
+    if (!teamMode && subject.teamId) throw new Error('Unexpected round team');
+    const id = teamMode ? subject.teamId : subject.memberId;
+    if (!groups.has(id)) groups.set(id, []);
+    groups.get(id).push(subject);
+  }
+  if (teamMode && [...groups.values()].some(group => group.length !== 2)) throw new Error('Round teams must contain two distinct members');
+  const phFor = subject => {
+    const tee = course.tees.find(tee => tee.name === subject.teeName);
+    return Scoring.calculatePlayingHandicap(members.get(subject.memberId).hi, tee.slope, tee.cr, tee.par, course.holes);
+  };
+  const calculated = body.subjects.map(subject => {
+    const tee = course.tees.find(tee => tee.name === subject.teeName);
+    const team = groups.get(teamMode ? subject.teamId : subject.memberId);
+    let ph = phFor(subject);
+    if (shared) {
+      if (team.some(mate => mate.teeName !== subject.teeName || JSON.stringify(mate.rows) !== JSON.stringify(subject.rows))) throw new Error('Shared team rows and tees must match');
+      ph = body.gameMode === 'scramble'
+        ? Scoring.calculateScrambleHandicap(...team.map(mate => members.get(mate.memberId).hi))
+        : Scoring.calculateFoursomeHandicap(...team.map(phFor));
+    }
+    const rows = subject.rows.map((row, h) => {
+      const par = tee.hpar[h], si = tee.si[h];
+      const strokes = Scoring.strokesOnHole(ph, si, course.holes);
+      return { h: h + 1, par, si, strokes, score: row.skipped ? '–' : row.score,
+        netto: row.skipped ? '–' : row.score - strokes,
+        pts: row.skipped ? 0 : Scoring.calculateStablefordPoints(row.score, par, strokes), skipped: row.skipped };
+    });
+    return { ...subject, rows, totalPoints: rows.reduce((sum, row) => sum + row.pts, 0),
+      totalBrutto: rows.reduce((sum, row) => sum + (row.skipped ? 0 : row.score), 0) };
+  });
+  if (body.gameMode === 'fourball') {
+    for (const team of groups.values()) {
+      const players = calculated.filter(subject => team.some(member => member.memberId === subject.memberId));
+      const total = Scoring.calculateFourballTeamPoints(players.map(subject => subject.rows.map(row => row.pts)));
+      players.forEach(subject => { subject.totalPoints = total; });
+    }
+  }
+  return calculated;
 }

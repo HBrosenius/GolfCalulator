@@ -92,3 +92,19 @@ test('round migration repairs a null point total from hole rows', () => {
   }] }], []);
   assert.equal(round.subjects[0].totalPoints, 3);
 });
+
+test('snapshot batch restores earlier collections when quota fails partway through', () => {
+  const values = new Map([['players', '["old player"]'], ['rounds', '["old round"]']]);
+  const storage = {
+    getItem: key => values.get(key) ?? null,
+    removeItem: key => values.delete(key),
+    setItem(key, value) {
+      if (key === 'rounds' && value.includes('new')) throw new Error('QuotaExceededError');
+      values.set(key, value);
+    },
+  };
+  const store = require('../src/storage.js').createJsonStore(storage);
+  assert.equal(store.saveMany({ players: ['new player'], rounds: ['new round'] }), false);
+  assert.deepEqual(store.load('players', []), ['old player']);
+  assert.deepEqual(store.load('rounds', []), ['old round']);
+});

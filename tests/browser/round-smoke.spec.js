@@ -30,6 +30,7 @@ test('select course, score two players, finish and find the saved round', async 
     await page.locator(`#score_0_${hole}`).fill('4');
     await page.locator(`#score_1_${hole}`).fill('5');
   }
+  page.once('dialog', dialog => dialog.accept());
   await page.locator('#step4 button', { hasText: 'Beräkna' }).click();
 
   await expect(page.locator('#step5')).toBeVisible();
@@ -220,6 +221,7 @@ test('resumed round can revisit populated player setup without losing scores', a
 test('editing saved scores preserves bets and tour and live references without reconnecting', async ({ page }) => {
   await openScorecard(page);
   await page.locator('#score_0_0').fill('5');
+  page.once('dialog', dialog => dialog.accept());
   await page.locator('#step4 button', { hasText: 'Beräkna' }).click();
   const metadata = await page.evaluate(() => {
     const rounds = roundsLoad();
@@ -234,6 +236,7 @@ test('editing saved scores preserves bets and tour and live references without r
   });
   expect(await page.evaluate(() => state.liveRoomCode || null)).toBeNull();
   await page.locator('#score_0_0').fill('6');
+  page.once('dialog', dialog => dialog.accept());
   await page.locator('#step4 button', { hasText: 'Beräkna' }).click();
   const saved = await page.evaluate(() => roundsLoad()[0]);
   expect(saved).toMatchObject(metadata);
@@ -243,6 +246,7 @@ test('editing saved scores preserves bets and tour and live references without r
 test('backup restores tours, roster links and synced rounds without duplicates', async ({ page }) => {
   await openScorecard(page);
   await page.locator('#score_0_0').fill('5');
+  page.once('dialog', dialog => dialog.accept());
   await page.locator('#step4 button', { hasText: 'Beräkna' }).click();
   const restored = await page.evaluate(() => {
     playersSave([{ id: 42, name: 'Ada', hi: 10 }]);

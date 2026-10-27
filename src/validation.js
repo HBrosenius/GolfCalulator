@@ -6,7 +6,7 @@
   'use strict';
 
   function isJoinCode(value) {
-    return typeof value === 'string' && /^[A-HJ-KM-NP-Z2-9]{4}$/.test(value.toUpperCase());
+    return typeof value === 'string' && /^[A-HJ-KM-NP-Z2-9]{20}$/.test(value.toUpperCase());
   }
 
   function isPositiveInteger(value) {
@@ -47,12 +47,12 @@
   function optional(value, check) { return value === undefined || value === null || check(value); }
 
   function isCourse(course) {
-    const keys = new Set(['name', 'tee', 'holes', 'slope', 'cr', 'par', 'hpar', 'si',
+    const keys = new Set(['id', 'name', 'tee', 'holes', 'slope', 'cr', 'par', 'hpar', 'si',
       'ratingCategory', 'catalogTee', 'catalogId', 'catalogVersion', 'catalogUpdatedAt',
       'catalogSource', 'catalogVerifiedAt', 'catalogVerificationStatus']);
     const sourceOk = optional(course.catalogSource, source => hasOnlyKeys(source, new Set(['url', 'title'])) &&
       isText(source.url, 500) && /^https?:\/\//.test(source.url) && isText(source.title, 120));
-    return hasOnlyKeys(course, keys) && isText(course.name, 80) && isText(course.tee, 50) &&
+    return optional(course.id, value => isText(value, 80)) && hasOnlyKeys(course, keys) && isText(course.name, 80) && isText(course.tee, 50) &&
       (course.holes === 9 || course.holes === 18) && isNumber(course.slope, 55, 155) &&
       isNumber(course.cr, 25, 85) && isInteger(course.par, 27, 90) &&
       Array.isArray(course.hpar) && course.hpar.length === course.holes && course.hpar.every(value => isInteger(value, 3, 6)) &&
@@ -71,7 +71,7 @@
     const keys = new Set(['id', 'name', 'lastName', 'hi', 'nick', 'photo']);
     return hasOnlyKeys(player, keys) && isInteger(player.id, 1, Number.MAX_SAFE_INTEGER) &&
       isText(player.name, 50) && optional(player.lastName, value => isText(value, 50)) &&
-      optional(player.nick, value => isText(value, 50)) && isNumber(player.hi, 0, 54) &&
+      optional(player.nick, value => isText(value, 50)) && isNumber(player.hi, -10, 54) &&
       optional(player.photo, isPhotoDataUrl);
   }
 
@@ -103,7 +103,7 @@
     ]);
     return hasOnlyKeys(subject, keys) && optional(subject.playerId, value => isInteger(value, 1, Number.MAX_SAFE_INTEGER)) &&
       optional(subject.memberId, value => isText(value, 80)) && isText(subject.name, 80) &&
-      optional(subject.hi, value => isNumber(value, 0, 54)) && isInteger(subject.ph, -20, 72) &&
+      optional(subject.hi, value => isNumber(value, -10, 54)) && isInteger(subject.ph, -20, 72) &&
       optional(subject.tee, value => isText(value, 50)) && optional(subject.slope, value => isNumber(value, 55, 155)) &&
       optional(subject.cr, value => isNumber(value, 25, 85)) && optional(subject.par, value => isInteger(value, 27, 90)) &&
       isInteger(subject.totalPoints, 0, holes * 8) && isInteger(subject.totalBrutto, 0, holes * 20) &&
@@ -147,7 +147,7 @@
       optional(round.note, value => isText(value, 120, true)) && optional(round.weather, value => ['sun', 'cloud', 'rain', 'wind'].includes(value)) &&
       optional(round.markers, value => isMarkers(value, round.holes)) &&
       optional(round.bets, value => Array.isArray(value) && value.length <= round.holes && value.every(bet => isBet(bet, round.holes))) &&
-      optional(round.liveRoomCode, value => /^[A-HJ-KM-NP-Z2-9]{4}$/.test(value)) && optional(round.tourRef, isTourRef) &&
+      optional(round.liveRoomCode, value => /^[A-HJ-KM-NP-Z2-9]{4}$/.test(value) || /^[A-HJ-KM-NP-Z2-9]{20}$/.test(value)) && optional(round.tourRef, isTourRef) &&
       Array.isArray(round.subjects) && round.subjects.length >= 1 && round.subjects.length <= 12 &&
       round.subjects.every(subject => isSubject(subject, round.holes));
   }
@@ -171,8 +171,8 @@
   }
 
   function isBackupPayload(value) {
-    const keys = new Set(['version', 'exportedAt', 'courses', 'rounds', 'players', ...(value?.version === 2 ? ['tours'] : [])]);
-    return hasOnlyKeys(value, keys) && (value.version === 1 || value.version === 2) &&
+    const keys = new Set(['version', 'exportedAt', 'courses', 'rounds', 'players', 'playerDeletions', 'courseDeletions', ...(value?.version === 2 ? ['tours'] : [])]);
+    return ['playerDeletions', 'courseDeletions'].every(key => optional(value[key], entries => Array.isArray(entries) && entries.length <= 5000 && entries.every(item => hasOnlyKeys(item, new Set(['id', 'deletedAt'])) && isText(item.id, 128) && isInteger(item.deletedAt, 1, Number.MAX_SAFE_INTEGER)))) && hasOnlyKeys(value, keys) && (value.version === 1 || value.version === 2) &&
       (value.version === 1 || (Array.isArray(value.tours) && value.tours.length <= 500 && value.tours.every(isLocalTour))) && optional(value.exportedAt, date => {
       if (!isText(date, 40)) return false;
       const parsed = new Date(date);

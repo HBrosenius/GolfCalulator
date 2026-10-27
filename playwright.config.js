@@ -8,9 +8,12 @@ module.exports = defineConfig({
   use: {
     baseURL: 'http://127.0.0.1:8765',
     trace: 'retain-on-failure',
+    serviceWorkers: 'block',
   },
   projects: [
     { name: 'chromium', use: { ...devices['Desktop Chrome'], channel: process.env.PLAYWRIGHT_CHANNEL || 'chromium' } },
+    { name: 'mobile-chromium', use: { ...devices['Pixel 7'] } },
+    { name: 'webkit', use: { ...devices['iPhone 13'] } },
   ],
   webServer: {
     command: 'node tests/browser/server.js',

@@ -64,7 +64,7 @@ test('shared-tour administration sanitizes assembled markup before insertion', (
   assert.match(renderer[1], /DOMPurify\.sanitize\(sharedTourMarkup/);
   assert.match(renderer[1], /el\.innerHTML = sanitizedMarkup/);
   assert.doesNotMatch(renderer[1], /el\.innerHTML = `/);
-  assert.match(html, /src\/vendor\/dompurify\.min\.js\?v=3\.4\.13/);
+  assert.match(html, /src\/vendor\/dompurify\.min\.js\?v=3\.4\.17/);
 });
 
 test('account login tolerates a previously cached account client module', () => {
