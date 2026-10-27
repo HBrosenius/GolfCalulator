@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { buildSmokeSubmission } from './smoke-round.mjs';
 
 const api = (process.env.SMOKE_API_BASE || 'https://golfcalc-sync.golfcalc-sync.workers.dev').replace(/\/$/, '');
 const app = process.env.SMOKE_APP_URL || 'https://hbrosenius.github.io/GolfCalulator/';
@@ -65,15 +66,9 @@ try {
     };
   });
 
-  const course = created.tour.courses[0];
-  const member = created.tour.members[0];
-  const rows = course.tees[0].hpar.map((par, index) => ({ h: index + 1, par, si: course.tees[0].si[index], strokes: 1, score: par + 1, netto: par, pts: 2, skipped: false }));
+  const submission = buildSmokeSubmission(created.tour, iso(0));
   await json(await fetch(`${api}/tour/${created.code}/rounds`, {
-    method: 'POST', headers: headers(created.organizerToken), body: JSON.stringify({
-      protocolVersion: 2, schemaVersion: 1, clientRoundId: crypto.randomUUID(), playedDate: iso(0),
-      courseId: course.id, gameMode: 'individual',
-      subjects: [{ memberId: member.id, teeName: 'Test', totalPoints: 18, totalBrutto: 45, rows, teamId: null }],
-    }),
+    method: 'POST', headers: headers(created.organizerToken), body: JSON.stringify(submission),
   }));
   const realtime = await liveUpdate;
   assert.equal(realtime.tour.rounds[0].subjects[0].totalPoints, 18);

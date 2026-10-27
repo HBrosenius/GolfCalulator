@@ -157,3 +157,16 @@ describe('server scoring authority', () => {
     expect(validateTourRoundSubmission(body, tour)).toBeNull();
   });
 });
+
+
+it('accepts the production smoke fixture using the real nine-hole handicap', async () => {
+  const { buildSmokeSubmission } = await import('../../scripts/smoke-round.mjs');
+  const config = validTour();
+  const tour = { ...config, status: 'open',
+    members: [{ id: 'smoke', name: 'Smoke Player', hi: 10 }],
+    courses: [{ ...config.courses[0], id: 'course', tees: [{ ...config.courses[0].tees[0], hpar: Array(9).fill(4) }] }] };
+  const body = buildSmokeSubmission(tour, '2026-07-01');
+  expect(body.subjects[0].totalPoints).toBe(18);
+  expect(body.subjects[0].totalBrutto).toBe(41);
+  expect(validateTourRoundSubmission(body, tour)).toBeNull();
+});
