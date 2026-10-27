@@ -6,7 +6,7 @@ The app already supports offline scoring, five game modes, multiple tees, accoun
 
 Recommended direction: make Poängbogey a dependable companion for recurring golf groups and small tours, with fast setup, recoverable scorecards and understandable results.
 
-Implementation update: the first local increment adds Play again/saved groups, QR/link joining and Explain my points. See [implementation and next model decisions](roadmap-first-release-2026-10-27.md) for behavior, verification and remaining scope.
+Implementation update: [local round recovery and historical dates](roadmap-round-recovery-2026-10-27.md) now add multiple named drafts, conflict copies, 30-day trash, played dates and practice classification. Account-synced draft handoff remains future work. The first increment adds Play again/saved groups, QR/link joining and Explain my points. See [implementation and next model decisions](roadmap-first-release-2026-10-27.md) for behavior, verification and remaining scope.
 
 ## First release: finish the everyday round workflow
 

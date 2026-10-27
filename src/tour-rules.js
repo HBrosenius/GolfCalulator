@@ -34,6 +34,7 @@
     if (!tour || !Array.isArray(tour.courses)) return [];
     const roster = rosterPlayers(tour, players);
     return (rounds || []).filter(round =>
+      round.roundKind !== 'practice' && !['draft', 'in_progress'].includes(round.lifecycle) &&
       tour.courses.some(course => courseMatches(course, round)) &&
       round.date >= tour.startDate && round.date <= tour.endDate &&
       SUPPORTED_GAME_MODES.has(round.gameMode || 'individual') &&
@@ -144,6 +145,7 @@
 
   function buildRoundSubmission(round, sharedRecord) {
     if (!round || !sharedRecord?.tour) throw new Error('Shared tour context is required');
+    if (round.roundKind === 'practice') throw new Error('Träningsrundor kan inte skickas till en tour.');
     const course = sharedRecord.tour.courses.find(item => item.name === round.courseName && item.holes === round.holes);
     if (!course) throw new Error('Round course is not in the shared tour');
     const links = sharedRecord.memberLinks || {};
@@ -187,6 +189,7 @@
       playedDate: round.date,
       courseId: course.id,
       gameMode: round.gameMode,
+      ...(round.roundKind ? { roundKind: round.roundKind } : {}),
       subjects,
       ...(round.liveRoomCode ? { liveRoomCode: round.liveRoomCode } : {}),
     };

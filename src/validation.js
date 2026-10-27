@@ -136,9 +136,12 @@
   function isRound(round) {
     const keys = new Set([
       'schemaVersion', 'id', 'date', 'courseName', 'tee', 'mixedTees', 'holes', 'slope', 'cr', 'par',
-      'gameMode', 'note', 'weather', 'markers', 'minTeeShots', 'bets', 'liveRoomCode', 'tourRef', 'subjects',
+      'gameMode', 'roundKind', 'lifecycle', 'sourceDraftId', 'restoredFrom', 'note', 'weather', 'markers', 'minTeeShots', 'bets', 'liveRoomCode', 'tourRef', 'subjects',
     ]);
-    return hasOnlyKeys(round, keys) && optional(round.schemaVersion, value => value === 1 || value === 2) &&
+    return isObject(round) && optional(round.roundKind, value => ['competitive', 'practice'].includes(value)) &&
+      optional(round.lifecycle, value => ['submitted', 'completed'].includes(value)) &&
+      optional(round.sourceDraftId, value => isText(value, 80)) && optional(round.restoredFrom, value => isText(value, 80)) &&
+      hasOnlyKeys(round, keys) && optional(round.schemaVersion, value => value === 1 || value === 2) &&
       optional(round.minTeeShots, value => isInteger(value, 0, 18)) &&
       (isInteger(round.id, 1, Number.MAX_SAFE_INTEGER) || (typeof round.id === 'string' && /^[A-Za-z0-9_-]{1,80}$/.test(round.id))) && isDate(round.date) && isText(round.courseName, 80) &&
       isText(round.tee, 50) && optional(round.mixedTees, value => typeof value === 'boolean') &&

@@ -15,14 +15,15 @@
 <script src="src/scoring.js?v=20260809-2"></script>
 <script src="src/storage.js?v=20261027-2"></script>
 <script src="src/live-sync.js?v=20260809-2"></script>
-<script src="src/validation.js?v=20261027-2"></script>
+<script src="src/validation.js?v=20261027-3"></script>
 <script src="src/score-explanations.js?v=20261027-1"></script>
+<script src="src/round-recovery.js?v=20261027-1"></script>
 <script src="src/round-setup.js?v=20261027-1"></script>
 <script src="src/live-invitation.js?v=20261027-1"></script>
 <script src="src/vendor/qrcode.js?v=2.0.4"></script>
 <script src="src/round-extras.js?v=20260809-2"></script>
-<script src="src/live-round.js?v=20260809-2"></script>
-<script src="src/tour-rules.js?v=20260809-3"></script>
+<script src="src/live-round.js?v=20261027-1"></script>
+<script src="src/tour-rules.js?v=20261027-1"></script>
 <script src="src/tour-sync.js?v=20260809-7"></script>
 <script src="src/account-sync.js?v=20261027-2"></script>
 <script src="src/course-catalog.js?v=20260814-1"></script>
@@ -977,6 +978,10 @@
         <button onclick="clearHistoryFilters()" style="background:none;border:none;color:var(--green);font-size:0.82rem;cursor:pointer;padding:8px 0 0;">Rensa filter</button>
       </div>
       <div id="historyCount" style="font-size:0.8rem;color:var(--muted);margin-bottom:8px;"></div>
+      <div id="roundTrashCard" class="hidden" style="margin:12px 0;">
+        <div class="card-title">Papperskorg · 30 dagar på den här enheten</div>
+        <p style="font-size:.8rem;">Återställning skapar en lokal kopia. Tourens resultat ändras inte.</p><div id="roundTrashList"></div>
+      </div>
       <div id="historyList"><p style="font-size:0.85rem;color:var(--muted);text-align:center;padding:12px 0;">Inga sparade rundor.</p></div>
     </div>
     <div class="card" style="margin-top:10px;">
@@ -1177,6 +1182,11 @@
       <div id="savedSetupsList" style="display:grid;gap:8px;"></div>
     </div>
 
+    <div id="roundDraftsCard" class="card hidden">
+      <div class="card-title">Sparade utkast · den här enheten</div>
+      <p style="font-size:.8rem;">Du kan pausa flera rundor. Utkast och live-åtkomst flyttas inte till andra enheter.</p>
+      <div id="roundDraftsList"></div>
+    </div>
     <!-- Pågående tourer -->
     <div id="activeToursCard" class="card hidden" style="margin-bottom:10px;">
       <div class="card-title" style="margin-bottom:10px;"><span class="icon">🚌</span> Pågående tourer</div>
@@ -1353,6 +1363,10 @@
 
       <div id="playerCardsContainer" style="margin-top:14px;"></div>
 
+      <label for="roundPlayedDate">Speldatum</label>
+      <input type="date" id="roundPlayedDate" onchange="updateRoundDetails()">
+      <label for="roundKind">Rundtyp</label>
+      <select id="roundKind" onchange="updateRoundDetails()"><option value="competitive">Vanlig runda (kan räknas i tour)</option><option value="practice">Träning (räknas inte i tour)</option></select>
       <div id="setupReviewNotice" class="info-box hidden" role="status"></div>
       <label for="savedSetupName">Spara hela uppställningen som spelgrupp</label>
       <div style="display:flex;gap:8px;flex-wrap:wrap;">
@@ -1375,6 +1389,11 @@
   <div id="step4" class="hidden">
     <div class="card">
       <div class="card-title"><span class="icon">📝</span> Mata in score</div>
+      <p id="roundDetailsSummary" style="font-size:.8rem;"></p>
+      <label for="roundDraftName">Utkastets namn</label>
+      <input id="roundDraftName" maxlength="80" onchange="state.draftName=this.value.trim();inprogressSave()">
+      <p id="draftSaveStatus" role="status" style="font-size:.8rem;"></p>
+      <button class="btn secondary" onclick="newRound()">Pausa och börja en ny runda</button>
       <div style="font-size:0.8rem; color:var(--muted); margin-bottom:12px;">
         <span style="color:var(--green);">Grön badge</span> = spelhandicap per spelare.
       </div>
@@ -1607,7 +1626,7 @@ const DB_KEY = 'golf_courses_db';
 // Guest collections keep their existing keys; signed-in accounts have separate vaults.
 const scopedKeys = new Set(['golf_courses_db', 'golf_rounds_db', 'golf_players_db', 'golf_tours_db',
   'golf_round_deletions', 'golf_tour_deletions', 'golf_player_deletions', 'golf_course_deletions',
-  'golf_account_sync_meta', 'golf_account_baseline', 'golf_shared_tours_db', 'golf_inprogress_round', 'golf_setups_db', 'golf_setup_deletions']);
+  'golf_account_sync_meta', 'golf_account_baseline', 'golf_shared_tours_db', 'golf_inprogress_round', 'golf_setups_db', 'golf_setup_deletions', 'golf_round_recovery']);
 let _dataOwner = localStorage.getItem('golf_data_owner');
 try {
   const existing = JSON.parse(localStorage.getItem('golf_account_session') || 'null');
@@ -1710,9 +1729,9 @@ function playAgain(id) {
     startRoundSetup(setup);
   } catch (_) { alert('Den här äldre rundan saknar uppgifter för att återanvändas. Välj bana och spelare manuellt.'); }
 }
-function startRoundSetup(setup) {
+async function startRoundSetup(setup) {
   if (!GolfValidation.isRoundSetup(setup)) { alert('Uppställningen saknar giltiga ban- eller spelaruppgifter.'); return; }
-  if (inprogressLoad() && !confirm('En pågående runda finns sparad. När du börjar mata in den nya rundan ersätts den. Fortsätta?')) return;
+  if (!await checkpointDrafts()) return;
   liveSyncStop(); _singleHole = null;
   state = GolfRoundSetup.freshState(setup, playersLoad());
   state.baseHoles = state.holes;
@@ -2027,7 +2046,9 @@ document.getElementById('savedCoursesList').addEventListener('click', function(e
   }
 });
 
-function loadSavedCourseAndAdvance(entry) {
+async function loadSavedCourseAndAdvance(entry) {
+  if (!await checkpointDrafts()) return;
+  state.draftId = null; state.draftRevision = 0;
   state.setupCourses = null;
   document.getElementById('setupReviewNotice')?.classList.add('hidden');
   clearStep1Error();
@@ -2059,6 +2080,7 @@ function loadSavedCourseAndAdvance(entry) {
   // unrelated later course selection.
   if (_pendingTourPlayHoles === 18 && entry.holes === 9) setPlayMode(18);
   _pendingTourPlayHoles = null;
+  return true;
 }
 
 function setPlayMode(n) {
@@ -2632,6 +2654,7 @@ function buildPlayerCards() {
   }
   for (let p = 0; p < state.numPlayers; p++) updatePlayerPH(p);
   if (isTeamFormat || isScramble2p) buildTeamInfo();
+  renderRoundDetails();
 }
 
 function assignTeam(playerIdx, team) {
@@ -2760,6 +2783,8 @@ function goToStep4Score() {
 // Shared by goToStep4Score() and startLiveRound() — the latter needs the built
 // roster/seat count before it can create the room.
 function buildStep4State() {
+  updateRoundDetails();
+  if (!roundDetailsValid()) return false;
   const players = [];
   for (let p = 0; p < state.numPlayers; p++) {
     const nameEl = document.getElementById(`pname_${p}`);
@@ -2897,6 +2922,7 @@ function setTeeShotPlayer(teamIdx, holeIdx, val) {
 }
 
 function buildScoreTable() {
+  renderRoundDetails();
   const thead = document.getElementById('scoreTableHead');
   const tbody = document.getElementById('scoreTableBody');
   const isSharedScore = isSharedScoreMode(state.gameMode);
@@ -3615,8 +3641,9 @@ function scoreKeyDown(event, p, i) {
 // STEP 5 – Beräkna
 // ============================================================
 function detectQualifyingTours(players) {
-  const date = new Date().toLocaleDateString('sv-SE');
-  const synthetic = { id: 'preview', date, courseName: state.courseName, holes: state.holes, gameMode: state.gameMode, subjects: players.map(player => ({ playerId: player.playerId, name: player.name, totalPoints: 0 })) };
+  if (state.roundKind === 'practice') { state._qualifyingTourNames = []; return; }
+  const date = state.playedDate || localPlayedToday();
+  const synthetic = { id: 'preview', roundKind: state.roundKind, date, courseName: state.courseName, holes: state.holes, gameMode: state.gameMode, subjects: players.map(player => ({ playerId: player.playerId, name: player.name, totalPoints: 0 })) };
   const localMatches = toursLoad().filter(tour => tour.status === 'open' && GolfTourRules.matchingRounds(tour, [synthetic], playersLoad()).length);
   const sharedMatches = sharedTourStore.load().filter(record => record.tour?.status === 'open' && record.tour.startDate <= date && record.tour.endDate >= date &&
     record.tour.courses?.some(course => course.name === state.courseName && (!course.holes || course.holes === state.holes)) &&
@@ -3635,7 +3662,7 @@ function detectQualifyingTours(players) {
 
 function tournamentProjection() {
   const context = state.tourContext;
-  if (!context || !state.players?.length) return null;
+  if (!context || !state.players?.length || state.roundKind === 'practice') return null;
   const subjects = state.players.map((player, index) => {
     const scores = Array.from({ length: state.holes }, (_, hole) => {
       const input = document.getElementById(`score_${index}_${hole}`);
@@ -3648,12 +3675,12 @@ function tournamentProjection() {
   if (context.code) {
     const record = sharedTourStore.find(context.code);
     if (!record?.tour) return null;
-    const tour = { ...record.tour, rounds: [...(record.tour.rounds || []), { id: previewId, playedDate: new Date().toLocaleDateString('sv-SE'), courseName: state.courseName, holes: state.holes, gameMode: state.gameMode, subjects }] };
+    const tour = { ...record.tour, rounds: [...(record.tour.rounds || []), { id: previewId, playedDate: state.playedDate || localPlayedToday(), courseName: state.courseName, holes: state.holes, gameMode: state.gameMode, subjects }] };
     return { standings: GolfTourRules.computeSharedStandings(tour), subjects };
   }
   const tour = tourFind(context.localTourId);
   if (!tour) return null;
-  const round = { id: previewId, date: new Date().toLocaleDateString('sv-SE'), courseName: state.courseName, holes: state.holes, gameMode: state.gameMode, subjects };
+  const round = { id: previewId, date: state.playedDate || localPlayedToday(), courseName: state.courseName, holes: state.holes, gameMode: state.gameMode, subjects };
   return { standings: GolfTourRules.computeStandings(tour, [...roundsLoad(), round], playersLoad()), subjects };
 }
 
@@ -3700,7 +3727,12 @@ function renderTournamentImpact() {
   container.insertAdjacentHTML('afterend', `<div class="card" style="margin-top:10px;"><div class="card-title">🏆 Tourpåverkan · ${escapeHtml(state.tourContext.tourName || 'Tour')}</div>${rows}<p style="font-size:.74rem;color:var(--muted);margin-top:8px;">Visar den nya prognosen efter rundan och vilka poäng som tillkom.</p></div>`);
 }
 
-function calculateAll() {
+let _finalizingRound = false;
+async function calculateAll() {
+  if (_finalizingRound) return;
+  _finalizingRound = true;
+  try {
+  if (!roundDetailsValid()) return;
   const n = numColumns();
   for (let p = 0; p < n; p++) {
     if (!state.scores[p]) state.scores[p] = new Array(state.holes).fill('');
@@ -3748,10 +3780,11 @@ function calculateAll() {
 
   if (isFourball) applyFourballTeamScoring(results);
 
-  saveCurrentRound(results);
+  if (!await saveCurrentRound(results)) return;
   renderResults(results, undefined, undefined, state.markers);
   renderTournamentImpact();
   goToStep(5);
+  } finally { _finalizingRound = false; }
 }
 
 // Bästboll: each player scores their own ball, but the team's point per hole
@@ -4044,7 +4077,8 @@ function renderResults(playerResults, rankContainerId = 'rankingContainer', prCo
   window._lastMarkers = markers;
 }
 
-function newRound() {
+async function newRound() {
+  if (!await checkpointDrafts()) return false;
   inprogressClear();
   state = {
     courseName: null, teeColor: null, holes: 18,
@@ -4075,6 +4109,7 @@ function newRound() {
   setHoles(18);
   try { renderSavedCourses(); } catch(e) {}
   goToStep(1);
+  return true;
 }
 
 // ============================================================
@@ -4209,6 +4244,7 @@ function accountSessionSave(session) {
   renderSavedCourses();
   renderSavedPlayersList();
   updateAccountButton();
+  refreshRecoveryUi(true);
 }
 
 function markCollectionDeleted(kind, id) {
@@ -4811,7 +4847,7 @@ function goToStep(n) {
   const heading = document.querySelector(`#step${n} h2, #step${n} .card-title`);
   if (heading) { heading.tabIndex = -1; heading.focus({ preventScroll: true }); }
   if (n === 4) liveSyncStart(); else liveSyncStop();
-  if (n === 1) renderActiveToursCard();
+  if (n === 1) { renderActiveToursCard(); refreshRecoveryUi(); }
 }
 
 // ============================================================
@@ -4972,6 +5008,7 @@ function startLiveRound() {
   const payload = {
     protocolVersion: LIVE_PROTOCOL_VERSION,
     courseName: state.courseName || 'Okänd bana',
+    playedDate: state.playedDate || localPlayedToday(), roundKind: state.roundKind || 'competitive',
     teeColor: state.teeColor,
     holes: state.holes,
     slope: state.slope, cr: state.cr, par: state.par,
@@ -5153,7 +5190,7 @@ function fetchLiveRoom() {
 
 function renderJoinLiveSeatList(room, code) {
   const preview = document.getElementById('liveJoinPreview');
-  if (preview) preview.textContent = `${room.courseName || 'Live-runda'} · ${room.holes || ''} hål · Värdens plats: ${room.hostName || room.players?.[0]?.name || 'spelare 1'} · ${(room.seats || []).filter(seat => !seat.claimed).length} lediga platser`;
+  if (preview) preview.textContent = `${room.courseName || 'Live-runda'} · ${room.holes || ''} hål${room.playedDate ? ` · ${room.playedDate}` : ''}${room.roundKind === 'practice' ? ' · Träning' : ''} · Värdens plats: ${room.hostName || room.players?.[0]?.name || 'spelare 1'} · ${(room.seats || []).filter(seat => !seat.claimed).length} lediga platser`;
 
   const shared = isSharedScoreMode(room.gameMode);
   const seatNames = shared
@@ -5193,8 +5230,8 @@ function renderJoinLiveSeatList(room, code) {
   });
 }
 
-function claimLiveSeat(code, seat) {
-  if (inprogressLoad() && !confirm('En pågående runda finns på enheten. Ersätta den med live-rundan?')) return;
+async function claimLiveSeat(code, seat) {
+  if (!await checkpointDrafts()) return;
   const selectedPlayerId = parseInt(document.getElementById('joinLivePlayerSelect')?.value || '');
   liveSyncClient.request(`/room/${code}/claim`, {
     method: 'POST',
@@ -5236,51 +5273,203 @@ function buildStateFromRoom(room, code, seat, seatToken, selectedPlayerId = null
 // ============================================================
 const INPROGRESS_KEY = 'golf_inprogress_round';
 
-function inprogressSave() {
-  if (!_lsOk) return;
-  if (state.editingId) return; // editing a saved round must not clobber a live in-progress round
-  storageDb.save(INPROGRESS_KEY, { savedAt: Date.now(), state });
+const recoveryStore = GolfRoundRecovery.createStore(globalThis.indexedDB);
+const _recoveryMigrations = new Map();
+const _draftVersions = new Map();
+const _draftAliases = new Map();
+let _draftSaveTail = Promise.resolve();
+const _draftSaveErrors = new Map();
+let _recoveryRender = 0;
+const recoveryScope = () => scopedStorage.key('golf_round_recovery');
+const localPlayedToday = () => new Date().toLocaleDateString('sv-SE');
+function draftSaveStatus(message) {
+  const element = document.getElementById('draftSaveStatus');
+  if (element) element.textContent = message;
 }
-
+function usableDraft(s) {
+  const subjects = isSharedScoreMode(s.gameMode) ? s.teams : s.players;
+  return s.courseName && [9,18].includes(s.holes) && s.hpar?.length === s.holes && s.si?.length === s.holes &&
+    subjects?.length && subjects.every(subject => Number.isFinite(subject.playingHandicap)) && s.scores?.length === subjects.length;
+}
+function ensureRecoveryVault(scope = recoveryScope()) {
+  if (!_recoveryMigrations.has(scope)) {
+    let legacy;
+    try { legacy = JSON.parse(localStorage.getItem(scope.slice(0, -'golf_round_recovery'.length) + INPROGRESS_KEY) || 'null'); } catch (_) { legacy = null; }
+    _recoveryMigrations.set(scope, (async () => {
+      const vault = await recoveryStore.list(scope);
+      if (legacy && legacy.state.courseName) {
+        const id = legacy.state.draftId;
+        const existing = id && vault.drafts.find(item => item.id === id);
+        const removed = id && vault.removedDrafts.some(item => item.id === id);
+        const newerLegacy = existing && legacy.savedAt >= existing.updatedAt && JSON.stringify(legacy.state) !== JSON.stringify(existing.state);
+        if (!removed && (!existing || newerLegacy)) {
+          const saved = await recoveryStore.saveDraft(scope, { ...legacy.state, draftId: id || crypto.randomUUID() }, existing ? (legacy.state.draftRevision || 0) : 0);
+          _draftVersions.set(`${scope}|${saved.draft.id}`, saved.draft.revision);
+          if (scope === recoveryScope() && inprogressLoad()?.savedAt === legacy.savedAt) storageDb.save(INPROGRESS_KEY, { savedAt: saved.draft.updatedAt, state: saved.draft.state });
+        }
+      }
+    })().catch(error => { _recoveryMigrations.delete(scope); throw error; }));
+  }
+  return _recoveryMigrations.get(scope);
+}
+async function checkpointDrafts() {
+  const scope = recoveryScope();
+  try {
+    await ensureRecoveryVault(scope); await _draftSaveTail;
+    if (scope !== recoveryScope()) return false;
+    if (_draftSaveErrors.has(scope)) throw _draftSaveErrors.get(scope);
+    return true;
+  } catch (error) { alert(`Kunde inte säkra utkastet: ${error.message}. Försök igen innan du byter runda.`); return false; }
+}
+function inprogressSave() {
+  if (state.editingId || !usableDraft(state)) return;
+  state.draftId ||= crypto.randomUUID();
+  state.playedDate ||= localPlayedToday();
+  state.roundKind ||= 'competitive';
+  const snapshot = JSON.parse(JSON.stringify(state)), scope = recoveryScope();
+  const key = `${scope}|${snapshot.draftId}`;
+  if (!_draftVersions.has(key)) _draftVersions.set(key, snapshot.draftRevision || 0);
+  storageDb.save(INPROGRESS_KEY, { savedAt: Date.now(), state: snapshot }, true);
+  draftSaveStatus('Sparar utkast på enheten…');
+  _draftSaveTail = _draftSaveTail.then(async () => {
+    await ensureRecoveryVault(scope);
+    let id = snapshot.draftId;
+    while (_draftAliases.has(`${scope}|${id}`)) id = _draftAliases.get(`${scope}|${id}`);
+    const result = await recoveryStore.saveDraft(scope, { ...snapshot, draftId: id }, _draftVersions.get(`${scope}|${id}`) || 0);
+    if (result.forked) _draftAliases.set(`${scope}|${id}`, result.draft.id);
+    _draftVersions.set(`${scope}|${result.draft.id}`, result.draft.revision);
+    _draftSaveErrors.delete(scope);
+    if (scope === recoveryScope() && (state.draftId === snapshot.draftId || state.draftId === id)) {
+      state.draftId = result.draft.id; state.draftRevision = result.draft.revision;
+      if (result.forked) { state.draftName = result.draft.name; document.getElementById('roundDraftName').value = result.draft.name; }
+      storageDb.save(INPROGRESS_KEY, { savedAt: result.draft.updatedAt, state: { ...JSON.parse(JSON.stringify(state)), draftId: result.draft.id } }, true);
+      draftSaveStatus(result.forked ? 'En annan flik ändrade utkastet. Dina ändringar sparades som en konfliktkopia.' : `Sparat på enheten · ${result.draft.status === 'draft' ? 'Utkast' : 'Pågående'} · ${new Date().toLocaleTimeString('sv-SE', { hour: '2-digit', minute: '2-digit' })}`);
+    }
+  }).catch(error => { _draftSaveErrors.set(scope, error); if (scope === recoveryScope()) draftSaveStatus(`Kunde inte spara utkastet: ${error.message}`); });
+}
 function inprogressLoad() {
   const snap = storageDb.load(INPROGRESS_KEY, null);
   return (snap && snap.state && snap.state.courseName) ? snap : null;
 }
-
 function inprogressClear() {
   storageDb.remove(INPROGRESS_KEY);
+  document.getElementById('resumeBanner').style.display = 'none';
   showPendingUpdateIfSafe();
+}
+async function refreshRecoveryUi(restorePointer = false) {
+  const scope = recoveryScope(), generation = ++_recoveryRender;
+  try {
+    await ensureRecoveryVault(scope); await _draftSaveTail; const data = await recoveryStore.list(scope);
+    if (scope !== recoveryScope() || generation !== _recoveryRender) return;
+    const rounds = roundsLoad();
+    const drafts = data.drafts.filter(draft => !rounds.some(round => round.sourceDraftId === draft.id)).sort((a,b) => b.updatedAt - a.updatedAt);
+    const card = document.getElementById('roundDraftsCard'), list = document.getElementById('roundDraftsList');
+    card.classList.toggle('hidden', !drafts.length); list.replaceChildren();
+    for (const draft of drafts) {
+      const row = document.createElement('div'); row.style.cssText = 'display:flex;gap:8px;margin-bottom:8px;';
+      const button = document.createElement('button'); button.className = 'btn secondary'; button.style.textAlign = 'left';
+      button.textContent = `${draft.name} · ${draft.state.playedDate || 'Utan datum'} · ${draft.status === 'draft' ? 'Utkast' : 'Pågående'}`;
+      button.addEventListener('click', () => resumeRecoveryDraft(draft.id));
+      const remove = document.createElement('button'); remove.textContent = 'Radera'; remove.setAttribute('aria-label', `Radera utkastet ${draft.name}`);
+      remove.addEventListener('click', async () => {
+        if (!confirm(`Radera utkastet ${draft.name} permanent?`)) return;
+        try {
+          await _draftSaveTail; await recoveryStore.removeDraft(scope, draft.id);
+          if (scope !== recoveryScope()) return;
+          if (inprogressLoad()?.state.draftId === draft.id) inprogressClear();
+          if (state.draftId === draft.id) { state.draftId = null; state.scores = []; }
+          refreshRecoveryUi();
+        } catch (error) { alert(error.message); }
+      });
+      row.append(button, remove); list.append(row);
+    }
+    if (restorePointer && !inprogressLoad() && drafts[0]) storageDb.save(INPROGRESS_KEY, { savedAt: drafts[0].updatedAt, state: drafts[0].state });
+    showResumeBannerIfAny();
+    const trash = data.trash.filter(item => !rounds.some(round => String(round.id) === String(item.round.id) || (item.restoreId && round.id === item.restoreId))).sort((a,b) => b.deletedAt - a.deletedAt);
+    const trashCard = document.getElementById('roundTrashCard'), trashList = document.getElementById('roundTrashList');
+    trashCard.classList.toggle('hidden', !trash.length); trashList.replaceChildren();
+    for (const item of trash) {
+      const row = document.createElement('div'); row.style.cssText = 'display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px;';
+      const restore = document.createElement('button'); restore.className = 'btn secondary';
+      restore.textContent = `Återställ ${item.round.courseName} · ${item.round.date}`;
+      restore.addEventListener('click', () => restoreDeletedRound(item.id));
+      const remove = document.createElement('button'); remove.textContent = 'Radera permanent';
+      remove.addEventListener('click', async () => {
+        if (!confirm('Radera den här kopian permanent?')) return;
+        try { await recoveryStore.forgetTrash(scope, item.id); refreshRecoveryUi(); } catch (error) { alert(error.message); }
+      });
+      row.append(restore, remove); trashList.append(row);
+    }
+  } catch (error) { draftSaveStatus(`Återhämtning är inte tillgänglig: ${error.message}`); }
+}
+async function resumeRecoveryDraft(id) {
+  if (!await checkpointDrafts()) return;
+  const scope = recoveryScope();
+  try {
+    const draft = (await recoveryStore.list(scope)).drafts.find(item => item.id === id);
+    if (scope !== recoveryScope() || !draft) return;
+    if (!usableDraft(draft.state)) { alert('Det äldre utkastet saknar spelar- eller bandata. Det finns kvar sparat, men kan inte öppnas som scorekort.'); return; }
+    liveSyncStop(); state = draft.state; _singleHole = null;
+    _draftVersions.set(`${scope}|${draft.id}`, draft.revision);
+    storageDb.save(INPROGRESS_KEY, { savedAt: draft.updatedAt, state });
+    buildScoreTable(); restoreScoresToTable(); goToStep(4);
+  } catch (error) { alert(error.message); }
+}
+async function resumeRound() {
+  if (!await checkpointDrafts()) return;
+  const snap = inprogressLoad(); if (!snap) return;
+  if (snap.state.draftId) return resumeRecoveryDraft(snap.state.draftId);
+  state = snap.state; buildScoreTable(); restoreScoresToTable(); goToStep(4);
+}
+async function discardInprogress() {
+  if (!confirm('Radera det aktiva utkastet permanent?')) return;
+  if (!await checkpointDrafts()) return;
+  const id = inprogressLoad()?.state.draftId;
+  if (id) await recoveryStore.removeDraft(recoveryScope(), id);
+  inprogressClear(); refreshRecoveryUi();
+}
+async function restoreDeletedRound(id) {
+  const scope = recoveryScope();
+  try {
+    const restored = await recoveryStore.prepareRestore(scope, id);
+    if (scope !== recoveryScope()) return;
+    const rounds = roundsLoad();
+    if (!rounds.some(round => round.id === restored.id) && !roundsSave([restored, ...rounds])) throw new Error('Kunde inte spara den återställda rundan.');
+    await recoveryStore.forgetTrash(scope, id);
+    renderHistoryList(); refreshRecoveryUi();
+  } catch (error) { alert(error.message); }
+}
+function renderRoundDetails() {
+  const date = state.playedDate || state.editingDate || localPlayedToday();
+  document.getElementById('roundPlayedDate').value = date;
+  document.getElementById('roundPlayedDate').max = localPlayedToday();
+  document.getElementById('roundKind').value = state.roundKind || 'competitive';
+  document.getElementById('roundKind').disabled = !!state.tourContext?.dedicated;
+  document.getElementById('roundDraftName').value = state.draftName || `${state.courseName || 'Runda'} · ${date}`;
+  document.getElementById('roundDetailsSummary').textContent = `${date} · ${state.roundKind === 'practice' ? 'Träning – räknas inte i tourer' : 'Vanlig runda'}`;
+}
+function updateRoundDetails() {
+  state.playedDate = document.getElementById('roundPlayedDate').value;
+  state.roundKind = document.getElementById('roundKind').value;
+  if (!state.tourContext?.dedicated) { state.tourContext = null; state.playerMemberIds = []; state._qualifyingTourNames = []; }
+}
+function roundDetailsValid() {
+  const date = state.playedDate || localPlayedToday();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || Number.isNaN(Date.parse(date + 'T00:00:00Z')) || new Date(date + 'T00:00:00Z').toISOString().slice(0,10) !== date || date > localPlayedToday()) {
+    alert('Välj ett giltigt speldatum, senast idag.'); return false;
+  }
+  if (state.tourContext?.dedicated) {
+    const tour = sharedTourStore.find(state.tourContext.code)?.tour || tourFind(state.tourContext.localTourId);
+    if (state.roundKind === 'practice' || (tour && (date < tour.startDate || date > tour.endDate))) { alert('Tourrundan måste vara en vanlig runda inom tourens datum.'); return false; }
+  }
+  state.playedDate = date; state.roundKind ||= 'competitive'; return true;
 }
 
 function showResumeBannerIfAny() {
-  const snap = inprogressLoad();
-  const banner = document.getElementById('resumeBanner');
-  if (!snap || !banner) return;
-  const s = snap.state;
-  const holesScored = (() => {
-    let count = 0;
-    for (let i = 0; i < s.holes; i++) {
-      if ((s.scores || []).some(row => row && row[i] !== '' && row[i] != null)) count++;
-    }
-    return count;
-  })();
-  const when = new Date(snap.savedAt).toLocaleString('sv-SE', { dateStyle: 'short', timeStyle: 'short' });
-  document.getElementById('resumeText').innerHTML =
-    `Du har en pågående runda på <strong>${escapeHtml(s.courseName)}</strong> (${escapeHtml(s.teeColor)} tee, ${s.holes} hål) — ` +
-    `${holesScored} hål med score inmatade. Senast sparad ${when}.`;
+  const snap = inprogressLoad(), banner = document.getElementById('resumeBanner');
+  if (!snap || !banner) { if (banner) banner.style.display = 'none'; return; }
+  document.getElementById('resumeText').textContent = `${snap.state.draftName || snap.state.courseName} · ${snap.state.playedDate || 'Pågående runda'} · Senast sparad ${new Date(snap.savedAt).toLocaleString('sv-SE')}`;
   banner.style.display = 'block';
-}
-
-function resumeRound() {
-  const snap = inprogressLoad();
-  if (!snap) return;
-  state = snap.state;
-  buildScoreTable();
-  restoreScoresToTable();
-  updateLiveLeader();
-  updateHonorBanner();
-  document.getElementById('resumeBanner').style.display = 'none';
-  goToStep(4);
 }
 
 function restoreScoresToTable() {
@@ -5301,14 +5490,6 @@ function restoreScoresToTable() {
       }
     }
   }
-}
-
-function discardInprogress() {
-  if (!confirm('Är du säker på att du vill slänga den pågående rundan? Detta går inte att ångra.')) {
-    return;
-  }
-  inprogressClear();
-  document.getElementById('resumeBanner').style.display = 'none';
 }
 
 // ============================================================
@@ -5346,9 +5527,9 @@ function roundUpdate(roundData) {
   roundClearDeletion(roundData.id);
   const rounds = roundsLoad();
   const idx = rounds.findIndex(r => r.id === roundData.id);
-  if (idx === -1) { roundSaveNew(roundData); return; }
+  if (idx === -1) return roundSaveNew(roundData);
   rounds[idx] = roundData;
-  roundsSave(rounds);
+  return roundsSave(rounds);
 }
 
 function roundIdMatches(round, id) {
@@ -5359,9 +5540,20 @@ function roundFind(id) {
   return roundsLoad().find(round => roundIdMatches(round, id)) || null;
 }
 
-function roundDelete(id) {
-  roundMarkDeleted(id);
-  roundsSave(roundsLoad().filter(round => !roundIdMatches(round, id)));
+async function roundDelete(id) {
+  const round = roundFind(id); if (!round) return false;
+  const scope = recoveryScope();
+  try {
+    const entry = await recoveryStore.archiveRound(scope, round);
+    if (scope !== recoveryScope()) return false;
+    const deletions = roundDeletionsLoad().filter(item => item.id !== String(id));
+    deletions.push({ id: String(id), deletedAt: entry.deletedAt });
+    if (!storageDb.saveMany({ [ROUNDS_KEY]: roundsLoad().filter(item => !roundIdMatches(item, id)), [ROUND_DELETIONS_KEY]: deletions })) {
+      await recoveryStore.forgetTrash(scope, entry.id);
+      throw new Error('Rundan kunde inte raderas. Originalet finns kvar.');
+    }
+    scheduleAccountSync('round-deleted'); refreshRecoveryUi(); return true;
+  } catch (error) { alert(error.message); return false; }
 }
 
 function _buildDataPayload(inclCourses, inclRounds, inclPlayers, inclTours = false, inclSetups = true) {
@@ -5756,10 +5948,13 @@ async function driveRestoreNow() {
   }
 }
 
-function saveCurrentRound(playerResults) {
-  if (!_lsOk) return;
+async function saveCurrentRound(playerResults) {
+  if (!_lsOk) return false;
+  const scope = recoveryScope(), sourceState = state;
+  await _draftSaveTail;
+  if (scope !== recoveryScope() || state !== sourceState) return false;
   const now = new Date();
-  const dateStr = now.toLocaleDateString('sv-SE');
+  const dateStr = state.playedDate || now.toLocaleDateString('sv-SE');
   const isScramble = state.gameMode === 'scramble';
   const isFourball = state.gameMode === 'fourball';
   const isFoursome = state.gameMode === 'foursome';
@@ -5789,6 +5984,10 @@ function saveCurrentRound(playerResults) {
     schemaVersion: ROUND_SCHEMA_VERSION,
     id: isEditing ? state.editingId : now.getTime(),
     date: isEditing ? state.editingDate : dateStr,
+    roundKind: isEditing ? (originalRound?.roundKind || 'competitive') : (state.roundKind || 'competitive'),
+    lifecycle: !isEditing && state.tourContext?.code && state.roundKind !== 'practice' ? 'submitted' : (originalRound?.lifecycle || 'completed'),
+    ...((state.draftId || originalRound?.sourceDraftId) ? { sourceDraftId: state.draftId || originalRound.sourceDraftId } : {}),
+    ...(originalRound?.restoredFrom ? { restoredFrom: originalRound.restoredFrom } : {}),
     courseName: state.courseName,
     tee: state.teeColor,
     mixedTees,
@@ -5806,13 +6005,20 @@ function saveCurrentRound(playerResults) {
     tourRef: isEditing ? (originalRound?.tourRef || null) : (state.tourContext?.code ? { code: state.tourContext.code, syncStatus: 'pending' } : null),
     subjects
   };
-  if (isEditing) roundUpdate(roundData);
+  if (isEditing) { if (!roundUpdate(roundData)) return false; }
   else {
     // Keep the in-progress snapshot if the round could not be stored, so it can be recovered.
-    if (!roundSaveNew(roundData)) return;
-    if (state.tourContext?.code && state.tourContext.submissionOwner !== false) queueSharedTourRound(roundData, state.tourContext.code);
+    if (!roundSaveNew(roundData)) return false;
+    if (state.roundKind !== 'practice' && state.tourContext?.code && state.tourContext.submissionOwner !== false) queueSharedTourRound(roundData, state.tourContext.code);
+    if (state.draftId) {
+      try { await recoveryStore.removeDraft(scope, state.draftId); } catch (error) { draftSaveStatus(`Rundan är sparad; utkastet kunde inte rensas: ${error.message}`); }
+    }
+    if (scope !== recoveryScope() || state !== sourceState) return false;
     inprogressClear();
   }
+  state.editingId = roundData.id; state.editingDate = roundData.date;
+  refreshRecoveryUi();
+  return true;
 }
 
 // ============================================================
@@ -7231,7 +7437,7 @@ function openTournamentRoundSetup(kind, id) {
   document.body.appendChild(modal);
 }
 
-function confirmTournamentRoundSetup(kind, id) {
+async function confirmTournamentRoundSetup(kind, id) {
   const source = tournamentSource(kind, kind === 'local' ? Number(id) : id);
   const checked = [...document.querySelectorAll('#tournamentSetupMembers input:checked')].map(input => source.members[Number(input.value)]).filter(Boolean);
   if (!checked.length || checked.length > 4) { alert('Välj mellan 1 och 4 spelare.'); return; }
@@ -7249,14 +7455,14 @@ function confirmTournamentRoundSetup(kind, id) {
   document.getElementById('tournamentSetup')?.remove();
   stopSharedTourRefresh();
   document.getElementById('tourView').classList.add('hidden');
-  newRound();
+  if (!await newRound()) return;
   state.tourContext = {
     ...(kind === 'shared' ? { code: source.record.code, submissionOwner: true } : { localTourId: source.tour.id }),
     kind, dedicated: true, tourName: source.tour.name, selectedPlayers: checked,
     baselineStandings: baseline,
   };
   _pendingTourPlayHoles = course.holes || null;
-  loadSavedCourseAndAdvance(entry);
+  if (!await loadSavedCourseAndAdvance(entry)) return;
   goToStep3Players();
 }
 
@@ -7282,6 +7488,7 @@ async function syncSharedTourSubmissions(onlyCode = null) {
   results.forEach(result => {
     const round = rounds.find(item => String(item.id) === result.clientRoundId);
     if (!round?.tourRef) return;
+    if (result.ok) round.lifecycle = 'completed';
     round.tourRef = {
       ...round.tourRef,
       syncStatus: result.ok ? 'synced' : 'pending',
@@ -8030,6 +8237,7 @@ function clearHistoryFilters() {
 }
 
 function renderHistoryList() {
+  refreshRecoveryUi();
   const rounds = roundsLoad();
   const container = document.getElementById('historyList');
   const countEl = document.getElementById('historyCount');
@@ -8106,7 +8314,7 @@ function renderHistoryList() {
       <div class="history-item" data-id="${escapeHtml(String(r.id))}">
         <div class="hi-header" onclick="toggleHistoryItem(this)">
           <button type="button" class="hi-summary" aria-expanded="false" aria-label="Visa detaljer för ${escapeHtml(r.courseName)}, ${r.date}" style="flex:1;min-width:0;text-align:left;border:0;background:transparent;color:inherit;padding:0;" onclick="event.stopPropagation();toggleHistoryItem(this.parentElement)">
-            <span style="display:block;" class="hi-date">${r.date} · ${r.holes} hål · ${hasMixedTees(r.subjects) ? '⛳ Blandat tee' : `${teeIconFor(r.tee)} ${escapeHtml(r.tee || '')}`}${r.weather && WEATHER[r.weather] ? ' · ' + WEATHER[r.weather].e : ''}</span>
+            <span style="display:block;" class="hi-date">${r.date} · ${r.roundKind === 'practice' ? 'Träning' : 'Vanlig runda'}${r.lifecycle === 'submitted' && r.tourRef?.syncStatus !== 'synced' ? ' · Väntar på toursynk' : ' · Avslutad'}${r.restoredFrom ? ' · Återställd lokalkopia' : ''} · ${r.holes} hål · ${hasMixedTees(r.subjects) ? '⛳ Blandat tee' : `${teeIconFor(r.tee)} ${escapeHtml(r.tee || '')}`}${r.weather && WEATHER[r.weather] ? ' · ' + WEATHER[r.weather].e : ''}</span>
             <span style="display:block;" class="hi-course">${escapeHtml(r.courseName)}</span>
             <span style="display:block;" class="hi-meta">${topLine}</span>
           </button>
@@ -8134,7 +8342,7 @@ function renderHistoryList() {
 
 }
 
-function handleHistoryRoundAction(event) {
+async function handleHistoryRoundAction(event) {
   event.stopPropagation();
   const button = event.currentTarget;
   const id = button.dataset.roundId;
@@ -8142,8 +8350,8 @@ function handleHistoryRoundAction(event) {
   else if (button.dataset.roundAction === 'replay') playAgain(id);
   else if (button.dataset.roundAction === 'share') shareRound(id);
   else if (button.dataset.roundAction === 'print') printRound(id);
-  else if (button.dataset.roundAction === 'delete' && confirm('Ta bort rundan? Går inte att ångra.')) {
-    roundDelete(id);
+  else if (button.dataset.roundAction === 'delete' && confirm('Flytta rundan till papperskorgen i 30 dagar? Tourens resultat ändras inte.')) {
+    await roundDelete(id);
     renderHistoryList();
   }
 }
@@ -8179,7 +8387,7 @@ function editRound(id) {
     markers: r.markers || { ctp: { hole: null, player: '' }, ld: { hole: null, player: '' } },
     minTeeShots: r.minTeeShots || null,
     bets: r.bets || [],
-    editingId: r.id, editingDate: r.date
+    editingId: r.id, editingDate: r.date, playedDate: r.date, roundKind: r.roundKind || 'competitive'
   };
   if (shared) {
     state.teams = r.subjects.map(s => ({
@@ -8525,7 +8733,7 @@ function watchServiceWorkerRegistration(registration) {
 if (!_lsOk) document.getElementById('lsBanner').classList.remove('hidden');
 try { seedDefaultCourses(); } catch(e) {}
 try { renderSavedCourses(); } catch(e) {}
-try { showResumeBannerIfAny(); } catch(e) {}
+try { showResumeBannerIfAny(); refreshRecoveryUi(true); } catch(e) {}
 try { _updateLastBackupLabel(); } catch(e) {}
 try { _populateOriginLabelInput(); } catch(e) {}
 try { if (!openSpectatorIfPresent()) acceptSharedTourInvitationIfPresent(); } catch(e) {}

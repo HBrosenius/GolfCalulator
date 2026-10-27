@@ -141,11 +141,11 @@ test('account sync propagates a deleted round instead of restoring the server co
   });
 
   await page.goto('/index.html');
-  await page.evaluate(({ api, token, remoteRound }) => {
+  await page.evaluate(async ({ api, token, remoteRound }) => {
     localStorage.clear();
-    localStorage.setItem('golf_rounds_db', JSON.stringify([remoteRound]));
     accountSessionSave({ apiBase: api, token, user: { id: 'u1', email: 'ada@example.com' } });
-    roundDelete(remoteRound.id);
+    scopedStorage.setItem('golf_rounds_db', JSON.stringify([remoteRound]));
+    await roundDelete(remoteRound.id);
   }, { api, token, remoteRound });
   await page.evaluate(() => syncAccountNow({ silent: true }));
 

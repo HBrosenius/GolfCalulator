@@ -30,7 +30,7 @@
       courseName: room.courseName, teeColor: room.teeColor, holes: room.holes,
       slope: room.slope, cr: room.cr, par: room.par,
       hpar: room.hpar || [], si: room.si || [],
-      gameMode: room.gameMode,
+      gameMode: room.gameMode, playedDate: room.playedDate || null, roundKind: room.roundKind || 'competitive',
       numPlayers: (room.players || []).length,
       players: [], playerIds: [], teams: null,
       teamAssign: ['A', 'A', 'B', 'B'], playerTees: [], scores: [],

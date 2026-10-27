@@ -50,7 +50,7 @@ test('spectator tour renderer does not inject server data through HTML', () => {
 
 test('live-room seat renderer does not reinterpret player names as HTML', () => {
   const html = fs.readFileSync(path.join(root, 'index.html'), 'utf8');
-  const renderer = html.match(/function renderJoinLiveSeatList\(room, code\) \{([\s\S]*?)\r?\n\}\r?\n\r?\nfunction claimLiveSeat/);
+  const renderer = html.match(/function renderJoinLiveSeatList\(room, code\) \{([\s\S]*?)\r?\n\}\r?\n\r?\n(?:async )?function claimLiveSeat/);
   assert.ok(renderer, 'live-room seat renderer was not found');
   assert.doesNotMatch(renderer[1], /\.innerHTML\s*=/);
   assert.match(renderer[1], /button\.textContent\s*=/);
