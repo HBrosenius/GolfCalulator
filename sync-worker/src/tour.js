@@ -3,6 +3,7 @@ import { generateToken, hashToken, tokenMatches } from './auth.js';
 import { PROTOCOL_VERSION } from './validation.js';
 import { TOUR_SCHEMA_VERSION } from './tour-validation.js';
 import { calculateTourSubjects, validateTourRoundSubmission, validateTourUpdate } from './tour-validation.js';
+import { correctRound, correctionEvidence } from './round-corrections.js';
 import { notifyUsers } from './push.js';
 
 const TOUR_KEY = 'tour';
@@ -491,6 +492,8 @@ export class Tour extends DurableObject {
       gameMode: body.gameMode,
       roundKind: 'competitive',
       liveRoomCode: body.liveRoomCode || null,
+      revision: 1,
+      scoringSnapshot: { course: structuredClone(course), members: structuredClone(tour.members.filter(member => body.subjects.some(subject => subject.memberId === member.id))) },
       submittedAt,
       submittedBy: actor.id,
       subjects: calculateTourSubjects(body, tour).map(subject => ({
@@ -548,31 +551,65 @@ export class Tour extends DurableObject {
     return result(200, { tour: publicTour(tour) });
   }
 
+  async getRoundCorrections(roundId, token, accountUserId, after = '') {
+    const tour = await this.ctx.storage.get(TOUR_KEY);
+    if (!tour) return result(404, { error: 'Tour not found' });
+    if (!await this.actorForToken(tour, token, accountUserId)) return result(403, { error: 'Not authorized' });
+    if (!tour.rounds.some(round => round.id === roundId)) return result(404, { error: 'Round not found' });
+    if (after && !/^\d{12}$/.test(after)) return result(400, { error: 'Invalid cursor' });
+    const prefix = `round-audit:${roundId}:`;
+    const entries = await this.ctx.storage.list({ prefix, ...(after ? { startAfter: prefix + after } : {}), limit: 51 });
+    const rows = [...entries.entries()];
+    const corrections = rows.slice(0, 50).map(([, entry]) => entry);
+    return result(200, { corrections, nextCursor: rows.length > 50 ? rows[49][0].slice(prefix.length) : null,
+      legacyCorrections: after ? [] : (tour.roundHistory || []).filter(item => item.roundId === roundId) });
+  }
+
   async editRound(roundId, token, accountUserId, body) {
     const tour = await this.ctx.storage.get(TOUR_KEY);
     if (!tour) return result(404, { error: 'Tour not found' });
     const actor = await this.actorForToken(tour, token, accountUserId);
     if (!this.canAdminister(actor)) return result(403, { error: 'Not authorized' });
-    if (body?.protocolVersion !== PROTOCOL_VERSION || body?.schemaVersion !== TOUR_SCHEMA_VERSION ||
-      body.expectedRevision !== tour.revision || typeof body.reason !== 'string' || !body.reason.trim() || body.reason.length > 200 ||
-      typeof body.playedDate !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(body.playedDate) ||
-      body.playedDate < tour.startDate || body.playedDate > tour.endDate ||
-      Object.keys(body || {}).some(key => !['protocolVersion', 'schemaVersion', 'expectedRevision', 'playedDate', 'reason'].includes(key))) {
-      return result(body?.expectedRevision !== tour.revision ? 409 : 400, { error: body?.expectedRevision !== tour.revision ? 'Tour changed; refresh and try again' : 'Invalid correction' });
-    }
+    const allowed = ['protocolVersion', 'schemaVersion', 'expectedRevision', 'expectedRoundRevision', 'playedDate', 'reason', 'changes', 'mutationId'];
+    if (!validMembershipRequest(body, allowed.slice(2)) || typeof body.reason !== 'string' || !body.reason.trim() || body.reason.length > 200 ||
+      (body.mutationId !== undefined && (typeof body.mutationId !== 'string' || !/^[A-Za-z0-9_-]{1,80}$/.test(body.mutationId))) ||
+      (body.changes !== undefined && (!body.mutationId || !Number.isInteger(body.expectedRoundRevision)))) return result(400, { error: 'Invalid correction' });
     const round = tour.rounds.find(item => item.id === roundId);
     if (!round) return result(404, { error: 'Round not found' });
-    const previousDate = round.playedDate;
-    round.playedDate = body.playedDate;
-    round.correctedAt = Date.now();
-    round.correctedBy = actor.id;
-    tour.roundHistory.push({ id: crypto.randomUUID(), roundId, at: round.correctedAt, actorName: actorName(tour, actor), reason: body.reason.trim(), before: { playedDate: previousDate }, after: { playedDate: round.playedDate } });
-    if (tour.roundHistory.length > 100) tour.roundHistory.splice(0, tour.roundHistory.length - 100);
-    addActivity(tour, 'round_corrected', actor, { courseName: round.courseName, reason: body.reason.trim() });
-    tour.updatedAt = round.correctedAt; tour.revision++;
-    await this.ctx.storage.put(TOUR_KEY, tour);
+    const mutationKey = body.mutationId && `round-mutation:${roundId}:${body.mutationId}`;
+    if (mutationKey) {
+      const saved = await this.ctx.storage.get(mutationKey);
+      if (saved) {
+        if (saved.request !== JSON.stringify(body)) return result(409, { error: 'Correction retry key was reused' });
+        return result(200, { tour: publicTour(tour), correction: await this.ctx.storage.get(saved.auditKey), duplicate: true });
+      }
+    }
+    if ((body.expectedRoundRevision !== undefined ? body.expectedRoundRevision !== (round.revision || 1) : body.expectedRevision !== tour.revision)) {
+      return result(409, { error: 'Round changed; refresh and try again' });
+    }
+    const date = body.playedDate ?? round.playedDate;
+    if (typeof date !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(date) || Number.isNaN(Date.parse(date + 'T00:00:00Z')) ||
+      new Date(date + 'T00:00:00Z').toISOString().slice(0, 10) !== date || date < tour.startDate || date > tour.endDate || tour.status === 'cancelled') return result(400, { error: 'Invalid correction date or tour status' });
+    let corrected;
+    try { corrected = correctRound(round, body.changes); } catch (error) { return result(400, { error: error.message }); }
+    corrected.playedDate = date;
+    if (date === round.playedDate && JSON.stringify(corrected.subjects) === JSON.stringify(round.subjects)) return result(400, { error: 'Correction must change a date or hole score' });
+    corrected.revision = (round.revision || 1) + 1;
+    corrected.correctedAt = Date.now(); corrected.correctedBy = actor.id;
+    const correction = { id: crypto.randomUUID(), roundId, revision: corrected.revision, at: corrected.correctedAt,
+      actorName: actorName(tour, actor), actorId: actor.id, actorRole: actor.role, reason: body.reason.trim(), ...correctionEvidence(round, corrected) };
+    tour.rounds[tour.rounds.indexOf(round)] = corrected;
+    addActivity(tour, 'round_corrected', actor, { courseName: round.courseName, reason: correction.reason });
+    tour.updatedAt = corrected.correctedAt; tour.revision++;
+    const auditKey = `round-audit:${roundId}:${String(corrected.revision).padStart(12, '0')}`;
+    // Audit entries are append-only and commit atomically with the new result.
+    await this.ctx.storage.transaction(async tx => {
+      await tx.put(TOUR_KEY, tour); await tx.put(auditKey, correction);
+      if (mutationKey) await tx.put(mutationKey, { request: JSON.stringify(body), auditKey });
+    });
     this.broadcast(tour, 'round_corrected');
-    return result(200, { tour: publicTour(tour), correction: tour.roundHistory.at(-1) });
+    this.ctx.waitUntil(notifyUsers(this.env, accountUsers(tour, actor.accountUserId), 'rounds', pushPayload(tour, `Runda korrigerad · ${tour.name}`, `${round.courseName}: ${correction.reason}`)));
+    return result(200, { tour: publicTour(tour), correction, duplicate: false });
   }
 
   async announce(token, accountUserId, body) {
@@ -779,7 +816,7 @@ export class Tour extends DurableObject {
 for (const name of [
   'create', 'bindOrganizerAccount', 'detachAccount', 'bindCode', 'getPublicState', 'join', 'access', 'manage',
   'getActivity', 'rotateInvitation', 'update', 'complete', 'cancel', 'delete', 'submitRound', 'startRound',
-  'setAdministrator', 'editRound', 'announce', 'revokeContributor', 'updateMyMembership', 'updateContributor',
+  'setAdministrator', 'editRound', 'getRoundCorrections', 'announce', 'revokeContributor', 'updateMyMembership', 'updateContributor',
   'leave', 'restoreContributor', 'transferOwnership', 'alarm', 'endReminderDue',
 ]) {
   const original = Tour.prototype[name];

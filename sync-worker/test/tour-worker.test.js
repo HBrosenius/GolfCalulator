@@ -580,3 +580,67 @@ it('round-trips real client submissions through the Worker for every game mode',
     expect(rejected.status, gameMode).toBe(400);
   }
 });
+
+describe('authoritative hole corrections', () => {
+  async function recorded() {
+    const created = await createTour();
+    const response = await SELF.fetch(`https://worker.test/tour/${created.code}/rounds`, {
+      method: 'POST', headers: headers(created.organizerToken), body: JSON.stringify(submission(created)),
+    });
+    expect(response.status).toBe(201);
+    const saved = await response.json();
+    const body = { protocolVersion: PROTOCOL_VERSION, schemaVersion: TOUR_SCHEMA_VERSION,
+      mutationId: crypto.randomUUID(), expectedRoundRevision: 1, reason: 'Felregistrerat slag',
+      changes: [{ memberId: saved.round.subjects[0].memberId, hole: 1, score: saved.round.subjects[0].rows[0].score + 1 }] };
+    const patch = (payload = body, token = created.organizerToken) => SELF.fetch(`https://worker.test/tour/${created.code}/rounds/${saved.round.id}`, { method: 'PATCH', headers: headers(token), body: JSON.stringify(payload) });
+    return { created, saved, body, patch };
+  }
+  it('recalculates, broadcasts, audits and retries without duplicate corrections', async () => {
+    const { created, saved, body, patch } = await recorded();
+    const live = await SELF.fetch(`https://worker.test/tour/${created.code}/live`, { headers: { Upgrade: 'websocket', 'Sec-WebSocket-Protocol': `golf-v2, ${created.organizerToken}` } });
+    const socket = live.webSocket; socket.accept();
+    const update = new Promise(resolve => socket.addEventListener('message', event => { const data = JSON.parse(event.data); if (data.type === 'round_corrected') resolve(data); }));
+    const response = await patch(); expect(response.status).toBe(200);
+    const corrected = await response.json();
+    expect(corrected.tour.rounds[0]).toMatchObject({ revision: 2, subjects: [{ totalPoints: 17, totalBrutto: saved.round.subjects[0].totalBrutto + 1 }] });
+    expect(corrected.tour.rounds[0].scoringSnapshot.members[0].hi).toBe(12);
+    expect((await update).tour.rounds[0].subjects[0].totalPoints).toBe(17); socket.close();
+    const retry = await patch(); expect(retry.status).toBe(200); expect((await retry.json()).duplicate).toBe(true);
+    expect((await patch({ ...body, reason: 'Changed retry' })).status).toBe(409);
+    const history = await SELF.fetch(`https://worker.test/tour/${created.code}/rounds/${saved.round.id}/corrections`, { headers: headers(created.organizerToken) });
+    expect(history.status).toBe(200); const audit = await history.json();
+    expect(audit.corrections).toHaveLength(1);
+    expect(audit.corrections[0]).toMatchObject({ reason: body.reason, before: { subjects: [{ totalPoints: 18, rows: [{ score: saved.round.subjects[0].rows[0].score }] }] }, after: { subjects: [{ totalPoints: 17, rows: [{ score: body.changes[0].score }] }] } });
+  });
+  it('retains every audit entry after the activity feed rolls over and paginates history', async () => {
+    const { created, saved, body, patch } = await recorded();
+    for (let i = 0; i < 101; i++) {
+      const response = await patch({ ...body, expectedRoundRevision: i + 1, mutationId: `audit-${i}`, reason: `Correction ${i}`,
+        changes: [{ ...body.changes[0], score: saved.round.subjects[0].rows[0].score + (i % 2 ? 0 : 1) }] });
+      expect(response.status).toBe(200);
+    }
+    let after = '', entries = [];
+    do {
+      const response = await SELF.fetch(`https://worker.test/tour/${created.code}/rounds/${saved.round.id}/corrections${after ? '?after=' + after : ''}`, { headers: headers(created.organizerToken) });
+      expect(response.status).toBe(200); const page = await response.json(); entries.push(...page.corrections); after = page.nextCursor;
+    } while (after);
+    expect(entries).toHaveLength(101); expect(entries[0].reason).toBe('Correction 0'); expect(entries[100].revision).toBe(102);
+    const activity = await SELF.fetch(`https://worker.test/tour/${created.code}/activity`, { headers: headers(created.organizerToken) }).then(response => response.json());
+    expect(activity.activity).toHaveLength(100);
+  });
+  it('rejects unauthorized, stale, malformed and no-op corrections', async () => {
+    const { created, saved, body, patch } = await recorded();
+    const joined = await joinTour(created);
+    expect((await patch(body, joined.body.contributorToken)).status).toBe(403);
+    expect((await SELF.fetch(`https://worker.test/tour/${created.code}/rounds/${saved.round.id}/corrections`, { headers: headers('bad') })).status).toBe(403);
+    for (const payload of [
+      { ...body, reason: ' ' }, { ...body, changes: [{ ...body.changes[0], score: 0 }] },
+      { ...body, changes: [{ ...body.changes[0], hole: 10 }] }, { ...body, changes: [] },
+      { ...body, playedDate: '2026-02-30' }, { ...body, changes: [{ ...body.changes[0], pts: 8 }] },
+    ]) expect((await patch(payload)).status).toBe(400);
+    const competing = await Promise.all([patch(), patch({ ...body, mutationId: crypto.randomUUID() })]);
+    expect(competing.map(item => item.status).sort()).toEqual([200, 409]);
+    const pickup = await patch({ ...body, expectedRoundRevision: 2, mutationId: crypto.randomUUID(), changes: [{ ...body.changes[0], score: null }] });
+    expect(pickup.status).toBe(200); expect((await pickup.json()).tour.rounds[0].subjects[0].rows[0]).toMatchObject({ skipped: true, score: '–', pts: 0 });
+  });
+});

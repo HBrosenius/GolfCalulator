@@ -206,6 +206,7 @@ async function route(request, env, ctx = null) {
     if (parts.length === 3 && parts[2] === 'access' && request.method === 'GET') return fromTourResult(await tour.access(token, accountUserId));
     if (parts.length === 3 && parts[2] === 'manage' && request.method === 'GET') return fromTourResult(await tour.manage(token, accountUserId));
     if (parts.length === 3 && parts[2] === 'activity' && request.method === 'GET') return fromTourResult(await tour.getActivity(token, accountUserId));
+    if (parts.length === 5 && parts[2] === 'rounds' && parts[4] === 'corrections' && request.method === 'GET') return fromTourResult(await tour.getRoundCorrections(parts[3], token, accountUserId, url.searchParams.get('after') || ''));
     const parsed = await bodyOrResponse(request);
     if (parsed.response) return parsed.response;
     if (parts.length === 3 && parts[2] === 'join' && request.method === 'POST') {
