@@ -6,6 +6,9 @@ on:
     branches: [main]
     paths:
       - 'sync-worker/**'
+      - 'src/validation.js'
+      - 'src/account-sync.js'
+      - 'src/scoring.js'
       - '.github/workflows/deploy-sync-worker.yml'
 
 permissions: {}
