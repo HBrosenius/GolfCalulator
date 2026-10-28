@@ -644,3 +644,50 @@ describe('authoritative hole corrections', () => {
     expect(pickup.status).toBe(200); expect((await pickup.json()).tour.rounds[0].subjects[0].rows[0]).toMatchObject({ skipped: true, score: '–', pts: 0 });
   });
 });
+
+describe('optional round approval', () => {
+  it('defaults casual tours to confirmed and locks policy once play is recorded', async () => {
+    const created = await createTour(); expect(created.tour.approvalRequired).toBe(false);
+    const saved = await SELF.fetch(`https://worker.test/tour/${created.code}/rounds`, { method: 'POST', headers: headers(created.organizerToken), body: JSON.stringify(submission(created)) }).then(response => response.json());
+    expect(saved.round.approvalStatus).toBe('confirmed');
+    const change = await SELF.fetch(`https://worker.test/tour/${created.code}/conditions`, { method: 'PATCH', headers: headers(created.organizerToken), body: JSON.stringify(updatePayload(saved.tour, { approvalRequired: true })) });
+    expect(change.status).toBe(400);
+    const legacyUpdate = await SELF.fetch(`https://worker.test/tour/${created.code}/conditions`, { method: 'PATCH', headers: headers(created.organizerToken), body: JSON.stringify(updatePayload(saved.tour)) });
+    expect(legacyUpdate.status).toBe(200);
+    expect((await legacyUpdate.json()).approvalRequired).toBe(false);
+  });
+  it('allows an organizer to choose approval before the first submission', async () => {
+    const created = await createTour(), joined = await joinTour(created);
+    const update = updatePayload(joined.body.tour, { approvalRequired: true });
+    const url = `https://worker.test/tour/${created.code}/conditions`;
+    expect((await SELF.fetch(url, { method: 'PATCH', headers: headers(joined.body.contributorToken), body: JSON.stringify(update) })).status).toBe(403);
+    const response = await SELF.fetch(url, { method: 'PATCH', headers: headers(created.organizerToken), body: JSON.stringify(update) });
+    expect(response.status).toBe(200); expect((await response.json()).approvalRequired).toBe(true);
+  });
+  it('audits confirmation, invalidates approval on correction and rejects stale or unauthorized decisions', async () => {
+    const created = await createTour({ ...configuration(), approvalRequired: true }), joined = await joinTour(created);
+    const saved = await SELF.fetch(`https://worker.test/tour/${created.code}/rounds`, { method: 'POST', headers: headers(created.organizerToken), body: JSON.stringify(submission(created)) }).then(response => response.json());
+    expect(saved.round.approvalStatus).toBe('provisional');
+    expect(saved.tour.rounds).toHaveLength(0); expect(saved.tour.provisionalRounds).toHaveLength(1);
+    const body = { protocolVersion: PROTOCOL_VERSION, schemaVersion: TOUR_SCHEMA_VERSION, expectedRoundRevision: 1, mutationId: crypto.randomUUID(), approvalStatus: 'confirmed', reason: 'Scorekort granskat' };
+    const url = `https://worker.test/tour/${created.code}/rounds/${saved.round.id}`;
+    const patch = (payload, token = created.organizerToken) => SELF.fetch(url, { method: 'PATCH', headers: headers(token), body: JSON.stringify(payload) });
+    expect((await patch(body, joined.body.contributorToken)).status).toBe(403);
+    expect((await patch({ ...body, reason: '' })).status).toBe(400);
+    const response = await patch(body); expect(response.status).toBe(200);
+    const confirmed = await response.json(); expect(confirmed.tour.rounds[0]).toMatchObject({ revision: 2, approvalStatus: 'confirmed' });
+    expect(confirmed.tour.rounds[0].correctedAt).toBeUndefined();
+    expect(confirmed.correction).toMatchObject({ type: 'approval', before: { approvalStatus: 'provisional' }, after: { approvalStatus: 'confirmed' } });
+    expect((await patch(body).then(response => response.json())).duplicate).toBe(true);
+    const correction = { protocolVersion: PROTOCOL_VERSION, schemaVersion: TOUR_SCHEMA_VERSION, expectedRoundRevision: 2, mutationId: crypto.randomUUID(), reason: 'Fel hålscore', changes: [{ memberId: saved.round.subjects[0].memberId, hole: 1, score: 6 }] };
+    const corrected = await patch(correction); expect(corrected.status).toBe(200);
+    expect((await corrected.json()).round).toMatchObject({ approvalStatus: 'provisional', revision: 3, approvedAt: null });
+    expect((await patch({ ...body, expectedRoundRevision: 2, mutationId: crypto.randomUUID() })).status).toBe(409);
+    expect((await patch({ ...body, expectedRoundRevision: 3, mutationId: crypto.randomUUID(), changes: correction.changes })).status).toBe(400);
+    const reconfirm = await patch({ ...body, expectedRoundRevision: 3, mutationId: crypto.randomUUID() }); expect(reconfirm.status).toBe(200);
+    const reopened = await patch({ ...body, expectedRoundRevision: 4, approvalStatus: 'provisional', mutationId: crypto.randomUUID(), reason: 'Behöver kontrolleras igen' }); expect(reopened.status).toBe(200);
+    const reopening = await reopened.json(); expect(reopening.round.approvalStatus).toBe('provisional'); expect(reopening.tour.rounds).toHaveLength(0);
+    const history = await SELF.fetch(url + '/corrections', { headers: headers(created.organizerToken) }).then(response => response.json());
+    expect(history.corrections).toHaveLength(4);
+  });
+});

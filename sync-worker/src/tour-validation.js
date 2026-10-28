@@ -55,13 +55,14 @@ function validateMember(member) {
 export function validateTourCreate(body) {
   const allowed = new Set([
     'protocolVersion', 'schemaVersion', 'name', 'startDate', 'endDate',
-    'bestOfN', 'duplicateCourseRule', 'members', 'courses',
+    'bestOfN', 'duplicateCourseRule', 'members', 'courses', 'approvalRequired',
   ]);
   if (!body || body.protocolVersion !== PROTOCOL_VERSION) return 'Unsupported protocol version';
   if (body.schemaVersion !== TOUR_SCHEMA_VERSION) return 'Unsupported tour schema version';
   if (!hasOnlyKeys(body, allowed) || !isText(body.name, 80)) return 'Invalid tour configuration';
   if (!isDate(body.startDate) || !isDate(body.endDate) || body.endDate < body.startDate) return 'Invalid tour dates';
   if (body.bestOfN !== null && !isInteger(body.bestOfN, 1, 100)) return 'Invalid best-of value';
+  if (body.approvalRequired !== undefined && typeof body.approvalRequired !== 'boolean') return 'Invalid approval policy';
   if (!DUPLICATE_RULES.has(body.duplicateCourseRule)) return 'Invalid duplicate-course rule';
   if (!Array.isArray(body.members) || body.members.length < 2 || body.members.length > 100 || !body.members.every(validateMember)) {
     return 'Invalid tour members';
@@ -77,9 +78,10 @@ export function validateTourCreate(body) {
 }
 
 export function validateTourUpdate(body, tour) {
+  if (body?.approvalRequired !== undefined && tour.rounds.length && body.approvalRequired !== !!tour.approvalRequired) return 'Approval policy is locked after the first submission';
   const allowed = new Set([
     'protocolVersion', 'schemaVersion', 'expectedRevision', 'name', 'startDate', 'endDate',
-    'bestOfN', 'duplicateCourseRule', 'courseLimits',
+    'bestOfN', 'duplicateCourseRule', 'courseLimits', 'approvalRequired',
   ]);
   if (!body || body.protocolVersion !== PROTOCOL_VERSION) return 'Unsupported protocol version';
   if (body.schemaVersion !== TOUR_SCHEMA_VERSION) return 'Unsupported tour schema version';
@@ -88,6 +90,7 @@ export function validateTourUpdate(body, tour) {
   }
   if (!isDate(body.startDate) || !isDate(body.endDate) || body.endDate < body.startDate) return 'Invalid tour dates';
   if (body.bestOfN !== null && !isInteger(body.bestOfN, 1, 100)) return 'Invalid best-of value';
+  if (body.approvalRequired !== undefined && typeof body.approvalRequired !== 'boolean') return 'Invalid approval policy';
   if (!DUPLICATE_RULES.has(body.duplicateCourseRule)) return 'Invalid duplicate-course rule';
   if (!Array.isArray(body.courseLimits) || body.courseLimits.length !== tour.courses.length) return 'Invalid course limits';
   const limits = new Map();

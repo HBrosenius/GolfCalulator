@@ -76,11 +76,13 @@ function publicTour(tour) {
     endDate: tour.endDate,
     status: tour.status,
     completedReason: tour.completedReason || null,
+    approvalRequired: !!tour.approvalRequired,
     bestOfN: tour.bestOfN,
     duplicateCourseRule: tour.duplicateCourseRule,
     members: tour.members,
     courses: tour.courses,
-    rounds: tour.rounds,
+    rounds: tour.approvalRequired ? tour.rounds.filter(round => round.approvalStatus === 'confirmed') : tour.rounds,
+    provisionalRounds: tour.approvalRequired ? tour.rounds.filter(round => round.approvalStatus !== 'confirmed') : [],
     announcements: (tour.announcements || []).slice().reverse(),
     contributorCount: tour.contributors.filter(item => !item.revokedAt).length,
   };
@@ -225,6 +227,7 @@ export class Tour extends DurableObject {
       endDate: config.endDate,
       status: 'open',
       completedReason: null,
+      approvalRequired: config.approvalRequired === true,
       bestOfN: config.bestOfN,
       duplicateCourseRule: config.duplicateCourseRule,
       members: config.members.map(member => ({ id: crypto.randomUUID(), name: member.name.trim(), hi: member.hi })),
@@ -394,6 +397,7 @@ export class Tour extends DurableObject {
     const invalid = validateTourUpdate(body, tour);
     if (invalid) return result(invalid.startsWith('Unsupported') ? 426 : 400, { error: invalid });
     if (body.expectedRevision !== tour.revision) return result(409, { error: 'Tour changed; refresh and try again' });
+    if (body.approvalRequired !== undefined) tour.approvalRequired = body.approvalRequired;
     tour.name = body.name.trim();
     tour.startDate = body.startDate;
     tour.endDate = body.endDate;
@@ -491,6 +495,7 @@ export class Tour extends DurableObject {
       holes: course.holes,
       gameMode: body.gameMode,
       roundKind: 'competitive',
+      approvalStatus: tour.approvalRequired ? 'provisional' : 'confirmed',
       liveRoomCode: body.liveRoomCode || null,
       revision: 1,
       scoringSnapshot: { course: structuredClone(course), members: structuredClone(tour.members.filter(member => body.subjects.some(subject => subject.memberId === member.id))) },
@@ -570,18 +575,19 @@ export class Tour extends DurableObject {
     if (!tour) return result(404, { error: 'Tour not found' });
     const actor = await this.actorForToken(tour, token, accountUserId);
     if (!this.canAdminister(actor)) return result(403, { error: 'Not authorized' });
-    const allowed = ['protocolVersion', 'schemaVersion', 'expectedRevision', 'expectedRoundRevision', 'playedDate', 'reason', 'changes', 'mutationId'];
+    const allowed = ['protocolVersion', 'schemaVersion', 'expectedRevision', 'expectedRoundRevision', 'playedDate', 'reason', 'changes', 'mutationId', 'approvalStatus'];
     if (!validMembershipRequest(body, allowed.slice(2)) || typeof body.reason !== 'string' || !body.reason.trim() || body.reason.length > 200 ||
       (body.mutationId !== undefined && (typeof body.mutationId !== 'string' || !/^[A-Za-z0-9_-]{1,80}$/.test(body.mutationId))) ||
       (body.changes !== undefined && (!body.mutationId || !Number.isInteger(body.expectedRoundRevision)))) return result(400, { error: 'Invalid correction' });
     const round = tour.rounds.find(item => item.id === roundId);
     if (!round) return result(404, { error: 'Round not found' });
+    if (body.approvalStatus !== undefined && (!tour.approvalRequired || !['provisional', 'confirmed'].includes(body.approvalStatus) || !body.mutationId || !Number.isInteger(body.expectedRoundRevision) || body.changes?.length || (body.playedDate !== undefined && body.playedDate !== round.playedDate))) return result(400, { error: 'Invalid approval decision' });
     const mutationKey = body.mutationId && `round-mutation:${roundId}:${body.mutationId}`;
     if (mutationKey) {
       const saved = await this.ctx.storage.get(mutationKey);
       if (saved) {
         if (saved.request !== JSON.stringify(body)) return result(409, { error: 'Correction retry key was reused' });
-        return result(200, { tour: publicTour(tour), correction: await this.ctx.storage.get(saved.auditKey), duplicate: true });
+        return result(200, { tour: publicTour(tour), correction: await this.ctx.storage.get(saved.auditKey), round, duplicate: true });
       }
     }
     if ((body.expectedRoundRevision !== undefined ? body.expectedRoundRevision !== (round.revision || 1) : body.expectedRevision !== tour.revision)) {
@@ -593,23 +599,30 @@ export class Tour extends DurableObject {
     let corrected;
     try { corrected = correctRound(round, body.changes); } catch (error) { return result(400, { error: error.message }); }
     corrected.playedDate = date;
-    if (date === round.playedDate && JSON.stringify(corrected.subjects) === JSON.stringify(round.subjects)) return result(400, { error: 'Correction must change a date or hole score' });
+    const scoreChanged = date !== round.playedDate || JSON.stringify(corrected.subjects) !== JSON.stringify(round.subjects);
+    corrected.approvalStatus = body.approvalStatus || (scoreChanged && tour.approvalRequired ? 'provisional' : (round.approvalStatus || 'confirmed'));
+    if (!scoreChanged && corrected.approvalStatus === (round.approvalStatus || 'confirmed')) return result(400, { error: 'Correction must change a date, hole score or approval status' });
     corrected.revision = (round.revision || 1) + 1;
-    corrected.correctedAt = Date.now(); corrected.correctedBy = actor.id;
-    const correction = { id: crypto.randomUUID(), roundId, revision: corrected.revision, at: corrected.correctedAt,
+    const changedAt = Date.now();
+    if (scoreChanged) { corrected.correctedAt = changedAt; corrected.correctedBy = actor.id; }
+    if (corrected.approvalStatus === 'confirmed' && body.approvalStatus) { corrected.approvedAt = changedAt; corrected.approvedBy = actor.id; }
+    else if (corrected.approvalStatus === 'provisional') { corrected.approvedAt = null; corrected.approvedBy = null; }
+    const correction = { id: crypto.randomUUID(), roundId, revision: corrected.revision, at: changedAt,
       actorName: actorName(tour, actor), actorId: actor.id, actorRole: actor.role, reason: body.reason.trim(), ...correctionEvidence(round, corrected) };
     tour.rounds[tour.rounds.indexOf(round)] = corrected;
-    addActivity(tour, 'round_corrected', actor, { courseName: round.courseName, reason: correction.reason });
-    tour.updatedAt = corrected.correctedAt; tour.revision++;
+    const event = body.approvalStatus ? (body.approvalStatus === 'confirmed' ? 'round_approved' : 'round_reopened') : 'round_corrected';
+    correction.type = body.approvalStatus ? 'approval' : 'correction';
+    addActivity(tour, event, actor, { courseName: round.courseName, reason: correction.reason });
+    tour.updatedAt = changedAt; tour.revision++;
     const auditKey = `round-audit:${roundId}:${String(corrected.revision).padStart(12, '0')}`;
     // Audit entries are append-only and commit atomically with the new result.
     await this.ctx.storage.transaction(async tx => {
       await tx.put(TOUR_KEY, tour); await tx.put(auditKey, correction);
       if (mutationKey) await tx.put(mutationKey, { request: JSON.stringify(body), auditKey });
     });
-    this.broadcast(tour, 'round_corrected');
-    this.ctx.waitUntil(notifyUsers(this.env, accountUsers(tour, actor.accountUserId), 'rounds', pushPayload(tour, `Runda korrigerad · ${tour.name}`, `${round.courseName}: ${correction.reason}`)));
-    return result(200, { tour: publicTour(tour), correction, duplicate: false });
+    this.broadcast(tour, event);
+    this.ctx.waitUntil(notifyUsers(this.env, accountUsers(tour, actor.accountUserId), 'rounds', pushPayload(tour, `${body.approvalStatus ? (body.approvalStatus === 'confirmed' ? 'Runda godkänd' : 'Granskning återöppnad') : 'Runda korrigerad'} · ${tour.name}`, `${round.courseName}: ${correction.reason}`)));
+    return result(200, { tour: publicTour(tour), correction, round: corrected, duplicate: false });
   }
 
   async announce(token, accountUserId, body) {
