@@ -40,7 +40,7 @@ export function correctRound(round, changes = []) {
 }
 
 export function correctionEvidence(before, after) {
-  const evidence = round => ({ playedDate: round.playedDate, approvalStatus: round.approvalStatus || 'confirmed', subjects: round.subjects.map((subject, i) => ({
+  const evidence = round => ({ playedDate: round.playedDate, approvalStatus: round.approvalStatus || 'confirmed', resultStatus: round.resultStatus || 'active', subjects: round.subjects.map((subject, i) => ({
     memberId: subject.memberId, name: subject.name, totalPoints: subject.totalPoints, totalBrutto: subject.totalBrutto,
     rows: subject.rows.filter((row, h) => JSON.stringify(before.subjects[i].rows[h]) !== JSON.stringify(after.subjects[i].rows[h])),
   })) });

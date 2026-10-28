@@ -121,3 +121,9 @@ test('approval status is portable in round history and rejects unknown states', 
   payload.rounds[0].tourRef.approvalStatus = 'invented';
   assert.equal(validation.isBackupPayload(payload), false);
 });
+
+test('result status remains portable without accepting unknown states', () => {
+  const payload = validBackup(); payload.rounds[0].tourRef = { code: 'ABCD2345', resultStatus: 'withdrawn' };
+  for (const status of ['active', 'withdrawn', 'disqualified']) { payload.rounds[0].tourRef.resultStatus = status; assert.equal(validation.isBackupPayload(payload), true); }
+  payload.rounds[0].tourRef.resultStatus = 'invented'; assert.equal(validation.isBackupPayload(payload), false);
+});

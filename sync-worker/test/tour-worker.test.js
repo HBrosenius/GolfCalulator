@@ -691,3 +691,47 @@ describe('optional round approval', () => {
     expect(history.corrections).toHaveLength(4);
   });
 });
+
+describe('withdrawal, disqualification and reinstatement', () => {
+  for (const approvalRequired of [false, true]) {
+    it(`preserves scores, audits decisions and reinstates safely (approval=${approvalRequired})`, async () => {
+      const created = await createTour({ ...configuration(), approvalRequired }), joined = await joinTour(created);
+      const saved = await SELF.fetch(`https://worker.test/tour/${created.code}/rounds`, { method: 'POST', headers: headers(created.organizerToken), body: JSON.stringify(submission(created)) }).then(response => response.json());
+      const url = `https://worker.test/tour/${created.code}/rounds/${saved.round.id}`;
+      const patch = (body, token = created.organizerToken) => SELF.fetch(url, { method: 'PATCH', headers: headers(token), body: JSON.stringify(body) });
+      const request = (round, resultStatus) => ({ protocolVersion: PROTOCOL_VERSION, schemaVersion: TOUR_SCHEMA_VERSION, expectedRoundRevision: round.revision, mutationId: crypto.randomUUID(), resultStatus, reason: 'Resultat granskat av organisatör' });
+      let current = saved.round;
+      if (approvalRequired) current = (await (await patch({ protocolVersion: PROTOCOL_VERSION, schemaVersion: TOUR_SCHEMA_VERSION, expectedRoundRevision: 1, mutationId: crypto.randomUUID(), approvalStatus: 'confirmed', reason: 'Granskat scorekort' })).json()).round;
+      const withdrawn = request(current, 'withdrawn'), disqualified = request(current, 'disqualified');
+      expect((await patch(withdrawn, joined.body.contributorToken)).status).toBe(403);
+      for (const body of [{ ...withdrawn, reason: ' ' }, { ...withdrawn, resultStatus: 'invented' }, { ...withdrawn, mutationId: undefined }, { ...withdrawn, changes: [] }, { ...withdrawn, approvalStatus: 'confirmed' }]) expect((await patch(body)).status).toBe(400);
+      const live = await SELF.fetch(`https://worker.test/tour/${created.code}/live`, { headers: { Upgrade: 'websocket', 'Sec-WebSocket-Protocol': `golf-v2, ${created.organizerToken}` } });
+      const socket = live.webSocket; socket.accept();
+      const update = new Promise(resolve => socket.addEventListener('message', event => { const data = JSON.parse(event.data); if (['round_withdrawn', 'round_disqualified'].includes(data.type)) resolve(data); }));
+      const responses = await Promise.all([patch(withdrawn), patch(disqualified)]);
+      expect(responses.map(response => response.status).sort()).toEqual([200, 409]);
+      const successIndex = responses.findIndex(response => response.status === 200), originalRequest = [withdrawn, disqualified][successIndex];
+      const removed = await responses[successIndex].json(); current = removed.round;
+      expect(removed.tour.rounds).toHaveLength(0); expect(removed.tour.provisionalRounds).toHaveLength(0); expect(removed.tour.excludedRounds).toHaveLength(1);
+      expect(current.subjects).toEqual(saved.round.subjects); expect(current.correctedAt).toBeUndefined();
+      expect((await update).tour.excludedRounds[0].id).toBe(current.id); socket.close();
+      expect((await patch(request(current, current.resultStatus))).status).toBe(400);
+      const edit = { protocolVersion: PROTOCOL_VERSION, schemaVersion: TOUR_SCHEMA_VERSION, expectedRoundRevision: current.revision, mutationId: crypto.randomUUID(), reason: 'Edit excluded result', changes: [{ memberId: current.subjects[0].memberId, hole: 1, score: 5 }] };
+      expect((await patch(edit)).status).toBe(400);
+      if (approvalRequired) expect((await patch({ ...edit, changes: undefined, approvalStatus: 'confirmed' })).status).toBe(400);
+      const switched = await patch(request(current, current.resultStatus === 'withdrawn' ? 'disqualified' : 'withdrawn'));
+      expect(switched.status).toBe(200); current = (await switched.json()).round;
+      const restored = await patch(request(current, 'active')); expect(restored.status).toBe(200); const restoration = await restored.json(); current = restoration.round;
+      expect(current.subjects).toEqual(saved.round.subjects);
+      expect(current.approvalStatus).toBe(approvalRequired ? 'provisional' : 'confirmed');
+      expect(restoration.tour.rounds).toHaveLength(approvalRequired ? 0 : 1);
+      expect(restoration.tour.provisionalRounds).toHaveLength(approvalRequired ? 1 : 0);
+      expect(restoration.tour.excludedRounds).toHaveLength(0);
+      const retry = await patch(originalRequest); expect(retry.status).toBe(200); expect((await retry.json()).duplicate).toBe(true);
+      const audit = await SELF.fetch(url + '/corrections', { headers: headers(joined.body.contributorToken) }).then(response => response.json());
+      const statuses = audit.corrections.filter(entry => entry.type === 'result_status'); expect(statuses).toHaveLength(3);
+      expect(statuses[0].before.resultStatus).toBe('active'); expect(statuses[2].after.resultStatus).toBe('active');
+      expect(statuses[0].before.subjects[0].rows).toEqual([]); expect(statuses[0].after.subjects[0].totalPoints).toBe(saved.round.subjects[0].totalPoints);
+    });
+  }
+});
