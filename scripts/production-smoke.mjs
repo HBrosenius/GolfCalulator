@@ -1,3 +1,4 @@
+import TourEvents from '../src/tour-events.js';
 import assert from 'node:assert/strict';
 import { buildSmokeSubmission } from './smoke-round.mjs';
 
@@ -51,6 +52,17 @@ try {
       }] }],
     }),
   }));
+
+  const eventPayload = { name: 'Smoke golf day', date: iso(1), timeZone: 'America/Los_Angeles', courseId: created.tour.courses[0].id,
+    status: 'scheduled', note: 'Automated schedule smoke', groups: [{ id: 'smoke-group', name: 'Smoke group', teeTime: '17:00', memberIds: created.tour.members.map(member => member.id) }] };
+  const scheduleRequest = { protocolVersion: 2, schemaVersion: 1, mutationId: crypto.randomUUID(), expectedRevision: created.tour.revision, event: eventPayload };
+  const scheduled = await json(await fetch(`${api}/tour/${created.code}/events`, { method: 'POST', headers: headers(created.organizerToken), body: JSON.stringify(scheduleRequest) }));
+  created.tour = scheduled.tour;
+  assert.equal(scheduled.tour.retentionUntil, TourEvents.endOfDay(eventPayload.date, eventPayload.timeZone) + 365 * 86400000);
+  const schedules = await json(await fetch(`${api}/tour/${created.code}/events`, { headers: headers(created.organizerToken) }));
+  assert.equal(schedules.events.length, 1); assert.equal(schedules.events[0].groups[0].memberIds.length, 2);
+  const scheduleRetry = await json(await fetch(`${api}/tour/${created.code}/events`, { method: 'POST', headers: headers(created.organizerToken), body: JSON.stringify(scheduleRequest) }));
+  assert.equal(scheduleRetry.duplicate, true);
 
   const socketUrl = `${api.replace(/^http/, 'ws')}/tour/${created.code}/live`;
   const socket = await connectLive(socketUrl, created.organizerToken);
@@ -125,7 +137,13 @@ try {
   const finalAudit = await json(await fetch(`${correctionUrl}/corrections`, { headers: headers(created.organizerToken) }));
   assert.equal(finalAudit.corrections.length, 6);
   assert.equal(finalAudit.corrections.filter(entry => entry.type === 'result_status').length, 3);
-  console.log(JSON.stringify({ ok: true, service: health.service, tour: created.code, realtime: true, correction: true, audit: true, retry: true, approval: true, resultStatus: true }));
+  const cancelledEvent = await json(await fetch(`${api}/tour/${created.code}/events/${scheduled.event.id}`, {
+    method: 'PATCH', headers: headers(created.organizerToken), body: JSON.stringify({ protocolVersion: 2, schemaVersion: 1,
+      mutationId: crypto.randomUUID(), expectedEventRevision: scheduled.event.revision, event: { ...eventPayload, status: 'cancelled' } }),
+  }));
+  assert.equal(cancelledEvent.event.status, 'cancelled'); assert.equal(cancelledEvent.event.groups[0].id, 'smoke-group');
+  assert.equal(cancelledEvent.tour.retentionUntil, Date.parse(created.tour.endDate + 'T23:59:59.999Z') + 1 + 365 * 86400000);
+  console.log(JSON.stringify({ ok: true, service: health.service, tour: created.code, realtime: true, correction: true, audit: true, retry: true, approval: true, resultStatus: true, schedule: true }));
 } finally {
   if (created) await fetch(`${api}/tour/${created.code}`, { method: 'DELETE', headers: headers(created.organizerToken) }).catch(() => {});
 }

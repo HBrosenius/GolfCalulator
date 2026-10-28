@@ -24,7 +24,8 @@
 <script src="src/round-extras.js?v=20260809-2"></script>
 <script src="src/live-round.js?v=20261027-1"></script>
 <script src="src/tour-rules.js?v=20261028-2"></script>
-<script src="src/tour-sync.js?v=20261028-3"></script>
+<script src="src/tour-events.js?v=20261028-1"></script>
+<script src="src/tour-sync.js?v=20261028-4"></script>
 <script src="src/account-sync.js?v=20261027-2"></script>
 <script src="src/course-catalog.js?v=20260814-1"></script>
 <script>
@@ -210,7 +211,7 @@
   .spectator-update { text-align:center;color:var(--muted);font-size:.72rem;margin:5px 0 12px; }
 
   #tourRoundDialog h2 { font-size:1.2rem;margin-bottom:12px; }
-  #tourRoundDialog input[type="date"], #tourRoundDialog textarea { display:block;width:100%;margin-top:5px;padding:10px;border:1px solid var(--border);border-radius:8px;background:var(--input-bg);color:var(--text);font:inherit; }
+  #tourRoundDialog input[type="time"], #tourRoundDialog input[type="date"], #tourRoundDialog textarea { display:block;width:100%;margin-top:5px;padding:10px;border:1px solid var(--border);border-radius:8px;background:var(--input-bg);color:var(--text);font:inherit; }
   #tourRoundDialog textarea { min-height:85px;resize:vertical; }
   #tourRoundDialog [role="status"] { margin:12px 0; }
   #tourRoundDialog section { padding:12px 0;border-bottom:1px solid var(--border); }
@@ -5290,6 +5291,7 @@ const _draftSaveErrors = new Map();
 let _recoveryRender = 0;
 const recoveryScope = () => scopedStorage.key('golf_round_recovery');
 const localPlayedToday = () => new Date().toLocaleDateString('sv-SE');
+const roundPlayedToday = () => state.tourContext?.eventTimeZone ? GolfTourEvents.todayInZone(state.tourContext.eventTimeZone) : localPlayedToday();
 function draftSaveStatus(message) {
   const element = document.getElementById('draftSaveStatus');
   if (element) element.textContent = message;
@@ -5450,7 +5452,7 @@ async function restoreDeletedRound(id) {
 function renderRoundDetails() {
   const date = state.playedDate || state.editingDate || localPlayedToday();
   document.getElementById('roundPlayedDate').value = date;
-  document.getElementById('roundPlayedDate').max = localPlayedToday();
+  document.getElementById('roundPlayedDate').max = roundPlayedToday();
   document.getElementById('roundKind').value = state.roundKind || 'competitive';
   document.getElementById('roundKind').disabled = !!state.tourContext?.dedicated;
   document.getElementById('roundDraftName').value = state.draftName || `${state.courseName || 'Runda'} · ${date}`;
@@ -5463,7 +5465,7 @@ function updateRoundDetails() {
 }
 function roundDetailsValid() {
   const date = state.playedDate || localPlayedToday();
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || Number.isNaN(Date.parse(date + 'T00:00:00Z')) || new Date(date + 'T00:00:00Z').toISOString().slice(0,10) !== date || date > localPlayedToday()) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || Number.isNaN(Date.parse(date + 'T00:00:00Z')) || new Date(date + 'T00:00:00Z').toISOString().slice(0,10) !== date || date > roundPlayedToday()) {
     alert('Välj ett giltigt speldatum, senast idag.'); return false;
   }
   if (state.tourContext?.dedicated) {
@@ -6652,6 +6654,7 @@ function startSharedTourRefresh(code, intervalMs = SHARED_TOUR_REFRESH_MS) {
             const latest = sharedTourStore.find(normalizedCode);
             if (latest && update.tour.revision >= (latest.tour?.revision || 0)) sharedTourStore.upsert({ ...latest, tour: update.tour, ...(update.access?.role ? { role: update.access.role } : {}) });
           }
+          if (update.tour?.scheduleRevision > (sharedTourStore.find(normalizedCode)?.eventsRevision || 0)) refreshTourEvents(normalizedCode);
           if (_tourViewMode === 'shared' && _tourViewActiveId === normalizedCode && !_editingSharedTourCode) renderSharedTourDetail(normalizedCode);
         } catch (_) {}
       };
@@ -6847,6 +6850,7 @@ async function refreshSharedTour(code) {
       ...(response.access ? { role: response.access.role, contributorId: response.access.contributorId || null,
         accountMemberId: response.access.memberId || null, membershipRole: response.access.membershipRole || latest.membershipRole } : {}),
     });
+    refreshTourEvents(code);
     if (_tourViewMode === 'shared' && _tourViewActiveId === String(code).toUpperCase() &&
       _editingSharedTourCode !== String(code).toUpperCase()) renderSharedTourDetail(code);
   } catch (_) {}
@@ -7112,6 +7116,132 @@ function correctSharedTourRound(code, roundId) {
     finally { submit.disabled = false; }
   };
   dialog.insertBefore(form, close); reason.focus();
+}
+
+const _eventRefreshes = new Set();
+async function refreshTourEvents(code) {
+  const scope = recoveryScope(), key = scope + '|' + code, record = sharedTourStore.find(code);
+  if (!record?.token || _eventRefreshes.has(key)) return;
+  _eventRefreshes.add(key);
+  try {
+    const response = await sharedTourClient.events(code, record.token);
+    if (scope !== recoveryScope()) return;
+    const latest = sharedTourStore.find(code); if (!latest || response.scheduleRevision < (latest.eventsRevision || 0)) return;
+    sharedTourStore.upsert({ ...latest, events: response.events, eventsRevision: response.scheduleRevision, eventsError: null });
+  } catch (error) {
+    if (scope === recoveryScope()) { const latest = sharedTourStore.find(code); if (latest) sharedTourStore.upsert({ ...latest, eventsError: 'Kunde inte hämta aktuellt spelschema. Försök igen.' }); }
+  } finally {
+    _eventRefreshes.delete(key);
+    if (scope === recoveryScope() && _tourViewMode === 'shared' && _tourViewActiveId === code && !_editingSharedTourCode) renderSharedTourDetail(code);
+  }
+}
+
+function renderTourEvents(record) {
+  const container = document.getElementById('sharedTourEvents'); if (!container) return;
+  const title = document.createElement('div'); title.className = 'card-title'; title.style.marginTop = '16px'; title.textContent = 'Speldagar och starttider'; container.append(title);
+  const button = (label, action) => { const el = document.createElement('button'); el.type = 'button'; el.className = 'btn secondary'; el.style.marginTop = '7px'; el.textContent = label; el.onclick = action; return el; };
+  if (['organizer', 'administrator'].includes(record.role) && record.tour.status === 'open') container.append(button('Ny speldag', () => editTourEvent(record.code)));
+  container.append(button('Uppdatera spelschema', () => refreshTourEvents(record.code)));
+  const events = record.events || [];
+  if (record.eventsError) { const error = document.createElement('p'); error.setAttribute('role', 'status'); error.textContent = record.eventsError; container.append(error); }
+  else if ((record.eventsRevision || 0) < (record.tour.scheduleRevision || 0)) { const status = document.createElement('p'); status.textContent = 'Spelschemat uppdateras. Kontrollera de senaste tiderna innan du spelar.'; container.append(status); }
+  const filterLabel = document.createElement('label'); filterLabel.textContent = 'Visa mina starter för';
+  const select = document.createElement('select'); select.id = 'tourScheduleMember'; filterLabel.htmlFor = select.id;
+  const blank = document.createElement('option'); blank.value = ''; blank.textContent = 'Välj spelare'; select.append(blank);
+  record.tour.members.forEach(member => { const option = document.createElement('option'); option.value = member.id; option.textContent = member.name; select.append(option); });
+  select.value = record.eventMemberId || record.accountMemberId || '';
+  const scope = recoveryScope(); select.onchange = () => { if (scope !== recoveryScope()) return; const latest = sharedTourStore.find(record.code); if (latest) { sharedTourStore.upsert({ ...latest, eventMemberId: select.value }); renderSharedTourDetail(record.code); } };
+  container.append(filterLabel, select);
+  const mine = document.createElement('div'); mine.id = 'tourMyStarts';
+  if (record.tour.status === 'cancelled') mine.textContent = 'Touren är avbruten.';
+  else if (select.value) {
+    const starts = GolfTourEvents.myStarts(events, select.value);
+    mine.textContent = starts.length ? starts.map(({ event, group }) => `${event.name} · ${event.date} ${group.teeTime} (${event.timeZone}) · ${record.tour.courses.find(course => course.id === event.courseId)?.name || ''} · ${group.name} · ${group.memberIds.map(id => record.tour.members.find(member => member.id === id)?.name).filter(Boolean).join(', ')}`).join(' | ') : 'Du har ingen tilldelad starttid.';
+  } else mine.textContent = 'Välj en spelare för att se den spelarens starter.';
+  mine.style.cssText = 'margin:10px 0;font-weight:600;'; container.append(mine);
+  if (!events.length) { const empty = document.createElement('p'); empty.textContent = record.events ? 'Inga speldagar planerade.' : 'Hämta spelschemat för att se planerade starter.'; container.append(empty); }
+  for (const event of events) {
+    const card = document.createElement('section'); card.className = 'hi-row'; card.dataset.eventId = event.id;
+    const heading = document.createElement('strong'); heading.textContent = `${event.name} · ${event.date}${event.status === 'cancelled' || record.tour.status === 'cancelled' ? ' · Inställd' : ''}`; card.append(heading);
+    const info = document.createElement('p'); info.textContent = `${record.tour.courses.find(course => course.id === event.courseId)?.name || ''} · ${event.timeZone}`; card.append(info);
+    if (event.note) { const note = document.createElement('p'); note.textContent = event.note; card.append(note); }
+    for (const group of event.groups) {
+      const row = document.createElement('div'); row.style.cssText = 'padding:10px 0;border-bottom:1px solid var(--border);'; row.dataset.groupId = group.id;
+      const text = document.createElement('p'); text.textContent = `${group.teeTime} · ${group.name} · ${group.memberIds.map(id => record.tour.members.find(member => member.id === id)?.name).filter(Boolean).join(', ')}`; row.append(text);
+      row.append(button('Kalender (.ics)', () => exportTourEvent(record.code, event.id, group.id)));
+      if (event.status === 'scheduled' && record.tour.status === 'open') { const start = button('Starta gruppens scorekort', () => startTourEventGroup(record.code, event.id, group.id)); start.disabled = event.date > GolfTourEvents.todayInZone(event.timeZone); row.append(start); }
+      card.append(row);
+    }
+    if (['organizer', 'administrator'].includes(record.role) && record.tour.status === 'open') card.append(button('Redigera speldag', () => editTourEvent(record.code, event.id)));
+    container.append(card);
+  }
+}
+
+function editTourEvent(code, eventId = null) {
+  const record = sharedTourStore.find(code); if (!record || !['organizer', 'administrator'].includes(record.role) || record.tour.status !== 'open') return;
+  const original = eventId && record.events?.find(event => event.id === eventId); if (eventId && !original) return;
+  const scope = recoveryScope(), { dialog, close } = tourRoundDialog(original ? 'Redigera speldag' : 'Ny speldag');
+  const topClose = document.createElement('button'); topClose.type = 'button'; topClose.textContent = '×'; topClose.setAttribute('aria-label', 'Stäng speldag'); topClose.style.cssText = 'position:absolute;right:10px;top:10px;width:44px;height:44px;border:0;background:transparent;color:var(--text);font-size:24px;'; topClose.onclick = () => dialog.close(); dialog.querySelector('h2').style.paddingRight = '35px'; dialog.insertBefore(topClose, dialog.firstChild);
+  const form = document.createElement('form'); let serial = 0;
+  const field = (labelText, input, parent = form) => { const label = document.createElement('label'); label.textContent = labelText; input.id ||= 'eventField' + (++serial); label.htmlFor = input.id; parent.append(label, input); return input; };
+  const name = field('Speldagens namn', document.createElement('input')); name.type = 'text'; name.maxLength = 80; name.required = true; name.value = original?.name || '';
+  const date = field('Speldatum', document.createElement('input')); date.type = 'date'; date.required = true; date.min = record.tour.startDate; date.max = record.tour.endDate;
+  const zone = field('Tidszon', document.createElement('input')); zone.type = 'text'; zone.required = true; zone.value = original?.timeZone || Intl.DateTimeFormat().resolvedOptions().timeZone || 'Europe/Stockholm';
+  const today = GolfTourEvents.todayInZone(zone.value); date.value = original?.date || (today < record.tour.startDate ? record.tour.startDate : today > record.tour.endDate ? record.tour.endDate : today);
+  const course = field('Tourbana', document.createElement('select')); record.tour.courses.forEach(item => { const option = document.createElement('option'); option.value = item.id; option.textContent = `${item.name} · ${item.holes} hål`; course.append(option); }); course.value = original?.courseId || record.tour.courses[0]?.id || '';
+  const stateInput = field('Schemastatus', document.createElement('select')); for (const [value, text] of [['scheduled', 'Planerad'], ['cancelled', 'Inställd']]) { const option = document.createElement('option'); option.value = value; option.textContent = text; stateInput.append(option); } stateInput.value = original?.status || 'scheduled';
+  const note = field('Information till spelarna', document.createElement('textarea')); note.maxLength = 500; note.value = original?.note || '';
+  const groups = document.createElement('div'); groups.id = 'eventGroupEditor'; form.append(groups);
+  const addGroup = data => {
+    if (groups.children.length >= 25) return;
+    const box = document.createElement('fieldset'); box.style.cssText = 'margin:12px 0;padding:10px;border:1px solid var(--border);'; box.dataset.groupId = data?.id || crypto.randomUUID();
+    const legend = document.createElement('legend'); legend.textContent = 'Grupp'; box.append(legend);
+    const groupName = field('Gruppnamn', document.createElement('input'), box); groupName.type = 'text'; groupName.required = true; groupName.maxLength = 50; groupName.value = data?.name || `Grupp ${groups.children.length + 1}`; groupName.dataset.field = 'name';
+    const time = field('Starttid', document.createElement('input'), box); time.type = 'time'; time.required = true; time.value = data?.teeTime || '09:00'; time.dataset.field = 'teeTime';
+    for (let i = 0; i < 4; i++) { const player = field(`Spelare ${i + 1}`, document.createElement('select'), box); player.dataset.field = 'member'; const blank = document.createElement('option'); blank.value = ''; blank.textContent = 'Ej vald'; player.append(blank); record.tour.members.forEach(member => { const option = document.createElement('option'); option.value = member.id; option.textContent = member.name; player.append(option); }); player.value = data?.memberIds[i] || ''; }
+    const remove = document.createElement('button'); remove.type = 'button'; remove.className = 'btn secondary'; remove.textContent = 'Ta bort grupp'; remove.onclick = () => box.remove(); box.append(remove); groups.append(box);
+  };
+  (original?.groups || [null]).forEach(addGroup);
+  const add = document.createElement('button'); add.type = 'button'; add.className = 'btn secondary'; add.textContent = 'Lägg till grupp'; add.onclick = () => addGroup(null); form.append(add);
+  const status = document.createElement('p'); status.setAttribute('role', 'status'); form.append(status);
+  const save = document.createElement('button'); save.className = 'btn'; save.textContent = 'Spara speldag'; form.append(save); dialog.insertBefore(form, close); let attempt;
+  form.onsubmit = async event => {
+    event.preventDefault(); if (scope !== recoveryScope()) { dialog.close(); return; }
+    const payload = { name: name.value.trim(), date: date.value, timeZone: zone.value.trim(), courseId: course.value, status: stateInput.value, note: note.value,
+      groups: [...groups.children].map(box => ({ id: box.dataset.groupId, name: box.querySelector('[data-field=name]').value.trim(), teeTime: box.querySelector('[data-field=teeTime]').value, memberIds: [...box.querySelectorAll('[data-field=member]')].map(input => input.value).filter(Boolean) })) };
+    const invalid = GolfTourEvents.validateEvent(payload, record.tour); if (invalid) { status.textContent = invalid; return; }
+    const signature = JSON.stringify(payload); if (!attempt || attempt.signature !== signature) attempt = { signature, mutationId: crypto.randomUUID() };
+    save.disabled = true; status.textContent = 'Sparar speldag…';
+    try {
+      const response = await sharedTourClient.saveEvent(code, record.token, eventId, { mutationId: attempt.mutationId, ...(original ? { expectedEventRevision: original.revision } : { expectedRevision: record.tour.revision }), event: payload });
+      if (scope !== recoveryScope()) { dialog.close(); return; }
+      const latest = sharedTourStore.find(code); if (!latest) return;
+      const events = [...(latest.events || []).filter(item => item.id !== response.event.id), response.event].sort((a,b) => a.date.localeCompare(b.date));
+      sharedTourStore.upsert({ ...latest, tour: response.tour, events }); dialog.close(); renderSharedTourDetail(code); refreshTourEvents(code);
+    } catch (error) { status.textContent = error.status === 409 ? 'Spelschemat har ändrats. Stäng och öppna den senaste versionen innan du sparar igen.' : 'Kunde inte spara: ' + error.message; if (error.status === 409 && scope === recoveryScope()) refreshSharedTour(code); }
+    finally { save.disabled = false; }
+  };
+  name.focus();
+}
+
+function exportTourEvent(code, eventId, groupId) {
+  const record = sharedTourStore.find(code), event = record?.events?.find(item => item.id === eventId), group = event?.groups.find(item => item.id === groupId); if (!group) return;
+  try {
+    const calendar = GolfTourEvents.calendar(event, group, record.tour, code, location.href);
+    const url = URL.createObjectURL(new Blob([calendar], { type: 'text/calendar;charset=utf-8' })), anchor = document.createElement('a'); anchor.href = url; anchor.download = `golf-${eventId}-${groupId}.ics`; anchor.click(); setTimeout(() => URL.revokeObjectURL(url), 1000);
+  } catch (error) { alert(error.message); }
+}
+
+function startTourEventGroup(code, eventId, groupId) {
+  const record = sharedTourStore.find(code), event = record?.events?.find(item => item.id === eventId), group = event?.groups.find(item => item.id === groupId);
+  if (!group || event.status !== 'scheduled' || record.tour.status !== 'open') return;
+  if (event.date > GolfTourEvents.todayInZone(event.timeZone)) { showShareToast('Scorekortet kan startas på speldagen.'); return; }
+  openTournamentRoundSetup('shared', code);
+  const modal = document.getElementById('tournamentSetup'); if (!modal) return;
+  modal.dataset.eventId = event.id; modal.dataset.groupId = group.id; modal.dataset.eventRevision = event.revision;
+  const course = document.getElementById('tournamentSetupCourse'); course.value = record.tour.courses.findIndex(item => item.id === event.courseId); course.disabled = true;
+  modal.querySelectorAll('#tournamentSetupMembers input').forEach(input => { input.checked = group.memberIds.includes(record.tour.members[Number(input.value)]?.id); input.disabled = true; });
+  document.getElementById('tournamentSetupTitle').textContent = `${event.name} · ${group.name} · ${event.date} ${group.teeTime} (${event.timeZone})`;
 }
 
 function sharedRoundApprovalLabel(tour, round) {
@@ -7517,17 +7647,18 @@ function renderSharedTourDetail(code) {
     tour_completed: 'avslutade touren', tour_completed_automatically: 'Touren avslutades automatiskt',
     tour_cancelled: 'avbröt touren', member_removed: 'tog bort en medlem', member_restored: 'återställde en medlem',
     member_left: 'lämnade touren', membership_updated: 'ändrade ett medlemskap', ownership_transferred: 'överförde ägarskapet',
-    administrator_updated: 'ändrade en administratör', round_corrected: 'korrigerade en runda', round_approved: 'godkände en runda', round_reopened: 'återöppnade granskningen av en runda', round_withdrawn: 'drog tillbaka en runda', round_disqualified: 'diskvalificerade en runda', round_reinstated: 'återinförde en runda', announcement_posted: 'publicerade ett meddelande',
+    event_created: 'planerade en speldag', event_updated: 'uppdaterade en speldag', event_cancelled: 'ställde in en speldag', administrator_updated: 'ändrade en administratör', round_corrected: 'korrigerade en runda', round_approved: 'godkände en runda', round_reopened: 'återöppnade granskningen av en runda', round_withdrawn: 'drog tillbaka en runda', round_disqualified: 'diskvalificerade en runda', round_reinstated: 'återinförde en runda', announcement_posted: 'publicerade ett meddelande',
   };
   const activityGroups = {
     rounds: new Set(['round_started', 'round_recorded', 'round_corrected', 'round_approved', 'round_reopened', 'round_withdrawn', 'round_disqualified', 'round_reinstated']),
     members: new Set(['member_joined', 'member_removed', 'member_restored', 'member_left', 'membership_updated']),
-    administration: new Set(['tour_created', 'organizer_account_linked', 'invitation_rotated', 'conditions_updated', 'tour_completed', 'tour_completed_automatically', 'tour_cancelled', 'ownership_transferred', 'administrator_updated', 'announcement_posted']),
+    administration: new Set(['tour_created', 'organizer_account_linked', 'invitation_rotated', 'conditions_updated', 'tour_completed', 'tour_completed_automatically', 'tour_cancelled', 'ownership_transferred', 'administrator_updated', 'announcement_posted', 'event_created', 'event_updated', 'event_cancelled']),
   };
   const filteredActivity = (record.activity || []).filter(event => _tourActivityFilter === 'all' || activityGroups[_tourActivityFilter]?.has(event.type));
   const activityRows = filteredActivity.slice(0, 50).map(event => {
     const detail = ['round_started', 'round_recorded'].includes(event.type) ? ` · ${escapeHtml(event.details?.courseName || '')}` :
       ['round_corrected', 'round_approved', 'round_reopened', 'round_withdrawn', 'round_disqualified', 'round_reinstated'].includes(event.type) ? ` · ${escapeHtml(event.details?.courseName || '')}${event.details?.reason ? ` · anledning: ${escapeHtml(event.details.reason)}` : ''}` :
+      event.type.startsWith('event_') ? ` · ${escapeHtml(event.details?.eventName || '')} · ${escapeHtml(event.details?.playedDate || '')}` :
       event.type === 'ownership_transferred' ? ` · ny ägare ${escapeHtml(event.details?.newOrganizerName || '')}` :
       event.details?.memberName ? ` · ${escapeHtml(event.details.memberName)}` : '';
     const system = event.actorRole === 'system';
@@ -7554,6 +7685,7 @@ function renderSharedTourDetail(code) {
     <button class="btn secondary" style="margin-top:8px;" data-action-click="shareSharedTourSpectator" data-args="${escapeHtml(JSON.stringify([record.code]))}">👀 Dela åskådarlänk</button>
 
     ${syncPanel}
+    <div id="sharedTourEvents"></div>
     <div class="card-title" style="margin-top:16px;">Meddelanden</div>
     ${canAdmin ? `<div style="display:flex;gap:7px;"><input id="sharedTourAnnouncement" maxlength="500" placeholder="Skriv ett meddelande till touren" style="flex:1;"><button class="btn" data-action-click="postSharedTourAnnouncement" data-args="${escapeHtml(JSON.stringify([record.code]))}">Publicera</button></div>` : ''}
     ${(tour.announcements || []).map(item => `<div class="activity-row"><strong>${escapeHtml(item.author)}</strong> · ${new Date(item.at).toLocaleString('sv-SE')}<br>${escapeHtml(item.message)}</div>`).join('') || '<p style="color:var(--muted);font-size:.85rem;">Inga meddelanden ännu.</p>'}
@@ -7580,6 +7712,7 @@ function renderSharedTourDetail(code) {
   `;
   const sanitizedMarkup = DOMPurify.sanitize(sharedTourMarkup, { ALLOW_DATA_ATTR: true });
   el.innerHTML = sanitizedMarkup;
+  renderTourEvents(record);
   const actions = { backToSharedTourList, beginSharedTourEdit, cancelSharedTour, cancelSharedTourEdit, completeSharedTour, correctSharedTourRound, reviewSharedTourRound, manageSharedTourResult, showSharedTourRoundScorecard, showSharedRoundCorrections, leaveSharedTour, postSharedTourAnnouncement, removeSharedTour, restoreSharedTourContributor, retrySharedTourSubmissions, revokeSharedTourContributor, rotateSharedTourInvitation, saveSharedTourConditions, setTourActivityFilter, shareSharedTourInvitation, shareSharedTourSpectator, startSharedTourRound, toggleSharedTourAdministrator, transferSharedTourOwnership, updateMySharedTourMembership, updateSharedTourContributor };
   el.querySelectorAll('[data-action-click], [data-action-change]').forEach(element => {
     for (const event of ['click', 'change']) {
@@ -7621,6 +7754,7 @@ function openTournamentRoundSetup(kind, id) {
   const courseOptions = (source.tour.courses || []).map((course, index) => `<option value="${index}">${escapeHtml(course.name)} · ${course.holes || 18} hål</option>`).join('');
   const memberRows = source.members.map((member, index) => `<label class="tournament-setup-member"><input type="checkbox" value="${index}"${index < Math.min(4, source.members.length) ? ' checked' : ''}> <span><strong>${escapeHtml(member.name)}</strong><br><span style="color:var(--muted);">HCP ${member.hi}</span></span></label>`).join('');
   const modal = document.createElement('div');
+  modal.dataset.scope = recoveryScope();
   modal.id = 'tournamentSetup'; modal.className = 'tournament-setup-backdrop';
   modal.innerHTML = `<div class="tournament-setup-sheet" role="dialog" aria-modal="true" aria-labelledby="tournamentSetupTitle">
     <div class="card-title" id="tournamentSetupTitle">🏆 Starta tourrunda · ${escapeHtml(source.tour.name)}</div>
@@ -7634,7 +7768,12 @@ function openTournamentRoundSetup(kind, id) {
 }
 
 async function confirmTournamentRoundSetup(kind, id) {
+  const setup = document.getElementById('tournamentSetup'), setupScope = recoveryScope();
+  if (!setup || setup.dataset.scope !== setupScope) { setup?.remove(); return; }
   const source = tournamentSource(kind, kind === 'local' ? Number(id) : id);
+  if (!source) return;
+  const scheduled = kind === 'shared' && source.record.events?.find(event => event.id === document.getElementById('tournamentSetup')?.dataset.eventId);
+  if ((setup.dataset.eventId && !scheduled) || (scheduled && (String(scheduled.revision) !== setup.dataset.eventRevision || scheduled.status !== 'scheduled' || !scheduled.groups.some(group => group.id === document.getElementById('tournamentSetup')?.dataset.groupId)))) { alert('Speldagen har ändrats. Öppna den senaste startlistan igen.'); return; }
   const checked = [...document.querySelectorAll('#tournamentSetupMembers input:checked')].map(input => source.members[Number(input.value)]).filter(Boolean);
   if (!checked.length || checked.length > 4) { alert('Välj mellan 1 och 4 spelare.'); return; }
   const course = source.tour.courses[Number(document.getElementById('tournamentSetupCourse').value)];
@@ -7643,23 +7782,25 @@ async function confirmTournamentRoundSetup(kind, id) {
   const entry = dbLoad().find(item => item.name === course.name && (!course.holes || item.holes === course.holes));
   if (!entry) { alert('Banans tee-data saknas på enheten. Öppna eller lägg till banan först.'); return; }
   const baseline = Object.fromEntries(source.standings.map((row, index) => [String(row.player.id), { position: index + 1, total: row.total }]));
-  if (kind === 'shared') {
-    sharedTourClient.startRound(source.record.code, source.record.token, course.id, checked.map(member => member.memberId || member.id))
-      .then(started => sharedTourStore.upsert({ ...source.record, tour: started.tour || source.record.tour }))
-      .catch(() => showShareToast('Rundan startar, men övriga medlemmar kunde inte notifieras just nu.'));
-  }
   document.getElementById('tournamentSetup')?.remove();
   stopSharedTourRefresh();
   document.getElementById('tourView').classList.add('hidden');
-  if (!await newRound()) return;
+  if (!await newRound() || setupScope !== recoveryScope()) return;
   state.tourContext = {
     ...(kind === 'shared' ? { code: source.record.code, submissionOwner: true } : { localTourId: source.tour.id }),
     kind, dedicated: true, tourName: source.tour.name, selectedPlayers: checked,
     baselineStandings: baseline,
+    ...(scheduled ? { eventTimeZone: scheduled.timeZone, eventName: scheduled.name } : {}),
   };
+  if (scheduled) state.playedDate = scheduled.date;
   _pendingTourPlayHoles = course.holes || null;
   if (!await loadSavedCourseAndAdvance(entry)) return;
   goToStep3Players();
+  if (kind === 'shared') {
+    sharedTourClient.startRound(source.record.code, source.record.token, course.id, checked.map(member => member.memberId || member.id))
+      .then(started => { if (setupScope !== recoveryScope()) return; const latest = sharedTourStore.find(source.record.code); if (latest) sharedTourStore.upsert({ ...latest, tour: started.tour || latest.tour }); })
+      .catch(() => { if (setupScope === recoveryScope()) showShareToast('Rundan startar, men övriga medlemmar kunde inte notifieras just nu.'); });
+  }
 }
 
 function queueSharedTourRound(round, code) {

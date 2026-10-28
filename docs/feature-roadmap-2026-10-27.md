@@ -36,6 +36,8 @@ Effort: medium–large. Success: a submitted score typo can be corrected once, w
 
 ### Event dates, groups and tee times
 
+Implementation update (28 October): [shared-tour events and manual start lists](roadmap-tour-events-2026-10-28.md) now cover dated course events, groups, tee times, personal starts, calendar-file export and group scorecard setup. Availability, randomized pairings and starting-hole/shotgun planning remain later work.
+
 Add scheduled tour legs, participant availability, tee times, group assignment and a personal “where and when do I start?” view. Begin with manual groups and calendar-file export. Later add randomized/balanced pairings, starting holes and shotgun starts.
 
 Effort: medium–large. Success: an organizer can run a small golf weekend without maintaining a separate start-list spreadsheet.

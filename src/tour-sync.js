@@ -48,6 +48,8 @@
       }),
       access: (code, token) => jsonRequest(`/tour/${String(code).toUpperCase()}/access`, { headers: headers(token) }),
       manage: (code, token) => jsonRequest(`/tour/${String(code).toUpperCase()}/manage`, { headers: headers(token) }),
+      events: (code, token) => jsonRequest(`/tour/${String(code).toUpperCase()}/events`, { headers: headers(token) }),
+      saveEvent: (code, token, eventId, payload) => jsonRequest(`/tour/${String(code).toUpperCase()}/events${eventId ? '/' + encodeURIComponent(eventId) : ''}`, { method: eventId ? 'PATCH' : 'POST', headers: headers(token), body: JSON.stringify({ protocolVersion: PROTOCOL_VERSION, schemaVersion: SCHEMA_VERSION, ...payload }) }),
       activity: (code, token) => jsonRequest(`/tour/${String(code).toUpperCase()}/activity`, { headers: headers(token) }),
       updateConditions: (code, token, payload) => jsonRequest(`/tour/${String(code).toUpperCase()}/conditions`, {
         method: 'PATCH', headers: headers(token), body: JSON.stringify(payload),
