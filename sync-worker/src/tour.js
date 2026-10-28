@@ -4,6 +4,7 @@ import { PROTOCOL_VERSION } from './validation.js';
 import { TOUR_SCHEMA_VERSION } from './tour-validation.js';
 import { calculateTourSubjects, validateTourRoundSubmission, validateTourUpdate } from './tour-validation.js';
 import { correctRound, correctionEvidence } from './round-corrections.js';
+import '../../src/tour-events.js';
 import { notifyUsers } from './push.js';
 
 const TOUR_KEY = 'tour';
@@ -77,6 +78,7 @@ function publicTour(tour) {
     status: tour.status,
     completedReason: tour.completedReason || null,
     approvalRequired: !!tour.approvalRequired,
+    scheduleRevision: tour.scheduleRevision || 0,
     bestOfN: tour.bestOfN,
     duplicateCourseRule: tour.duplicateCourseRule,
     members: tour.members,
@@ -398,6 +400,8 @@ export class Tour extends DurableObject {
     const invalid = validateTourUpdate(body, tour);
     if (invalid) return result(invalid.startsWith('Unsupported') ? 426 : 400, { error: invalid });
     if (body.expectedRevision !== tour.revision) return result(409, { error: 'Tour changed; refresh and try again' });
+    const scheduledEvents = [...(await this.ctx.storage.list({ prefix: 'event:', limit: 50 })).values()];
+    if (scheduledEvents.some(event => event.status === 'scheduled' && (event.date < body.startDate || event.date > body.endDate))) return result(400, { error: 'Tour dates must include scheduled events' });
     if (body.approvalRequired !== undefined) tour.approvalRequired = body.approvalRequired;
     tour.name = body.name.trim();
     tour.startDate = body.startDate;
@@ -520,6 +524,53 @@ export class Tour extends DurableObject {
     const leader = round.subjects.slice().sort((a, b) => b.totalPoints - a.totalPoints)[0];
     this.ctx.waitUntil(notifyUsers(this.env, accountUsers(tour, actor.accountUserId), 'rounds', pushPayload(tour, `Ställningen är uppdaterad · ${tour.name}`, `${actorName(tour, actor)} registrerade ${course.name}${leader ? ` · ${leader.name} ${leader.totalPoints}p` : ''}.`)));
     return result(201, { tour: publicTour(tour), round, duplicate: false });
+  }
+
+  async getEvents(token, accountUserId = null) {
+    const tour = await this.ctx.storage.get(TOUR_KEY);
+    if (!tour) return result(404, { error: 'Tour not found' });
+    if (!await this.actorForToken(tour, token, accountUserId)) return result(403, { error: 'Not authorized' });
+    const events = [...(await this.ctx.storage.list({ prefix: 'event:', limit: 50 })).values()];
+    events.sort((a, b) => a.date.localeCompare(b.date) || a.name.localeCompare(b.name));
+    return result(200, { events, scheduleRevision: tour.scheduleRevision || 0 });
+  }
+
+  async saveEvent(eventId, token, accountUserId, body) {
+    const stored = await this.ctx.storage.get(TOUR_KEY);
+    const tour = stored ? await this.ensureLifecycle(stored) : null;
+    if (!tour) return result(404, { error: 'Tour not found' });
+    const actor = await this.actorForToken(tour, token, accountUserId);
+    if (!this.canAdminister(actor)) return result(403, { error: 'Not authorized' });
+    if (!validMembershipRequest(body, ['mutationId', 'expectedRevision', 'expectedEventRevision', 'event']) ||
+      (typeof body.mutationId !== 'string' || !/^[A-Za-z0-9_-]{1,80}$/.test(body.mutationId))) return result(400, { error: 'Invalid event request' });
+    if (eventId && !/^[A-Za-z0-9_-]{1,80}$/.test(eventId)) return result(400, { error: 'Invalid event identity' });
+    const retryKey = `event-mutation:${body.mutationId}`;
+    const prior = await this.ctx.storage.get(retryKey);
+    if (prior) {
+      if (prior.request !== JSON.stringify(body) || prior.target !== (eventId || null)) return result(409, { error: 'Event retry key was reused' });
+      return result(200, { tour: publicTour(tour), event: await this.ctx.storage.get(`event:${prior.eventId}`), duplicate: true });
+    }
+    if (tour.status !== 'open') return result(400, { error: 'Only open tours can change their schedule' });
+    const previous = eventId ? await this.ctx.storage.get(`event:${eventId}`) : null;
+    if (eventId && !previous) return result(404, { error: 'Event not found' });
+    if (previous ? body.expectedEventRevision !== previous.revision : body.expectedRevision !== tour.revision) return result(409, { error: 'Schedule changed; refresh and try again' });
+    const invalid = globalThis.GolfTourEvents.validateEvent(body.event, tour);
+    if (invalid) return result(400, { error: invalid });
+    if (!previous && (await this.ctx.storage.list({ prefix: 'event:', limit: 50 })).size >= 50) return result(400, { error: 'A tour can contain at most 50 scheduled events' });
+    const now = Date.now(), event = { ...structuredClone(body.event), name: body.event.name.trim(),
+      id: previous?.id || crypto.randomUUID(), revision: (previous?.revision || 0) + 1, createdAt: previous?.createdAt || now, updatedAt: now };
+    event.groups.forEach(group => { group.name = group.name.trim(); });
+    const type = event.status === 'cancelled' ? 'event_cancelled' : previous ? 'event_updated' : 'event_created';
+    addActivity(tour, type, actor, { eventName: event.name, playedDate: event.date });
+    tour.scheduleRevision = (tour.scheduleRevision || 0) + 1; tour.revision++; tour.updatedAt = now;
+    await this.ctx.storage.transaction(async tx => {
+      await tx.put(TOUR_KEY, tour); await tx.put(`event:${event.id}`, event);
+      await tx.put(`event-audit:${event.id}:${String(event.revision).padStart(12, '0')}`, { at: now, actorId: actor.id, actorName: actorName(tour, actor), before: previous, after: event });
+      await tx.put(retryKey, { request: JSON.stringify(body), target: eventId || null, eventId: event.id });
+    });
+    this.broadcast(tour, type);
+    this.ctx.waitUntil(notifyUsers(this.env, accountUsers(tour, actor.accountUserId), 'rounds', pushPayload(tour, `Spelschema uppdaterat · ${tour.name}`, `${event.name} · ${event.date}${event.status === 'cancelled' ? ' · inställd' : ''}. Öppna touren för aktuella grupper och starttider.`)));
+    return result(previous ? 200 : 201, { tour: publicTour(tour), event, duplicate: false });
   }
 
   async startRound(token, accountUserId, body) {
@@ -839,7 +890,7 @@ export class Tour extends DurableObject {
 
 for (const name of [
   'create', 'bindOrganizerAccount', 'detachAccount', 'bindCode', 'getPublicState', 'join', 'access', 'manage',
-  'getActivity', 'rotateInvitation', 'update', 'complete', 'cancel', 'delete', 'submitRound', 'startRound',
+  'getActivity', 'rotateInvitation', 'update', 'complete', 'cancel', 'delete', 'submitRound', 'startRound', 'getEvents', 'saveEvent',
   'setAdministrator', 'editRound', 'getRoundCorrections', 'announce', 'revokeContributor', 'updateMyMembership', 'updateContributor',
   'leave', 'restoreContributor', 'transferOwnership', 'alarm', 'endReminderDue',
 ]) {

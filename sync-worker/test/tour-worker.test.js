@@ -735,3 +735,38 @@ describe('withdrawal, disqualification and reinstatement', () => {
     });
   }
 });
+
+describe('scheduled events and start groups', () => {
+  function eventPayload(tour) {
+    return { name: 'Helggolf', date: daysFromNow(20), timeZone: 'Europe/Stockholm', courseId: tour.courses[0].id, status: 'scheduled', note: 'Samling vid klubbhuset', groups: [{ id: 'group-1', name: 'Första gruppen', teeTime: '09:10', memberIds: tour.members.map(member => member.id) }] };
+  }
+  it('keeps schedules private, supports organizers and rejects invalid assignments', async () => {
+    const created = await createTour(), joined = await joinTour(created);
+    const url = `https://worker.test/tour/${created.code}/events`;
+    const body = { protocolVersion: PROTOCOL_VERSION, schemaVersion: TOUR_SCHEMA_VERSION, mutationId: crypto.randomUUID(), expectedRevision: joined.body.tour.revision, event: eventPayload(created.tour) };
+    const post = (payload, token = created.organizerToken) => SELF.fetch(url, { method: 'POST', headers: headers(token), body: JSON.stringify(payload) });
+    expect((await SELF.fetch(url, { headers: headers('invalid') })).status).toBe(403);
+    expect((await post(body, joined.body.contributorToken)).status).toBe(403);
+    const duplicate = structuredClone(body); duplicate.event.groups.push({ ...duplicate.event.groups[0], id: 'other' }); expect((await post(duplicate)).status).toBe(400);
+    const invalidZone = structuredClone(body); invalidZone.event.timeZone = 'No/such-zone'; expect((await post(invalidZone)).status).toBe(400);
+    const response = await post(body); expect(response.status).toBe(201); const saved = await response.json();
+    expect(saved.event).toMatchObject({ revision: 1, groups: [{ id: 'group-1', teeTime: '09:10' }] });
+    expect(saved.tour.scheduleRevision).toBe(1); expect(saved.tour.events).toBeUndefined();
+    const listed = await SELF.fetch(url, { headers: headers(joined.body.contributorToken) }).then(response => response.json()); expect(listed.events).toHaveLength(1); expect(listed.events[0].id).toBe(saved.event.id);
+    const retry = await post(body); expect(retry.status).toBe(200); expect((await retry.json()).duplicate).toBe(true);
+    expect((await post({ ...body, event: { ...body.event, name: 'Different retry' } })).status).toBe(409);
+  });
+  it('serializes competing schedule changes, broadcasts and keeps date changes within planned events', async () => {
+    const created = await createTour(), url = `https://worker.test/tour/${created.code}/events`;
+    const createdEvent = await SELF.fetch(url, { method: 'POST', headers: headers(created.organizerToken), body: JSON.stringify({ protocolVersion: PROTOCOL_VERSION, schemaVersion: TOUR_SCHEMA_VERSION, mutationId: crypto.randomUUID(), expectedRevision: created.tour.revision, event: eventPayload(created.tour) }) }).then(response => response.json());
+    const live = await SELF.fetch(`https://worker.test/tour/${created.code}/live`, { headers: { Upgrade: 'websocket', 'Sec-WebSocket-Protocol': `golf-v2, ${created.organizerToken}` } }); const socket = live.webSocket; socket.accept();
+    const update = new Promise(resolve => socket.addEventListener('message', event => { const data = JSON.parse(event.data); if (data.type === 'event_cancelled') resolve(data); }));
+    const body = { protocolVersion: PROTOCOL_VERSION, schemaVersion: TOUR_SCHEMA_VERSION, mutationId: crypto.randomUUID(), expectedEventRevision: 1, event: { ...eventPayload(created.tour), status: 'cancelled' } };
+    const patch = payload => SELF.fetch(url + '/' + createdEvent.event.id, { method: 'PATCH', headers: headers(created.organizerToken), body: JSON.stringify(payload) });
+    const responses = await Promise.all([patch(body), patch({ ...body, mutationId: crypto.randomUUID() })]); expect(responses.map(response => response.status).sort()).toEqual([200, 409]);
+    const cancelled = await responses.find(response => response.status === 200).json(); expect(cancelled.event.status).toBe('cancelled'); expect((await update).tour.scheduleRevision).toBe(2); socket.close();
+    const restored = await patch({ ...body, expectedEventRevision: 2, mutationId: crypto.randomUUID(), event: eventPayload(created.tour) }); expect(restored.status).toBe(200); const scheduled = await restored.json(); expect(scheduled.event.revision).toBe(3);
+    const shortened = await SELF.fetch(`https://worker.test/tour/${created.code}/conditions`, { method: 'PATCH', headers: headers(created.organizerToken), body: JSON.stringify(updatePayload(scheduled.tour, { endDate: daysFromNow(10) })) }); expect(shortened.status).toBe(400);
+    const events = await SELF.fetch(url, { headers: headers(created.organizerToken) }).then(response => response.json()); expect(events.events[0].groups[0].id).toBe('group-1'); expect(events.scheduleRevision).toBe(3);
+  });
+});

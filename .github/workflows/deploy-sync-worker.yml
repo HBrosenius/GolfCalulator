@@ -9,6 +9,7 @@ on:
       - 'src/validation.js'
       - 'src/account-sync.js'
       - 'src/scoring.js'
+      - 'src/tour-events.js'
       - '.github/workflows/deploy-sync-worker.yml'
 
 permissions: {}

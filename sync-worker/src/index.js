@@ -207,6 +207,7 @@ async function route(request, env, ctx = null) {
     if (parts.length === 3 && parts[2] === 'manage' && request.method === 'GET') return fromTourResult(await tour.manage(token, accountUserId));
     if (parts.length === 3 && parts[2] === 'activity' && request.method === 'GET') return fromTourResult(await tour.getActivity(token, accountUserId));
     if (parts.length === 5 && parts[2] === 'rounds' && parts[4] === 'corrections' && request.method === 'GET') return fromTourResult(await tour.getRoundCorrections(parts[3], token, accountUserId, url.searchParams.get('after') || ''));
+    if (parts.length === 3 && parts[2] === 'events' && request.method === 'GET') return fromTourResult(await tour.getEvents(token, accountUserId));
     const parsed = await bodyOrResponse(request);
     if (parsed.response) return parsed.response;
     if (parts.length === 3 && parts[2] === 'join' && request.method === 'POST') {
@@ -249,6 +250,8 @@ async function route(request, env, ctx = null) {
       }
       return fromTourResult(transferred);
     }
+    if (parts.length === 3 && parts[2] === 'events' && request.method === 'POST') return fromTourResult(await tour.saveEvent(null, token, accountUserId, parsed.body));
+    if (parts.length === 4 && parts[2] === 'events' && request.method === 'PATCH') return fromTourResult(await tour.saveEvent(parts[3], token, accountUserId, parsed.body));
     if (parts.length === 3 && parts[2] === 'rounds' && request.method === 'POST') return fromTourResult(await tour.submitRound(parsed.body, token, accountUserId));
     if (parts.length === 3 && parts[2] === 'round-starts' && request.method === 'POST') return fromTourResult(await tour.startRound(token, accountUserId, parsed.body));
     if (parts.length === 4 && parts[2] === 'rounds' && request.method === 'PATCH') return fromTourResult(await tour.editRound(parts[3], token, accountUserId, parsed.body));
