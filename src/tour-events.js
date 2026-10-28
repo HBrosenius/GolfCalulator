@@ -15,7 +15,7 @@
   function todayInZone(timeZone, now = new Date()) {
     const parts = partsAt(now, formatter(timeZone)); return `${parts.year}-${parts.month}-${parts.day}`;
   }
-  function teeTimeInstant(date, time, timeZone) {
+  function teeTimeInstant(date, time, timeZone, ambiguity = 'reject') {
     if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !/^([01]\d|2[0-3]):[0-5]\d$/.test(time)) throw new Error('Ange ett giltigt datum och klockslag.');
     const target = Date.parse(`${date}T${time}:00Z`);
     if (!Number.isFinite(target) || new Date(target).toISOString().slice(0, 10) !== date) throw new Error('Ogiltigt datum.');
@@ -29,8 +29,21 @@
     const candidates = [...offsets].map(offset => target - offset).filter(value => {
       const p = partsAt(new Date(value), format); return `${p.year}-${p.month}-${p.day}` === date && `${p.hour}:${p.minute}` === time;
     });
+    if (candidates.length > 1 && ambiguity === 'latest') return Math.max(...candidates);
     if (candidates.length !== 1) throw new Error('Starttiden saknas eller förekommer två gånger vid tidsomställningen. Välj en annan tid.');
     return candidates[0];
+  }
+  function endOfDay(date, timeZone) {
+    try { return teeTimeInstant(date, '23:59', timeZone, 'latest') + 60000; }
+    catch (_) {
+      // Some zones skip their last hour. Use the first valid start of the next
+      // local day, rather than closing before a scheduled playing day ends.
+      const next = new Date(Date.parse(date + 'T12:00:00Z') + 86400000).toISOString().slice(0, 10);
+      for (let hour = 0; hour < 24; hour++) {
+        try { return teeTimeInstant(next, String(hour).padStart(2, '0') + ':00', timeZone, 'latest'); } catch (_) {}
+      }
+      throw new Error('Kunde inte fastställa speldagens slut i vald tidszon.');
+    }
   }
   function validateEvent(event, tour) {
     const allowed = new Set(['name', 'date', 'timeZone', 'courseId', 'note', 'status', 'groups']);
@@ -71,11 +84,11 @@
     const players = group.memberIds.map(id => tour.members.find(member => member.id === id)?.name).filter(Boolean);
     const link = new URL(appUrl); if (!['https:', 'http:'].includes(link.protocol)) throw new Error('Ogiltig applänk.'); link.search = ''; link.hash = `shared_tour=${code}`;
     const lines = ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//GolfCalulator//Tour events//SV', 'CALSCALE:GREGORIAN', 'METHOD:PUBLISH', 'BEGIN:VEVENT',
-      `UID:golf-${code}-${event.id}-${group.id}@golfcalc`, `SEQUENCE:${event.revision || 1}`, `DTSTAMP:${utc(event.updatedAt || event.createdAt || start)}`,
+      `UID:golf-${code}-${event.id}-${group.id}@golfcalc`, `SEQUENCE:${Math.max(event.revision || 1, tour.status === 'cancelled' ? (tour.revision || 1) : 0)}`, `DTSTAMP:${utc(Math.max(event.updatedAt || event.createdAt || start, tour.status === 'cancelled' ? (tour.updatedAt || 0) : 0))}`,
       `DTSTART:${utc(start)}`, `DTEND:${utc(start + (course?.holes === 9 ? 150 : 300) * 60000)}`,
-      `STATUS:${event.status === 'cancelled' ? 'CANCELLED' : 'CONFIRMED'}`, `SUMMARY:${escapeText(event.name + ' · ' + group.name)}`, `LOCATION:${escapeText(course?.name || '')}`,
+      `STATUS:${event.status === 'cancelled' || tour.status === 'cancelled' ? 'CANCELLED' : 'CONFIRMED'}`, `SUMMARY:${escapeText(event.name + ' · ' + group.name)}`, `LOCATION:${escapeText(course?.name || '')}`,
       `DESCRIPTION:${escapeText(`${tour.name}\n${players.join(', ')}\nTidszon: ${event.timeZone}\n${event.note || ''}\nSluttiden är uppskattad.`)}`, `URL:${link.href}`, 'END:VEVENT', 'END:VCALENDAR'];
     return lines.map(foldLine).join('\r\n') + '\r\n';
   }
-  return Object.freeze({ validateEvent, teeTimeInstant, todayInZone, myStarts, calendar });
+  return Object.freeze({ validateEvent, teeTimeInstant, endOfDay, todayInZone, myStarts, calendar });
 }));

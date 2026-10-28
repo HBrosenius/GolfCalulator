@@ -770,3 +770,15 @@ describe('scheduled events and start groups', () => {
     const events = await SELF.fetch(url, { headers: headers(created.organizerToken) }).then(response => response.json()); expect(events.events[0].groups[0].id).toBe('group-1'); expect(events.scheduleRevision).toBe(3);
   });
 });
+
+it('keeps a scheduled venue day open beyond the default UTC tour deadline', async () => {
+  const config = { ...configuration(), endDate: daysFromNow(20) }, created = await createTour(config);
+  const response = await SELF.fetch(`https://worker.test/tour/${created.code}/events`, { method: 'POST', headers: headers(created.organizerToken), body: JSON.stringify({ protocolVersion: PROTOCOL_VERSION, schemaVersion: TOUR_SCHEMA_VERSION, mutationId: crypto.randomUUID(), expectedRevision: created.tour.revision,
+    event: { name: 'Late golf', date: config.endDate, timeZone: 'America/Los_Angeles', courseId: created.tour.courses[0].id, status: 'scheduled', note: '', groups: [{ id: 'late-group', name: 'Late group', teeTime: '17:00', memberIds: [created.tour.members[0].id] }] } }) });
+  expect(response.status).toBe(201); const scheduled = await response.json();
+  const venueEnd = globalThis.GolfTourEvents.endOfDay(config.endDate, 'America/Los_Angeles');
+  expect(scheduled.tour.retentionUntil).toBe(venueEnd + 365 * 86400000);
+  const cancelled = await SELF.fetch(`https://worker.test/tour/${created.code}/events/${scheduled.event.id}`, { method: 'PATCH', headers: headers(created.organizerToken), body: JSON.stringify({ protocolVersion: PROTOCOL_VERSION, schemaVersion: TOUR_SCHEMA_VERSION, mutationId: crypto.randomUUID(), expectedEventRevision: 1,
+    event: { name: 'Late golf', date: config.endDate, timeZone: 'America/Los_Angeles', courseId: created.tour.courses[0].id, status: 'cancelled', note: '', groups: scheduled.event.groups } }) });
+  expect(cancelled.status).toBe(200); expect((await cancelled.json()).tour.retentionUntil).toBe(Date.parse(config.endDate + 'T23:59:59.999Z') + 1 + 365 * 86400000);
+});

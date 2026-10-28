@@ -31,3 +31,15 @@ test('personal starts omit cancelled or unassigned groups', () => {
   const first = { ...event(), id: 'first' }, cancelled = { ...event(), id: 'cancelled', status: 'cancelled' };
   assert.equal(events.myStarts([first, cancelled], 'ada').length, 1); assert.equal(events.myStarts([first], 'unknown').length, 0);
 });
+
+test('venue day ends remain valid beyond UTC midnight', () => {
+  assert.equal(new Date(events.endOfDay('2026-12-11', 'America/Los_Angeles')).toISOString(), '2026-12-12T08:00:00.000Z');
+  assert.equal(new Date(events.endOfDay('2026-07-11', 'Europe/Stockholm')).toISOString(), '2026-07-11T22:00:00.000Z');
+});
+
+
+test('a cancelled tour exports its retained events as cancelled calendar entries', () => {
+  const scheduled = { ...event(), id: 'event-1', revision: 2, updatedAt: Date.UTC(2026, 6, 1) };
+  const text = events.calendar(scheduled, scheduled.groups[0], { ...tour, status: 'cancelled', revision: 8, updatedAt: Date.UTC(2026, 6, 2) }, 'ABCD2345', 'https://app.test/');
+  assert.match(text, /STATUS:CANCELLED/); assert.match(text, /SEQUENCE:8/);
+});

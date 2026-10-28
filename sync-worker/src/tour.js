@@ -171,7 +171,7 @@ export class Tour extends DurableObject {
   }
 
   completionAt(tour) {
-    return new Date(`${tour.endDate}T23:59:59.999Z`).getTime() + 1;
+    return Math.max(new Date(`${tour.endDate}T23:59:59.999Z`).getTime() + 1, tour.scheduleEndAt || 0);
   }
 
   async scheduleLifecycle(tour) {
@@ -180,8 +180,7 @@ export class Tour extends DurableObject {
   }
 
   async ensureLifecycle(tour) {
-    const today = new Date().toISOString().slice(0, 10);
-    if (tour.status === 'open' && tour.endDate < today) {
+    if (tour.status === 'open' && Date.now() >= this.completionAt(tour)) {
       tour.status = 'completed';
       tour.completedReason = 'expired';
       addActivity(tour, 'tour_completed_automatically', null);
@@ -412,9 +411,8 @@ export class Tour extends DurableObject {
     tour.courses.forEach(course => { course.maxRounds = limits.get(course.id); });
     addActivity(tour, 'conditions_updated', actor);
     tour.retentionUntil = this.completionAt(tour) + RETENTION_MS;
-    const today = new Date().toISOString().slice(0, 10);
     if (tour.completedReason === 'expired' || tour.status === 'open') {
-      tour.status = tour.endDate < today ? 'completed' : 'open';
+      tour.status = Date.now() >= this.completionAt(tour) ? 'completed' : 'open';
       tour.completedReason = tour.status === 'completed' ? 'expired' : null;
     }
     tour.updatedAt = Date.now();
@@ -560,6 +558,9 @@ export class Tour extends DurableObject {
     const now = Date.now(), event = { ...structuredClone(body.event), name: body.event.name.trim(),
       id: previous?.id || crypto.randomUUID(), revision: (previous?.revision || 0) + 1, createdAt: previous?.createdAt || now, updatedAt: now };
     event.groups.forEach(group => { group.name = group.name.trim(); });
+    const scheduled = [...(await this.ctx.storage.list({ prefix: 'event:', limit: 50 })).values()].filter(item => item.id !== event.id).concat(event).filter(item => item.status === 'scheduled');
+    try { tour.scheduleEndAt = Math.max(0, ...scheduled.map(item => globalThis.GolfTourEvents.endOfDay(item.date, item.timeZone))); } catch (error) { return result(400, { error: error.message }); }
+    tour.retentionUntil = this.completionAt(tour) + RETENTION_MS;
     const type = event.status === 'cancelled' ? 'event_cancelled' : previous ? 'event_updated' : 'event_created';
     addActivity(tour, type, actor, { eventName: event.name, playedDate: event.date });
     tour.scheduleRevision = (tour.scheduleRevision || 0) + 1; tour.revision++; tour.updatedAt = now;
@@ -568,6 +569,7 @@ export class Tour extends DurableObject {
       await tx.put(`event-audit:${event.id}:${String(event.revision).padStart(12, '0')}`, { at: now, actorId: actor.id, actorName: actorName(tour, actor), before: previous, after: event });
       await tx.put(retryKey, { request: JSON.stringify(body), target: eventId || null, eventId: event.id });
     });
+    await this.scheduleLifecycle(tour);
     this.broadcast(tour, type);
     this.ctx.waitUntil(notifyUsers(this.env, accountUsers(tour, actor.accountUserId), 'rounds', pushPayload(tour, `Spelschema uppdaterat · ${tour.name}`, `${event.name} · ${event.date}${event.status === 'cancelled' ? ' · inställd' : ''}. Öppna touren för aktuella grupper och starttider.`)));
     return result(previous ? 200 : 201, { tour: publicTour(tour), event, duplicate: false });
