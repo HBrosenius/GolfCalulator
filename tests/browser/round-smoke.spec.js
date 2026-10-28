@@ -218,7 +218,7 @@ test('resumed round can revisit populated player setup without losing scores', a
   await expect(page.locator('#score_0_0')).toHaveValue('5');
 });
 
-test('editing saved scores preserves bets and tour and live references without reconnecting', async ({ page }) => {
+test('shared tour results direct corrections to the tour without changing local scores', async ({ page }) => {
   await openScorecard(page);
   await page.locator('#score_0_0').fill('5');
   page.once('dialog', dialog => dialog.accept());
@@ -234,13 +234,10 @@ test('editing saved scores preserves bets and tour and live references without r
     editRound(rounds[0].id);
     return { tourRef: rounds[0].tourRef, liveRoomCode: rounds[0].liveRoomCode, bets: rounds[0].bets };
   });
-  expect(await page.evaluate(() => state.liveRoomCode || null)).toBeNull();
-  await page.locator('#score_0_0').fill('6');
-  page.once('dialog', dialog => dialog.accept());
-  await page.locator('#step4 button', { hasText: 'Beräkna' }).click();
+  await expect(page.locator('#tourView')).toBeVisible();
   const saved = await page.evaluate(() => roundsLoad()[0]);
   expect(saved).toMatchObject(metadata);
-  expect(saved.subjects[0].rows[0].score).toBe(6);
+  expect(saved.subjects[0].rows[0].score).toBe(5);
 });
 
 test('backup restores tours, roster links and synced rounds without duplicates', async ({ page }) => {

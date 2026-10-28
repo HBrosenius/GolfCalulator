@@ -26,9 +26,11 @@ Suggested acceptance measures: returning users can start their usual game withou
 
 ### Score submission, approval and correction
 
+Implementation update (28 October): [organizer score corrections](roadmap-score-corrections-2026-10-28.md) now cover hole/pickup and date changes, server recalculation, revision checks, retained audit evidence and local-history reconciliation. Optional approval, provisional status and withdrawal/disqualification remain planned.
+
 Add a review screen and optional marker/organizer approval. Show provisional versus confirmed results. Allow an organizer to correct a specific hole with an explanation, recalculate the leaderboard, notify affected players and retain an immutable before/after record. Support withdrawal/disqualification without deleting the evidence.
 
-This extends existing functionality: local scorecards are editable, but the shared-tour `editRound` operation currently corrects only the played date (`sync-worker/src/tour.js:550–575`). Define one authoritative correction path so local history and the shared leaderboard agree. Approval should remain optional for casual rounds.
+This extends existing functionality: local scorecards are editable, and shared-tour corrections now use the authoritative Worker operation described above. Approval should remain optional for casual rounds.
 
 Effort: medium–large. Success: a submitted score typo can be corrected once, with all viewers receiving the same result and a clear explanation.
 

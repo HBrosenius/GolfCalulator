@@ -94,6 +94,10 @@
       editRound: (code, token, roundId, expectedRevision, playedDate, reason) => jsonRequest(`/tour/${String(code).toUpperCase()}/rounds/${roundId}`, {
         method: 'PATCH', headers: headers(token), body: JSON.stringify({ protocolVersion: PROTOCOL_VERSION, schemaVersion: SCHEMA_VERSION, expectedRevision, playedDate, reason }),
       }),
+      correctRound: (code, token, roundId, correction) => jsonRequest(`/tour/${String(code).toUpperCase()}/rounds/${encodeURIComponent(roundId)}`, {
+        method: 'PATCH', headers: headers(token), body: JSON.stringify({ protocolVersion: PROTOCOL_VERSION, schemaVersion: SCHEMA_VERSION, ...correction }),
+      }),
+      corrections: (code, token, roundId, after = '') => jsonRequest(`/tour/${String(code).toUpperCase()}/rounds/${encodeURIComponent(roundId)}/corrections${after ? '?after=' + encodeURIComponent(after) : ''}`, { headers: headers(token) }),
       announce: (code, token, message) => jsonRequest(`/tour/${String(code).toUpperCase()}/announcements`, {
         method: 'POST', headers: headers(token), body: JSON.stringify({ protocolVersion: PROTOCOL_VERSION, schemaVersion: SCHEMA_VERSION, message }),
       }),
@@ -114,7 +118,26 @@
     });
   }
 
-  function createStore(storage) {
+  function reconcileRounds(rounds, record) {
+    return rounds.map(local => {
+      if (local.tourRef?.code !== record.code) return local;
+      const remote = record.tour?.rounds?.find(item => item.id === local.tourRef.submissionId || String(item.clientRoundId) === String(local.id));
+      if (!remote?.correctedAt) return local;
+      let matched = 0;
+      const subjects = local.subjects.map(subject => {
+        const memberIds = [subject.memberId, record.memberLinks?.[subject.playerId], ...(subject.memberIds || []).map(id => record.memberLinks?.[id])].filter(Boolean);
+        const source = remote.subjects.find(item => memberIds.includes(item.memberId));
+        if (!source || source.rows.length !== local.holes) return subject;
+        matched++;
+        return { ...subject, rows: source.rows.map(row => ({ ...row })), totalPoints: source.totalPoints, totalBrutto: source.totalBrutto };
+      });
+      if (!matched) return local;
+      return { ...local, date: remote.playedDate, subjects, lifecycle: 'completed',
+        tourRef: { ...local.tourRef, syncStatus: 'synced', submissionId: remote.id } };
+    });
+  }
+
+  function createStore(storage, onTour = null) {
     function load() {
       try {
         const parsed = JSON.parse(storage.getItem(STORE_KEY) || '[]');
@@ -133,9 +156,13 @@
       const records = load();
       const normalized = { ...record, code: String(record.code).toUpperCase(), cachedAt: Date.now() };
       const index = records.findIndex(item => item.code === normalized.code);
-      if (index >= 0) records[index] = { ...records[index], ...normalized };
-      else records.unshift(normalized);
-      return save(records);
+      if (index >= 0) {
+        if (normalized.tour && (records[index].tour?.revision || 0) > (normalized.tour.revision || 0)) normalized.tour = records[index].tour;
+        records[index] = { ...records[index], ...normalized };
+      } else records.unshift(normalized);
+      const saved = save(records);
+      if (saved && normalized.tour && onTour) onTour(index >= 0 ? records[index] : normalized);
+      return saved;
     }
 
     function find(code) {
@@ -214,6 +241,6 @@
 
   return Object.freeze({
     DEFAULT_BASE_URL, PROTOCOL_VERSION, SCHEMA_VERSION, STORE_KEY,
-    createClient, createStore, flushPending, invitationFragment, parseInvitationFragment,
+    createClient, createStore, reconcileRounds, flushPending, invitationFragment, parseInvitationFragment,
   });
 }));

@@ -950,7 +950,7 @@ test('first-run onboarding and shared-tour collaboration controls are visible', 
   await expect(page.getByRole('button', { name: '+ Ny tourrunda' })).toHaveCount(0);
   await page.evaluate(() => { _tourViewMode = 'shared'; renderSharedTourDetail('ABCD2345'); });
   await expect(page.getByRole('button', { name: 'Publicera' })).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Korrigera datum' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Korrigera resultat' })).toBeVisible();
   await expect(page.getByRole('button', { name: /Skapa ny inbjudningslänk/ })).toHaveCount(0);
   await page.getByRole('button', { name: '+ Ny tourrunda' }).click();
   await page.getByRole('button', { name: 'Fortsätt till scorekortet' }).click();

@@ -67,12 +67,28 @@ try {
   });
 
   const submission = buildSmokeSubmission(created.tour, iso(0));
-  await json(await fetch(`${api}/tour/${created.code}/rounds`, {
+  const recorded = await json(await fetch(`${api}/tour/${created.code}/rounds`, {
     method: 'POST', headers: headers(created.organizerToken), body: JSON.stringify(submission),
   }));
   const realtime = await liveUpdate;
   assert.equal(realtime.tour.rounds[0].subjects[0].totalPoints, 18);
-  console.log(JSON.stringify({ ok: true, service: health.service, tour: created.code, realtime: true }));
+  const correction = { protocolVersion: 2, schemaVersion: 1, mutationId: crypto.randomUUID(),
+    expectedRoundRevision: recorded.round.revision || 1, reason: 'Automated smoke correction',
+    changes: [{ memberId: recorded.round.subjects[0].memberId, hole: 1, score: recorded.round.subjects[0].rows[0].score + 1 }] };
+  const correctionUrl = `${api}/tour/${created.code}/rounds/${recorded.round.id}`;
+  const corrected = await json(await fetch(correctionUrl, {
+    method: 'PATCH', headers: headers(created.organizerToken), body: JSON.stringify(correction),
+  }));
+  assert.equal(corrected.tour.rounds[0].subjects[0].totalPoints, 17);
+  const retry = await json(await fetch(correctionUrl, {
+    method: 'PATCH', headers: headers(created.organizerToken), body: JSON.stringify(correction),
+  }));
+  assert.equal(retry.duplicate, true);
+  const audit = await json(await fetch(`${correctionUrl}/corrections`, { headers: headers(created.organizerToken) }));
+  assert.equal(audit.corrections.length, 1);
+  assert.equal(audit.corrections[0].before.subjects[0].totalPoints, 18);
+  assert.equal(audit.corrections[0].after.subjects[0].totalPoints, 17);
+  console.log(JSON.stringify({ ok: true, service: health.service, tour: created.code, realtime: true, correction: true, audit: true, retry: true }));
 } finally {
   if (created) await fetch(`${api}/tour/${created.code}`, { method: 'DELETE', headers: headers(created.organizerToken) }).catch(() => {});
 }

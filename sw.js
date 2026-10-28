@@ -18,7 +18,7 @@ const SHELL = [
   './src/round-extras.js?v=20260809-2',
   './src/live-round.js?v=20261027-1',
   './src/tour-rules.js?v=20261027-1',
-  './src/tour-sync.js?v=20260809-7',
+  './src/tour-sync.js?v=20261028-1',
   './src/account-sync.js?v=20261027-2',
   './src/course-catalog.js?v=20260814-1',
   './manifest.json',

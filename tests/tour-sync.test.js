@@ -197,3 +197,32 @@ test('pending submissions survive failures and clear after an idempotent retry',
   assert.deepEqual(store.find('ABCD2345').pendingSubmissions, []);
   assert.equal(store.find('ABCD2345').tour.revision, 3);
 });
+
+test('corrected server scores reconcile by stable identity and retain local metadata', () => {
+  const local = { id: 12, date: '2026-10-01', holes: 1, note: 'Keep', bets: ['keep'], tourRef: { code: 'ABCD2345', submissionId: 'server' }, subjects: [{ playerId: 7, ph: 9, totalPoints: 2, rows: [{ score: 5 }] }] };
+  const record = { code: 'ABCD2345', memberLinks: { 7: 'ada' }, tour: { rounds: [{ id: 'server', clientRoundId: '12', correctedAt: 123, playedDate: '2026-10-02', subjects: [{ memberId: 'ada', totalPoints: 1, totalBrutto: 6, rows: [{ score: 6, pts: 1 }] }] }] } };
+  const [changed] = sync.reconcileRounds([local], record);
+  assert.equal(changed.date, '2026-10-02'); assert.equal(changed.subjects[0].rows[0].score, 6);
+  assert.equal(changed.subjects[0].ph, 9); assert.equal(changed.note, 'Keep'); assert.deepEqual(changed.bets, ['keep']);
+  assert.equal(local.subjects[0].rows[0].score, 5);
+  assert.equal(sync.reconcileRounds([local], { ...record, code: 'OTHER' })[0], local);
+  assert.equal(sync.reconcileRounds([local], { ...record, memberLinks: {} })[0], local);
+});
+
+test('tour cache rejects older result snapshots and notifies local reconciliation', () => {
+  const updates = [], store = sync.createStore(memoryStorage(), record => updates.push(record));
+  store.upsert({ code: 'ABCD2345', tour: { revision: 5, rounds: ['new'] } });
+  store.upsert({ code: 'ABCD2345', tour: { revision: 4, rounds: ['old'] } });
+  assert.deepEqual(store.find('ABCD2345').tour.rounds, ['new']);
+  assert.equal(updates[1].tour.revision, 5);
+});
+
+
+test('a tour correction preserves an unsubmitted guest sharing the local scorecard', () => {
+  const guest = { name: 'Guest', playerId: 9, rows: [{ score: 8 }], totalPoints: 0 };
+  const local = { id: 1, holes: 1, tourRef: { code: 'ABCD2345', submissionId: 'r1' }, subjects: [{ memberId: 'ada', rows: [{ score: 5 }] }, guest] };
+  const record = { code: 'ABCD2345', tour: { rounds: [{ id: 'r1', correctedAt: 1, playedDate: '2026-10-01', subjects: [{ memberId: 'ada', rows: [{ score: 4 }], totalPoints: 3, totalBrutto: 4 }] }] } };
+  const corrected = sync.reconcileRounds([local], record)[0];
+  assert.equal(corrected.subjects[0].rows[0].score, 4);
+  assert.equal(corrected.subjects[1], guest);
+});

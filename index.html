@@ -24,7 +24,7 @@
 <script src="src/round-extras.js?v=20260809-2"></script>
 <script src="src/live-round.js?v=20261027-1"></script>
 <script src="src/tour-rules.js?v=20261027-1"></script>
-<script src="src/tour-sync.js?v=20260809-7"></script>
+<script src="src/tour-sync.js?v=20261028-1"></script>
 <script src="src/account-sync.js?v=20261027-2"></script>
 <script src="src/course-catalog.js?v=20260814-1"></script>
 <script>
@@ -208,6 +208,14 @@
   .spectator-board { min-height:calc(100vh - 110px);background:linear-gradient(160deg,var(--card),var(--bg));border-radius:18px;padding:14px; }
   .spectator-live-dot { display:inline-block;width:8px;height:8px;border-radius:50%;background:#2ecc71;box-shadow:0 0 0 4px rgba(46,204,113,.15);margin-right:6px; }
   .spectator-update { text-align:center;color:var(--muted);font-size:.72rem;margin:5px 0 12px; }
+
+  #tourRoundDialog h2 { font-size:1.2rem;margin-bottom:12px; }
+  #tourRoundDialog input[type="date"], #tourRoundDialog textarea { display:block;width:100%;margin-top:5px;padding:10px;border:1px solid var(--border);border-radius:8px;background:var(--input-bg);color:var(--text);font:inherit; }
+  #tourRoundDialog textarea { min-height:85px;resize:vertical; }
+  #tourRoundDialog [role="status"] { margin:12px 0; }
+  #tourRoundDialog section { padding:12px 0;border-bottom:1px solid var(--border); }
+  #tourRoundDialog section p { margin:5px 0; }
+  #tourRoundDialog > button { margin-top:10px; }
 
   .app-footer {
     text-align: center;
@@ -1656,7 +1664,7 @@ try {
     localStorage.setItem('golf_shared_tours_db', JSON.stringify(legacyTours.map(record => record.accountBound ? { ...record, token: null } : record)));
   }
 } catch (_) {}
-const sharedTourStore = GolfTourSync.createStore(scopedStorage);
+const sharedTourStore = GolfTourSync.createStore(scopedStorage, reconcileSharedTourHistory);
 const sharedTourClient = GolfTourSync.createClient();
 
 const SETUPS_KEY = 'golf_setups_db';
@@ -6629,13 +6637,14 @@ function stopSharedTourRefresh() {
 function startSharedTourRefresh(code, intervalMs = SHARED_TOUR_REFRESH_MS) {
   stopSharedTourRefresh();
   const normalizedCode = String(code).toUpperCase();
-  const generation = _sharedTourRefreshGeneration;
+  const generation = _sharedTourRefreshGeneration, scope = recoveryScope();
   const record = sharedTourStore.find(normalizedCode);
   if (record?.token && 'WebSocket' in window) {
     try {
       const socket = new WebSocket(sharedTourClient.liveUrl(normalizedCode), ['golf-v2', record.token]);
       _sharedTourSocket = socket;
       socket.onmessage = event => {
+        if (scope !== recoveryScope() || generation !== _sharedTourRefreshGeneration) return;
         try {
           const update = JSON.parse(event.data);
           _sharedTourOnline = update.online || 0;
@@ -6817,6 +6826,7 @@ function backToSharedTourList() {
 }
 
 async function refreshSharedTour(code) {
+  const scope = recoveryScope();
   const record = sharedTourStore.find(code);
   if (!record) return;
   try {
@@ -6827,6 +6837,7 @@ async function refreshSharedTour(code) {
     if (!response.activity) {
       try { response.activity = (await sharedTourClient.activity(code, record.token)).activity || []; } catch (_) {}
     }
+    if (scope !== recoveryScope()) return;
     const latest = sharedTourStore.find(code);
     if (!latest || (response.tour?.revision || 0) < (latest.tour?.revision || 0)) return;
     sharedTourStore.upsert({
@@ -7035,17 +7046,103 @@ async function toggleSharedTourAdministrator(code, contributorId, isAdmin) {
   } catch (error) { alert('Kunde inte ändra administratörsrollen: ' + error.message); }
 }
 
-async function correctSharedTourRound(code, roundId, currentDate) {
-  const record = sharedTourStore.find(code);
-  const playedDate = prompt('Korrigera speldatum (ÅÅÅÅ-MM-DD):', currentDate);
-  if (!playedDate) return;
-  const reason = prompt('Ange varför rundan korrigeras:');
-  if (!reason?.trim()) return;
-  try {
-    const response = await sharedTourClient.editRound(code, record.token, roundId, record.tour.revision, playedDate, reason.trim());
-    sharedTourStore.upsert({ ...record, tour: response.tour });
-    renderSharedTourDetail(code);
-  } catch (error) { if (error.status === 409) await refreshSharedTour(code); alert('Kunde inte korrigera rundan: ' + error.message); }
+function reconcileSharedTourHistory(record) {
+  const rounds = roundsLoad(), corrected = GolfTourSync.reconcileRounds(rounds, record);
+  if (JSON.stringify(rounds) !== JSON.stringify(corrected)) {
+    if (!roundsSave(corrected)) showShareToast('Touren är uppdaterad, men historiken kunde inte sparas. Försök synkronisera igen.');
+  }
+}
+
+function tourRoundDialog(title) {
+  document.getElementById('tourRoundDialog')?.remove();
+  const dialog = document.createElement('dialog'); dialog.id = 'tourRoundDialog';
+  dialog.style.cssText = 'width:min(92vw,480px);max-height:85vh;overflow:auto;background:var(--card);color:var(--text);border:1px solid var(--border);border-radius:14px;padding:20px;margin:auto;';
+  const heading = document.createElement('h2'); heading.id = 'tourRoundDialogTitle'; heading.textContent = title;
+  dialog.setAttribute('aria-labelledby', heading.id); dialog.append(heading);
+  const close = document.createElement('button'); close.type = 'button'; close.className = 'btn secondary'; close.textContent = 'Stäng';
+  close.onclick = () => dialog.close(); dialog.addEventListener('close', () => dialog.remove());
+  dialog.append(close); document.body.append(dialog); dialog.showModal();
+  return { dialog, close };
+}
+
+function correctSharedTourRound(code, roundId) {
+  const record = sharedTourStore.find(code), round = record?.tour?.rounds.find(item => item.id === roundId);
+  if (!round || !['organizer', 'administrator'].includes(record.role)) return;
+  const scope = recoveryScope();
+  const { dialog, close } = tourRoundDialog('Korrigera tourrunda');
+  const form = document.createElement('form');
+  const field = (label, input) => { const wrap = document.createElement('label'); wrap.style.cssText = 'display:block;margin:12px 0;'; wrap.append(document.createTextNode(label + ' '), input); form.append(wrap); return input; };
+  const date = field('Speldatum', document.createElement('input')); date.type = 'date'; date.value = round.playedDate; date.min = record.tour.startDate; date.max = record.tour.endDate; date.required = true;
+  const member = field('Spelare eller lag', document.createElement('select'));
+  const seen = new Set();
+  round.subjects.forEach(subject => {
+    const shared = ['scramble', 'foursome'].includes(round.gameMode), key = shared ? subject.teamId : subject.memberId;
+    if (seen.has(key)) return; seen.add(key);
+    const option = document.createElement('option'); option.value = subject.memberId;
+    option.textContent = shared ? round.subjects.filter(item => item.teamId === key).map(item => item.name).join(' + ') : subject.name; member.append(option);
+  });
+  const hole = field('Hål', document.createElement('select'));
+  for (let h = 1; h <= round.holes; h++) { const option = document.createElement('option'); option.value = h; option.textContent = h; hole.append(option); }
+  const score = field('Antal slag', document.createElement('input')); score.type = 'number'; score.min = 1; score.max = 20; score.step = 1;
+  const pickup = field('Upplockat hål', document.createElement('input')); pickup.type = 'checkbox';
+  const original = document.createElement('p'); original.style.color = 'var(--muted)'; form.append(original);
+  const loadHole = () => { const row = round.subjects.find(item => item.memberId === member.value).rows[Number(hole.value) - 1]; score.value = row.skipped ? '' : row.score; pickup.checked = row.skipped; score.disabled = pickup.checked; score.required = !pickup.checked; original.textContent = `Registrerat: ${row.skipped ? 'upplockat' : row.score + ' slag'} · ${row.pts} poäng. Poängen räknas om på servern.`; };
+  member.onchange = hole.onchange = loadHole; pickup.onchange = () => { score.disabled = pickup.checked; score.required = !pickup.checked; }; loadHole();
+  const reason = field('Anledning till korrigeringen', document.createElement('textarea')); reason.required = true; reason.maxLength = 200;
+  const status = document.createElement('p'); status.setAttribute('role', 'status'); form.append(status);
+  const submit = document.createElement('button'); submit.type = 'submit'; submit.className = 'btn'; submit.textContent = 'Spara korrigering'; form.append(submit);
+  let attempt;
+  form.onsubmit = async event => {
+    event.preventDefault(); if (scope !== recoveryScope()) { dialog.close(); return; }
+    const before = round.subjects.find(item => item.memberId === member.value).rows[Number(hole.value) - 1];
+    const value = pickup.checked ? null : Number(score.value);
+    const changes = (before.skipped ? null : before.score) === value ? [] : [{ memberId: member.value, hole: Number(hole.value), score: value }];
+    const correction = { expectedRoundRevision: round.revision || 1, playedDate: date.value, reason: reason.value.trim(), changes };
+    const signature = JSON.stringify(correction);
+    if (!attempt || attempt.signature !== signature) attempt = { signature, mutationId: crypto.randomUUID() };
+    submit.disabled = true; status.textContent = 'Sparar korrigering…';
+    try {
+      const response = await sharedTourClient.correctRound(code, record.token, roundId, { ...correction, mutationId: attempt.mutationId });
+      if (scope !== recoveryScope()) { dialog.close(); return; }
+      const latest = sharedTourStore.find(code); if (!latest) return;
+      sharedTourStore.upsert({ ...latest, tour: response.tour });
+      dialog.close(); renderSharedTourDetail(code);
+    } catch (error) { status.textContent = error.status === 409 ? 'Rundan har ändrats. Stäng och öppna korrigeringen igen efter att touren uppdaterats.' : 'Kunde inte spara: ' + error.message; if (error.status === 409 && scope === recoveryScope()) refreshSharedTour(code); }
+    finally { submit.disabled = false; }
+  };
+  dialog.insertBefore(form, close); reason.focus();
+}
+
+async function showSharedRoundCorrections(code, roundId) {
+  const record = sharedTourStore.find(code), scope = recoveryScope(); if (!record) return;
+  const { dialog, close } = tourRoundDialog('Korrigeringshistorik');
+  const list = document.createElement('div'), more = document.createElement('button'); more.textContent = 'Visa fler'; more.type = 'button';
+  dialog.insertBefore(list, close); dialog.insertBefore(more, close); let cursor = '';
+  const load = async () => {
+    more.disabled = true;
+    try {
+      const response = await sharedTourClient.corrections(code, record.token, roundId, cursor);
+      if (scope !== recoveryScope() || !dialog.isConnected) return;
+      const entries = [...(response.legacyCorrections || []), ...(response.corrections || [])];
+      for (const entry of entries) {
+        const item = document.createElement('section'), title = document.createElement('p');
+        title.textContent = `${new Date(entry.at).toLocaleString('sv-SE')} · ${entry.actorName} · ${entry.reason}`; item.append(title);
+        if (entry.before.playedDate !== entry.after.playedDate) { const line = document.createElement('p'); line.textContent = `Datum: ${entry.before.playedDate} → ${entry.after.playedDate}`; item.append(line); }
+        (entry.after.subjects || []).forEach(after => {
+          const before = entry.before.subjects.find(subject => subject.memberId === after.memberId);
+          const line = document.createElement('p');
+          line.textContent = `${after.name}: ${before.totalPoints} → ${after.totalPoints} poäng, ${before.totalBrutto} → ${after.totalBrutto} slag`;
+          item.append(line);
+          after.rows.forEach(row => { const previous = before.rows.find(item => item.h === row.h); const hole = document.createElement('p'); hole.textContent = `Hål ${row.h}: ${previous.skipped ? 'upplockat' : previous.score} → ${row.skipped ? 'upplockat' : row.score}`; item.append(hole); });
+        });
+        list.append(item);
+      }
+      if (!cursor && !entries.length) list.textContent = 'Inga korrigeringar ännu.';
+      cursor = response.nextCursor || ''; more.hidden = !cursor;
+    } catch (error) { const message = document.createElement('p'); message.textContent = 'Kunde inte hämta historiken: ' + error.message; list.append(message); }
+    finally { more.disabled = false; }
+  };
+  more.onclick = load; await load();
 }
 
 async function postSharedTourAnnouncement(code) {
@@ -7243,7 +7340,7 @@ function renderSharedTourDetail(code) {
     return localPlayer?.photo || null;
   });
   const roundRows = (tour.rounds || []).slice().sort((a, b) => b.playedDate.localeCompare(a.playedDate)).map(round =>
-    `<div class="hi-row"><strong>${escapeHtml(round.courseName)}</strong> · ${round.playedDate}${round.correctedAt ? ' · korrigerad' : ''}<br><span style="color:var(--muted);font-size:0.8rem;">${round.subjects.map(subject => `${escapeHtml(subject.name)} <strong style="color:var(--heading);">${subject.totalPoints}p</strong> · ${Number.isFinite(subject.totalBrutto) ? subject.totalBrutto : '–'} slag`).join(', ')}</span>${canAdmin ? `<button class="btn secondary" style="margin-top:7px;" data-action-click="correctSharedTourRound" data-args="${escapeHtml(JSON.stringify([record.code,round.id,round.playedDate]))}">Korrigera datum</button>` : ''}</div>`).join('');
+    `<div class="hi-row"><strong>${escapeHtml(round.courseName)}</strong> · ${round.playedDate}${round.correctedAt ? ' · korrigerad' : ''}<br><span style="color:var(--muted);font-size:0.8rem;">${round.subjects.map(subject => `${escapeHtml(subject.name)} <strong style="color:var(--heading);">${subject.totalPoints}p</strong> · ${Number.isFinite(subject.totalBrutto) ? subject.totalBrutto : '–'} slag`).join(', ')}</span>${canAdmin ? `<button class="btn secondary" style="margin-top:7px;" data-action-click="correctSharedTourRound" data-args="${escapeHtml(JSON.stringify([record.code,round.id,round.playedDate]))}">Korrigera resultat</button>` : ''}<button class="btn secondary" style="margin-top:7px;" data-action-click="showSharedRoundCorrections" data-args="${escapeHtml(JSON.stringify([record.code,round.id]))}">Korrigeringshistorik</button></div>`).join('');
   const courseRows = (tour.courses || []).map(course => {
     const tees = (course.tees || []).map(tee => escapeHtml(tee.name)).join(', ');
     const roundLimit = Number.isInteger(course.maxRounds)
@@ -7384,7 +7481,7 @@ function renderSharedTourDetail(code) {
   `;
   const sanitizedMarkup = DOMPurify.sanitize(sharedTourMarkup, { ALLOW_DATA_ATTR: true });
   el.innerHTML = sanitizedMarkup;
-  const actions = { backToSharedTourList, beginSharedTourEdit, cancelSharedTour, cancelSharedTourEdit, completeSharedTour, correctSharedTourRound, leaveSharedTour, postSharedTourAnnouncement, removeSharedTour, restoreSharedTourContributor, retrySharedTourSubmissions, revokeSharedTourContributor, rotateSharedTourInvitation, saveSharedTourConditions, setTourActivityFilter, shareSharedTourInvitation, shareSharedTourSpectator, startSharedTourRound, toggleSharedTourAdministrator, transferSharedTourOwnership, updateMySharedTourMembership, updateSharedTourContributor };
+  const actions = { backToSharedTourList, beginSharedTourEdit, cancelSharedTour, cancelSharedTourEdit, completeSharedTour, correctSharedTourRound, showSharedRoundCorrections, leaveSharedTour, postSharedTourAnnouncement, removeSharedTour, restoreSharedTourContributor, retrySharedTourSubmissions, revokeSharedTourContributor, rotateSharedTourInvitation, saveSharedTourConditions, setTourActivityFilter, shareSharedTourInvitation, shareSharedTourSpectator, startSharedTourRound, toggleSharedTourAdministrator, transferSharedTourOwnership, updateMySharedTourMembership, updateSharedTourContributor };
   el.querySelectorAll('[data-action-click], [data-action-change]').forEach(element => {
     for (const event of ['click', 'change']) {
       const name = element.getAttribute(`data-action-${event}`);
@@ -7480,9 +7577,11 @@ function queueSharedTourRound(round, code) {
 
 async function syncSharedTourSubmissions(onlyCode = null) {
   if (_sharedTourSyncPromise) return _sharedTourSyncPromise;
-  _sharedTourSyncPromise = GolfTourSync.flushPending(sharedTourStore, sharedTourClient, onlyCode);
+  const scope = recoveryScope(), key = scopedStorage.key(GolfTourSync.STORE_KEY);
+  const pinnedStore = GolfTourSync.createStore({ getItem: () => localStorage.getItem(key), setItem: (_, value) => localStorage.setItem(key, value) }, record => { if (scope === recoveryScope()) reconcileSharedTourHistory(record); });
+  _sharedTourSyncPromise = GolfTourSync.flushPending(pinnedStore, sharedTourClient, onlyCode);
   const results = await _sharedTourSyncPromise.finally(() => { _sharedTourSyncPromise = null; });
-  if (!results.length) return;
+  if (scope !== recoveryScope() || !results.length) return;
   const rounds = roundsLoad();
   let changed = false;
   results.forEach(result => {
@@ -8237,6 +8336,7 @@ function clearHistoryFilters() {
 }
 
 function renderHistoryList() {
+  sharedTourStore.load().forEach(reconcileSharedTourHistory);
   refreshRecoveryUi();
   const rounds = roundsLoad();
   const container = document.getElementById('historyList');
@@ -8367,6 +8467,7 @@ function toggleHistoryItem(header) {
 function editRound(id) {
   const r = roundFind(id);
   if (!r) return;
+  if (r.tourRef?.code) { showShareToast('Tourresultat korrigeras av en organisatör i den delade touren.'); openTourView(); openSharedTourDetail(r.tourRef.code); return; }
   const base = r.subjects[0].rows;
   const hpar = base.map(row => row.par);
   const si   = base.map(row => row.si);

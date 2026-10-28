@@ -1,6 +1,6 @@
 # First roadmap increment — 27 October 2026
 
-Implementation of the three focused first choices from [the prioritized feature roadmap](feature-roadmap-2026-10-27.md). The later roadmap items remain planned work.
+Implementation of the three focused first choices from [the prioritized feature roadmap](feature-roadmap-2026-10-27.md). Follow-ups now include [local recovery and historical dates](roadmap-round-recovery-2026-10-27.md) and [shared-tour score corrections](roadmap-score-corrections-2026-10-28.md); approval and account draft handoff remain planned work.
 
 ## Implemented
 
@@ -11,7 +11,7 @@ Implementation of the three focused first choices from [the prioritized feature 
 - Reuse opens player review. Stable saved-player IDs refresh names and handicap indexes from today's local player register. Missing individual handicaps in old shared-score history remain empty and must be entered. Unlinked guests retain their saved values for review.
 - Saving a group validates the whole setup. Replacing a same-name group requires confirmation; deleting a group records a tombstone. Groups are limited to 100 per account/device vault.
 - Saved groups are account scoped, included in three-way account sync and JSON/Drive backups, and have a separate JSON-export selection. New servers preserve the collection when older clients omit it. Backups and snapshots reject unknown setup fields, including device credentials.
-- Starting from a group or joining live warns before replacing the currently saved active round. Multiple recoverable drafts are still future work.
+- The subsequent recovery increment saves and preserves multiple local drafts before starting from a group or joining live.
 
 ### QR and link joining
 
@@ -34,7 +34,7 @@ Automated coverage includes setup replay without credential/score copying, curre
 
 ## Next model decisions: draft recovery and score corrections
 
-These are implementation constraints for the next increment, not claims that recovery or approval has shipped.
+These were the implementation constraints recorded for the next increments. Local recovery and organizer score corrections have since shipped as described in the linked follow-ups. Approval and account handoff remain planned.
 
 1. **Separate round lifecycle from approval.** Round lifecycle is `draft → in_progress → submitted/completed`; approval is a separate `provisional/confirmed/withdrawn/disqualified` field. Casual rounds can complete without approval. Existing finished rounds migrate as completed, with their current standing behavior preserved.
 2. **Multiple local drafts first.** Persist named drafts transactionally per account, with an immutable ID, revision, setup snapshot, date, practice/competition flag, nullable hole results and local update time. Creating another draft must not overwrite an existing one. Use explicit picked-up state rather than treating every blank as zero.
@@ -45,4 +45,4 @@ These are implementation constraints for the next increment, not claims that rec
 7. **Keep identities aligned.** Preserve the client-round-ID/server-round-ID mapping so a correction updates the local history record and leaderboard together, rather than creating a second scorecard. Retry keys remain idempotent. Approval, withdrawal and disqualification use the same revisioned mutation path and retain evidence.
 8. **Migrate and test the model before optional stats.** Keep old backups readable. Treat historical skipped rows conservatively; they cannot prove whether a hole was never started. Test two-device handoff, offline forks, quota/transaction failures, trash restoration, concurrent corrections, all five game modes and provisional leaderboard rules before extending per-hole statistics.
 
-Before deployment, deploy the Worker snapshot support for saved groups alongside the browser shell; an older Worker rejects the new snapshot keys. The source changes in this increment are local until explicitly committed/pushed.
+Before deployment, deploy the Worker snapshot support for saved groups alongside the browser shell; an older Worker rejects the new snapshot keys. The first increment and local recovery follow-up have been committed, pushed and deployed.
