@@ -188,3 +188,15 @@ test('approval tours count confirmed rounds only, including profiles and head-to
   const profile = tours.computePlayerProfiles(shared).find(row => row.member.id === 'ada');
   assert.equal(profile.appearances, 1); assert.equal(profile.headToHead.losses, 1); assert.equal(profile.headToHead.wins, 0);
 });
+
+test('withdrawn and disqualified rounds never count in standings or profiles in any game mode', () => {
+  for (const gameMode of ['individual', 'match', 'scramble', 'foursome', 'fourball']) {
+    const make = (id, resultStatus, points) => ({ id, resultStatus, approvalStatus: 'confirmed', playedDate: '2026-06-01', courseName: 'Banan', holes: 9, gameMode, subjects: [{ memberId: 'ada', totalPoints: points }] });
+    const shared = { approvalRequired: false, startDate: '2026-01-01', endDate: '2026-12-31', bestOfN: 1, duplicateCourseRule: 'best', members: [{ id: 'ada', name: 'Ada', hi: 10 }], courses: [{ name: 'Banan', holes: 9, maxRounds: 3 }], rounds: [make('active', 'active', 18)], excludedRounds: [make('withdrawn', 'withdrawn', 30), make('dq', 'disqualified', 40)] };
+    assert.equal(tours.computeSharedStandings(shared)[0].total, 18);
+    assert.equal(tours.computePlayerProfiles(shared)[0].appearances, 1);
+    shared.rounds.push(...shared.excludedRounds); // Normalized app caches expose all scorecards.
+    assert.equal(tours.computeSharedStandings(shared)[0].total, 18);
+    shared.approvalRequired = true; assert.equal(tours.computeSharedStandings(shared)[0].total, 18);
+  }
+});

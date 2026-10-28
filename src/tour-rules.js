@@ -196,8 +196,8 @@
   }
 
   function eligibleSharedRounds(tour) {
-    const rounds = [...(tour?.rounds || []), ...(tour?.provisionalRounds || [])];
-    return rounds.filter((round, index) => rounds.findIndex(item => item.id === round.id) === index).filter(round => !tour.approvalRequired || round.approvalStatus === 'confirmed');
+    const rounds = [...(tour?.rounds || []), ...(tour?.provisionalRounds || []), ...(tour?.excludedRounds || [])];
+    return rounds.filter((round, index) => rounds.findIndex(item => item.id === round.id) === index).filter(round => (!round.resultStatus || round.resultStatus === 'active') && (!tour.approvalRequired || round.approvalStatus === 'confirmed'));
   }
 
   function computeSharedStandings(sharedTour) {

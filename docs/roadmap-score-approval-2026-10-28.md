@@ -8,7 +8,7 @@ In a review tour, every submitted round starts provisional, including organizer 
 
 Decisions use the existing authoritative correction operation, round revisions, idempotency keys, atomic writes and append-only audit storage. Concurrent corrections invalidate stale approval attempts. Repeating a successful request returns its prior evidence without duplicating a decision. The audit shows before/after approval status, actor, time and reason. Approval alone does not falsely mark hole scores as corrected. Realtime broadcasts and account notifications update affected viewers using the existing tour channels.
 
-This increment provides organizer/administrator review. Independent marker approval, withdrawal/disqualification and approval-policy changes for tours that already contain rounds remain future work. Audit retention follows the tour lifetime, as documented in the [correction increment](roadmap-score-corrections-2026-10-28.md).
+This increment provides organizer/administrator review. Independent marker approval and approval-policy changes for tours that already contain rounds remain future work. [Withdrawal/disqualification and reinstatement](roadmap-result-status-2026-10-28.md) are now available in the follow-up. Audit retention follows the tour lifetime, as documented in the [correction increment](roadmap-score-corrections-2026-10-28.md).
 
 Validation includes default/legacy behavior, authorization, policy locking, submission status, confirmation/reopening, correction invalidation, stale decisions, retry and audit behavior, confirmed-only standings/profiles, organizer forms, local history and spectator eligibility.
 

@@ -121,3 +121,61 @@ test('approval policy is selectable only before the first submitted round', asyn
   await page.getByRole('button', { name: 'Spara villkor' }).click();
   await expect(page.locator('#sharedTourEditApproval')).toHaveCount(0); expect(payload.approvalRequired).toBe(true);
 });
+
+for (const approvalRequired of [false, true]) {
+  test(`result withdrawal and reinstatement retain readable scorecards (approval=${approvalRequired})`, async ({ page }) => {
+    await setup(page);
+    await page.evaluate(({ code, approvalRequired }) => { const record = sharedTourStore.find(code); record.tour.approvalRequired = approvalRequired; Object.assign(record.tour.rounds[0], { resultStatus: 'active', approvalStatus: 'confirmed' }); sharedTourStore.upsert(record); renderSharedTourDetail(code); }, { code, approvalRequired });
+    let server = await page.evaluate(code => sharedTourStore.find(code).tour, code); const evidence = []; let request;
+    await page.route(`**/tour/${code}/rounds/r1`, async route => {
+      request = route.request().postDataJSON(); const rounds = [...server.rounds, ...(server.provisionalRounds || []), ...(server.excludedRounds || [])];
+      const round = rounds.find(item => item.id === 'r1'), before = structuredClone(round);
+      round.resultStatus = request.resultStatus; round.resultStatusReason = request.reason; round.revision++;
+      if (round.resultStatus === 'active') round.approvalStatus = approvalRequired ? 'provisional' : 'confirmed';
+      evidence.push({ at: Date.now(), actorName: 'Owner', reason: request.reason, before: { resultStatus: before.resultStatus, playedDate: round.playedDate, subjects: [] }, after: { resultStatus: round.resultStatus, playedDate: round.playedDate, subjects: [] } });
+      server.revision++; server.rounds = rounds.filter(item => item.resultStatus === 'active' && (!approvalRequired || item.approvalStatus === 'confirmed'));
+      server.provisionalRounds = rounds.filter(item => item.resultStatus === 'active' && approvalRequired && item.approvalStatus !== 'confirmed');
+      server.excludedRounds = rounds.filter(item => item.resultStatus !== 'active');
+      await route.fulfill({ json: { tour: server, round } });
+    });
+    for (const resultStatus of ['withdrawn', 'disqualified', 'active']) {
+      await page.getByRole('button', { name: 'Hantera resultat', exact: true }).click();
+      const dialog = page.locator('#tourRoundDialog');
+      await dialog.getByLabel('Åtgärd', { exact: true }).selectOption(resultStatus);
+      await dialog.getByLabel('Anledning till statusändringen').fill('<img src=x onerror=alert(1)> Review reason');
+      await dialog.getByRole('button', { name: 'Spara resultatstatus' }).click(); await expect(dialog).toHaveCount(0);
+      expect(request.resultStatus).toBe(resultStatus); expect(request.mutationId).toBeTruthy();
+      const local = await page.evaluate(() => roundsLoad()[0]); expect(local.tourRef.resultStatus).toBe(resultStatus); expect(local.subjects[0].totalPoints).toBe(18); expect(local.subjects[0].rows[0].score).toBe(5);
+      await expect(page.locator('.tour-standing-row')).toHaveCount(resultStatus === 'active' && !approvalRequired ? 1 : 0);
+      if (resultStatus !== 'active') {
+        await expect(page.getByRole('button', { name: 'Korrigera resultat', exact: true })).toHaveCount(0);
+        await expect(page.getByRole('button', { name: 'Granska och godkänn', exact: true })).toHaveCount(0);
+        await page.getByRole('button', { name: 'Visa scorekort', exact: true }).click();
+        await expect(dialog.locator('table tr')).toHaveCount(10); await expect(dialog.locator('img')).toHaveCount(0); await expect(dialog).toContainText('<img src=x');
+        await dialog.getByRole('button', { name: 'Stäng', exact: true }).click();
+      }
+    }
+    if (approvalRequired) await expect(page.getByRole('button', { name: 'Granska och godkänn', exact: true })).toBeVisible();
+    await page.route(`**/tour/${code}/rounds/r1/corrections`, route => route.fulfill({ json: { corrections: evidence, nextCursor: null } }));
+    await page.getByRole('button', { name: 'Korrigeringshistorik' }).click(); await expect(page.locator('#tourRoundDialog')).toContainText('Resultatstatus: Tillbakadragen → Diskvalificerad');
+    await page.locator('#tourRoundDialog').getByRole('button', { name: 'Stäng', exact: true }).click();
+    await page.evaluate(code => { const record = sharedTourStore.find(code); record.role = 'contributor'; sharedTourStore.upsert(record); renderSharedTourDetail(code); }, code);
+    await expect(page.getByRole('button', { name: 'Hantera resultat', exact: true })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Visa scorekort', exact: true })).toBeVisible();
+  });
+}
+
+test('stale status changes retain their input and cannot cross an account switch', async ({ page }) => {
+  await setup(page);
+  await page.route(`**/tour/${code}/rounds/r1`, route => route.fulfill({ status: 409, json: { error: 'Round changed' } }));
+  await page.route(`**/tour/${code}/manage`, route => route.abort());
+  await page.getByRole('button', { name: 'Hantera resultat', exact: true }).click();
+  const dialog = page.locator('#tourRoundDialog');
+  await dialog.getByLabel('Åtgärd', { exact: true }).selectOption('disqualified'); await dialog.getByLabel('Anledning till statusändringen').fill('Needs review');
+  await dialog.getByRole('button', { name: 'Spara resultatstatus' }).click();
+  await expect(dialog.getByRole('status')).toContainText('Rundan har ändrats'); await expect(dialog.getByLabel('Anledning till statusändringen')).toHaveValue('Needs review');
+  await expect(dialog.getByLabel('Åtgärd', { exact: true })).toHaveValue('disqualified');
+  await page.evaluate(() => accountSessionSave({ apiBase: 'https://other.test', token: 'B'.repeat(43), user: { id: 'other' } }));
+  await dialog.getByRole('button', { name: 'Spara resultatstatus' }).click(); await expect(dialog).toHaveCount(0);
+  expect(await page.evaluate(() => roundsLoad())).toEqual([]);
+});

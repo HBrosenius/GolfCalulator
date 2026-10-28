@@ -745,8 +745,8 @@ test('ongoing local and shared tours can be cancelled and removed', async ({ pag
   await page.getByRole('button', { name: /Avbryt touren/ }).click();
   await expect(page.locator('#tourContent')).toContainText('Touren är avbruten');
   await page.getByRole('button', { name: /Ta bort touren permanent/ }).click();
+  await expect.poll(() => page.evaluate(code => sharedTourStore.find(code), code)).toBeNull();
   expect(sharedDeleted).toBe(true);
-  expect(await page.evaluate(code => sharedTourStore.find(code), code)).toBeNull();
 });
 
 test('account sync keeps a deleted local tour removed on other devices', async ({ page }) => {

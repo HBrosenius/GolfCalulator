@@ -15,7 +15,7 @@
 <script src="src/scoring.js?v=20260809-2"></script>
 <script src="src/storage.js?v=20261027-2"></script>
 <script src="src/live-sync.js?v=20260809-2"></script>
-<script src="src/validation.js?v=20261028-1"></script>
+<script src="src/validation.js?v=20261028-2"></script>
 <script src="src/score-explanations.js?v=20261027-1"></script>
 <script src="src/round-recovery.js?v=20261027-1"></script>
 <script src="src/round-setup.js?v=20261027-1"></script>
@@ -23,8 +23,8 @@
 <script src="src/vendor/qrcode.js?v=2.0.4"></script>
 <script src="src/round-extras.js?v=20260809-2"></script>
 <script src="src/live-round.js?v=20261027-1"></script>
-<script src="src/tour-rules.js?v=20261028-1"></script>
-<script src="src/tour-sync.js?v=20261028-2"></script>
+<script src="src/tour-rules.js?v=20261028-2"></script>
+<script src="src/tour-sync.js?v=20261028-3"></script>
 <script src="src/account-sync.js?v=20261027-2"></script>
 <script src="src/course-catalog.js?v=20260814-1"></script>
 <script>
@@ -6924,7 +6924,7 @@ function renderTournamentProfiles(tour) {
 
 function tournamentTimeline(tour, activity = []) {
   const events = [
-    ...(tour.rounds || []).map(round => ({ at: new Date(`${round.playedDate}T12:00:00`).getTime(), icon: '⛳', title: `${round.courseName} · ${round.subjects.map(subject => `${subject.name} ${GolfTourRules.subjectPoints(subject)}p · ${Number.isFinite(subject.totalBrutto) ? subject.totalBrutto : '–'} slag`).join(', ')}` })),
+    ...(tour.rounds || []).map(round => ({ at: new Date(`${round.playedDate}T12:00:00`).getTime(), icon: '⛳', title: `${round.courseName} · ${sharedRoundApprovalLabel(tour, round)} · ${round.subjects.map(subject => `${subject.name} ${GolfTourRules.subjectPoints(subject)}p · ${Number.isFinite(subject.totalBrutto) ? subject.totalBrutto : '–'} slag`).join(', ')}` })),
     ...(tour.announcements || []).map(item => ({ at: item.at, icon: '📣', title: `${item.author}: ${item.message}` })),
     ...(activity || []).filter(item => item.type === 'round_started').map(item => ({ at: item.at, icon: '🏌️', title: `Runda startad på ${item.details?.courseName || 'tourbanan'} · ${(item.details?.playerNames || []).join(', ')}` })),
   ].sort((a, b) => b.at - a.at).slice(0, 30);
@@ -7005,11 +7005,11 @@ function renderSpectatorTourDetail(code) {
 
   board.append(title('Tourens tidslinje'));
   const events = [
-    ...(tour.rounds || []).map(round => ({ at: new Date(`${round.playedDate}T12:00:00`).getTime(), icon: '⛳', text: `${round.courseName} · ${sharedRoundApprovalLabel(tour, round)} · ${(round.subjects || []).map(subject => `${subject.name} ${GolfTourRules.subjectPoints(subject)}p · ${Number.isFinite(subject.totalBrutto) ? subject.totalBrutto : '–'} slag`).join(', ')}` })),
+    ...(tour.rounds || []).map(round => ({ at: new Date(`${round.playedDate}T12:00:00`).getTime(), icon: '⛳', roundId: round.id, text: `${round.courseName} · ${sharedRoundApprovalLabel(tour, round)} · ${(round.subjects || []).map(subject => `${subject.name} ${GolfTourRules.subjectPoints(subject)}p · ${Number.isFinite(subject.totalBrutto) ? subject.totalBrutto : '–'} slag`).join(', ')}` })),
     ...(tour.announcements || []).map(item => ({ at: item.at, icon: '📣', text: `${item.author}: ${item.message}` })),
   ].sort((a, b) => b.at - a.at).slice(0, 30);
   const timeline = node('div', 'tour-timeline');
-  events.forEach(event => { const item = node('div', 'tour-timeline-item'); item.append(node('strong', '', `${event.icon} ${event.text}`), node('span', 'tour-timeline-time', new Date(event.at).toLocaleString('sv-SE'))); timeline.append(item); });
+  events.forEach(event => { const item = node('div', 'tour-timeline-item'); item.append(node('strong', '', `${event.icon} ${event.text}`), node('span', 'tour-timeline-time', new Date(event.at).toLocaleString('sv-SE'))); if (event.roundId) { const button = node('button', 'btn secondary', 'Visa scorekort'); button.onclick = () => showSharedTourRoundScorecard(code, event.roundId); item.append(button); } timeline.append(item); });
   if (!events.length) { const empty = node('p', '', 'Tourens händelser visas här när spelet börjar.'); empty.style.cssText = 'color:var(--muted);font-size:.85rem;'; timeline.append(empty); }
   board.append(timeline, title('Spelarprofiler'));
 
@@ -7068,7 +7068,7 @@ function tourRoundDialog(title) {
 
 function correctSharedTourRound(code, roundId) {
   const record = sharedTourStore.find(code), round = record?.tour?.rounds.find(item => item.id === roundId);
-  if (!round || !['organizer', 'administrator'].includes(record.role)) return;
+  if (!round || !['organizer', 'administrator'].includes(record.role) || ['withdrawn', 'disqualified'].includes(round.resultStatus)) return;
   const scope = recoveryScope();
   const { dialog, close } = tourRoundDialog('Korrigera tourrunda');
   const form = document.createElement('form');
@@ -7115,16 +7115,12 @@ function correctSharedTourRound(code, roundId) {
 }
 
 function sharedRoundApprovalLabel(tour, round) {
+  if (round.resultStatus === 'withdrawn') return 'Tillbakadragen – räknas inte';
+  if (round.resultStatus === 'disqualified') return 'Diskvalificerad – räknas inte';
   return tour.approvalRequired ? (round.approvalStatus === 'confirmed' ? 'Godkänd' : 'Preliminär – väntar på granskning') : 'Registrerad';
 }
 
-function reviewSharedTourRound(code, roundId, approvalStatus) {
-  const record = sharedTourStore.find(code), round = record?.tour?.rounds.find(item => item.id === roundId);
-  if (!record?.tour?.approvalRequired || !round || !['organizer', 'administrator'].includes(record.role)) return;
-  const scope = recoveryScope(), approving = approvalStatus === 'confirmed';
-  const { dialog, close } = tourRoundDialog(approving ? 'Granska och godkänn runda' : 'Återöppna granskning');
-  const content = document.createElement('div'), info = document.createElement('p');
-  info.textContent = `${round.courseName} · ${round.playedDate}. ${approving ? 'Kontrollera hålresultaten innan du godkänner.' : 'Rundan tas ur ställningen tills den godkänns igen.'}`; content.append(info);
+function appendTourRoundScorecard(content, round) {
   for (const subject of round.subjects) {
     const details = document.createElement('details'), summary = document.createElement('summary');
     summary.textContent = `${subject.name} · ${subject.totalPoints} poäng · ${subject.totalBrutto} slag`; details.append(summary); details.open = true;
@@ -7134,6 +7130,62 @@ function reviewSharedTourRound(code, roundId, approvalStatus) {
     for (const row of subject.rows) { const tr = document.createElement('tr'); for (const value of [row.h, row.skipped ? 'Upplockat' : row.score, row.strokes, row.pts]) { const cell = document.createElement('td'); cell.textContent = value; tr.append(cell); } table.append(tr); }
     details.append(table); content.append(details);
   }
+}
+
+function showSharedTourRoundScorecard(code, roundId) {
+  const tour = _tourViewMode === 'spectator' ? GolfTourSync.normalizeTour(_spectatorTour) : sharedTourStore.find(code)?.tour;
+  const round = tour?.rounds.find(item => item.id === roundId); if (!round) return;
+  const { dialog, close } = tourRoundDialog('Scorekort');
+  const content = document.createElement('div'), info = document.createElement('p');
+  info.textContent = `${round.courseName} · ${round.playedDate} · ${sharedRoundApprovalLabel(tour, round)}`; content.append(info);
+  if (round.resultStatusReason) { const reason = document.createElement('p'); reason.textContent = `Senaste statusändring: ${round.resultStatusReason}`; content.append(reason); }
+  appendTourRoundScorecard(content, round); dialog.insertBefore(content, close);
+  dialog.querySelector('h2').tabIndex = -1; dialog.querySelector('h2').focus(); dialog.scrollTop = 0;
+}
+
+function manageSharedTourResult(code, roundId) {
+  const record = sharedTourStore.find(code), round = record?.tour?.rounds.find(item => item.id === roundId);
+  if (!round || !['organizer', 'administrator'].includes(record.role)) return;
+  const scope = recoveryScope(), { dialog, close } = tourRoundDialog('Hantera tourresultat');
+  const info = document.createElement('p'); info.textContent = `${round.courseName} · ${round.playedDate} · ${sharedRoundApprovalLabel(record.tour, round)}. Scorekort och historik sparas. Tillbakadragna och diskvalificerade rundor räknas inte i ställningen.`; dialog.insertBefore(info, close);
+  const form = document.createElement('form'), label = document.createElement('label'), select = document.createElement('select');
+  label.textContent = 'Åtgärd'; select.required = true;
+  const placeholder = document.createElement('option'); placeholder.value = ''; placeholder.textContent = 'Välj åtgärd'; select.append(placeholder);
+  for (const [value, text] of Object.entries({ active: 'Återinför runda', withdrawn: 'Dra tillbaka runda', disqualified: 'Diskvalificera runda' })) {
+    if (value === (round.resultStatus || 'active')) continue;
+    const option = document.createElement('option'); option.value = value; option.textContent = text; select.append(option);
+  }
+  label.htmlFor = select.id = 'tourResultStatusAction'; form.append(label, select);
+  const policy = document.createElement('p'); policy.textContent = record.tour.approvalRequired ? 'En återinförd runda blir preliminär och måste godkännas på nytt.' : 'En återinförd runda räknas direkt igen.'; form.append(policy);
+  const reasonLabel = document.createElement('label'), reason = document.createElement('textarea'); reasonLabel.textContent = 'Anledning till statusändringen'; reason.required = true; reason.maxLength = 200; reasonLabel.append(reason); form.append(reasonLabel);
+  const status = document.createElement('p'); status.setAttribute('role', 'status'); form.append(status);
+  const submit = document.createElement('button'); submit.className = 'btn'; submit.textContent = 'Spara resultatstatus'; form.append(submit); dialog.insertBefore(form, close);
+  let attempt;
+  form.onsubmit = async event => {
+    event.preventDefault(); if (scope !== recoveryScope()) { dialog.close(); return; }
+    const payload = { expectedRoundRevision: round.revision || 1, resultStatus: select.value, reason: reason.value.trim() };
+    if (!payload.reason) { status.textContent = 'Ange en anledning.'; return; }
+    const signature = JSON.stringify(payload); if (!attempt || attempt.signature !== signature) attempt = { signature, mutationId: crypto.randomUUID() };
+    submit.disabled = true; status.textContent = 'Sparar status…';
+    try {
+      const response = await sharedTourClient.correctRound(code, record.token, roundId, { ...payload, mutationId: attempt.mutationId });
+      if (scope !== recoveryScope()) { dialog.close(); return; }
+      const latest = sharedTourStore.find(code); if (!latest) return;
+      sharedTourStore.upsert({ ...latest, tour: response.tour }); dialog.close(); renderSharedTourDetail(code);
+    } catch (error) { status.textContent = error.status === 409 ? 'Rundan har ändrats. Stäng och öppna den uppdaterade rundan igen.' : 'Kunde inte spara: ' + error.message; if (error.status === 409 && scope === recoveryScope()) refreshSharedTour(code); }
+    finally { submit.disabled = false; }
+  };
+  select.focus();
+}
+
+function reviewSharedTourRound(code, roundId, approvalStatus) {
+  const record = sharedTourStore.find(code), round = record?.tour?.rounds.find(item => item.id === roundId);
+  if (!record?.tour?.approvalRequired || !round || !['organizer', 'administrator'].includes(record.role) || ['withdrawn', 'disqualified'].includes(round.resultStatus)) return;
+  const scope = recoveryScope(), approving = approvalStatus === 'confirmed';
+  const { dialog, close } = tourRoundDialog(approving ? 'Granska och godkänn runda' : 'Återöppna granskning');
+  const content = document.createElement('div'), info = document.createElement('p');
+  info.textContent = `${round.courseName} · ${round.playedDate}. ${approving ? 'Kontrollera hålresultaten innan du godkänner.' : 'Rundan tas ur ställningen tills den godkänns igen.'}`; content.append(info);
+  appendTourRoundScorecard(content, round);
   const form = document.createElement('form'), label = document.createElement('label'), reason = document.createElement('textarea');
   label.textContent = approving ? 'Kommentar till godkännandet' : 'Anledning till återöppning'; reason.required = true; reason.maxLength = 200; label.append(reason); form.append(label);
   const status = document.createElement('p'); status.setAttribute('role', 'status'); form.append(status);
@@ -7169,6 +7221,7 @@ async function showSharedRoundCorrections(code, roundId) {
       for (const entry of entries) {
         const item = document.createElement('section'), title = document.createElement('p');
         title.textContent = `${new Date(entry.at).toLocaleString('sv-SE')} · ${entry.actorName} · ${entry.reason}`; item.append(title);
+        if (entry.before.resultStatus !== entry.after.resultStatus) { const names = { active: 'Aktiv', withdrawn: 'Tillbakadragen', disqualified: 'Diskvalificerad' }; const line = document.createElement('p'); line.textContent = `Resultatstatus: ${names[entry.before.resultStatus || 'active']} → ${names[entry.after.resultStatus || 'active']}`; item.append(line); }
         if (entry.before.approvalStatus !== entry.after.approvalStatus) { const line = document.createElement('p'); line.textContent = `Granskning: ${entry.before.approvalStatus === 'confirmed' ? 'Godkänd' : 'Preliminär'} → ${entry.after.approvalStatus === 'confirmed' ? 'Godkänd' : 'Preliminär'}`; item.append(line); }
         if (entry.before.playedDate !== entry.after.playedDate) { const line = document.createElement('p'); line.textContent = `Datum: ${entry.before.playedDate} → ${entry.after.playedDate}`; item.append(line); }
         (entry.after.subjects || []).forEach(after => {
@@ -7384,7 +7437,7 @@ function renderSharedTourDetail(code) {
     return localPlayer?.photo || null;
   });
   const roundRows = (tour.rounds || []).slice().sort((a, b) => b.playedDate.localeCompare(a.playedDate)).map(round =>
-    `<div class="hi-row"><strong>${escapeHtml(round.courseName)}</strong> · ${round.playedDate}${round.correctedAt ? ' · korrigerad' : ''} · ${sharedRoundApprovalLabel(tour, round)}<br><span style="color:var(--muted);font-size:0.8rem;">${round.subjects.map(subject => `${escapeHtml(subject.name)} <strong style="color:var(--heading);">${subject.totalPoints}p</strong> · ${Number.isFinite(subject.totalBrutto) ? subject.totalBrutto : '–'} slag`).join(', ')}</span>${canAdmin ? `<button class="btn secondary" style="margin-top:7px;" data-action-click="correctSharedTourRound" data-args="${escapeHtml(JSON.stringify([record.code,round.id,round.playedDate]))}">Korrigera resultat</button>` : ''}${canAdmin && tour.approvalRequired ? `<button class="btn secondary" style="margin-top:7px;" data-action-click="reviewSharedTourRound" data-args="${escapeHtml(JSON.stringify([record.code,round.id,round.approvalStatus === 'confirmed' ? 'provisional' : 'confirmed']))}">${round.approvalStatus === 'confirmed' ? 'Återöppna granskning' : 'Granska och godkänn'}</button>` : ''}<button class="btn secondary" style="margin-top:7px;" data-action-click="showSharedRoundCorrections" data-args="${escapeHtml(JSON.stringify([record.code,round.id]))}">Korrigeringshistorik</button></div>`).join('');
+    `<div class="hi-row"><strong>${escapeHtml(round.courseName)}</strong> · ${round.playedDate}${round.correctedAt ? ' · korrigerad' : ''} · ${sharedRoundApprovalLabel(tour, round)}<br><span style="color:var(--muted);font-size:0.8rem;">${round.subjects.map(subject => `${escapeHtml(subject.name)} <strong style="color:var(--heading);">${subject.totalPoints}p</strong> · ${Number.isFinite(subject.totalBrutto) ? subject.totalBrutto : '–'} slag`).join(', ')}</span>${canAdmin && !['withdrawn', 'disqualified'].includes(round.resultStatus) ? `<button class="btn secondary" style="margin-top:7px;" data-action-click="correctSharedTourRound" data-args="${escapeHtml(JSON.stringify([record.code,round.id,round.playedDate]))}">Korrigera resultat</button>` : ''}${canAdmin && tour.approvalRequired && !['withdrawn', 'disqualified'].includes(round.resultStatus) ? `<button class="btn secondary" style="margin-top:7px;" data-action-click="reviewSharedTourRound" data-args="${escapeHtml(JSON.stringify([record.code,round.id,round.approvalStatus === 'confirmed' ? 'provisional' : 'confirmed']))}">${round.approvalStatus === 'confirmed' ? 'Återöppna granskning' : 'Granska och godkänn'}</button>` : ''}${canAdmin ? `<button class="btn secondary" style="margin-top:7px;" data-action-click="manageSharedTourResult" data-args="${escapeHtml(JSON.stringify([record.code,round.id]))}">Hantera resultat</button>` : ''}<button class="btn secondary" style="margin-top:7px;" data-action-click="showSharedTourRoundScorecard" data-args="${escapeHtml(JSON.stringify([record.code,round.id]))}">Visa scorekort</button><button class="btn secondary" style="margin-top:7px;" data-action-click="showSharedRoundCorrections" data-args="${escapeHtml(JSON.stringify([record.code,round.id]))}">Korrigeringshistorik</button></div>`).join('');
   const courseRows = (tour.courses || []).map(course => {
     const tees = (course.tees || []).map(tee => escapeHtml(tee.name)).join(', ');
     const roundLimit = Number.isInteger(course.maxRounds)
@@ -7464,17 +7517,17 @@ function renderSharedTourDetail(code) {
     tour_completed: 'avslutade touren', tour_completed_automatically: 'Touren avslutades automatiskt',
     tour_cancelled: 'avbröt touren', member_removed: 'tog bort en medlem', member_restored: 'återställde en medlem',
     member_left: 'lämnade touren', membership_updated: 'ändrade ett medlemskap', ownership_transferred: 'överförde ägarskapet',
-    administrator_updated: 'ändrade en administratör', round_corrected: 'korrigerade en runda', round_approved: 'godkände en runda', round_reopened: 'återöppnade granskningen av en runda', announcement_posted: 'publicerade ett meddelande',
+    administrator_updated: 'ändrade en administratör', round_corrected: 'korrigerade en runda', round_approved: 'godkände en runda', round_reopened: 'återöppnade granskningen av en runda', round_withdrawn: 'drog tillbaka en runda', round_disqualified: 'diskvalificerade en runda', round_reinstated: 'återinförde en runda', announcement_posted: 'publicerade ett meddelande',
   };
   const activityGroups = {
-    rounds: new Set(['round_started', 'round_recorded', 'round_corrected', 'round_approved', 'round_reopened']),
+    rounds: new Set(['round_started', 'round_recorded', 'round_corrected', 'round_approved', 'round_reopened', 'round_withdrawn', 'round_disqualified', 'round_reinstated']),
     members: new Set(['member_joined', 'member_removed', 'member_restored', 'member_left', 'membership_updated']),
     administration: new Set(['tour_created', 'organizer_account_linked', 'invitation_rotated', 'conditions_updated', 'tour_completed', 'tour_completed_automatically', 'tour_cancelled', 'ownership_transferred', 'administrator_updated', 'announcement_posted']),
   };
   const filteredActivity = (record.activity || []).filter(event => _tourActivityFilter === 'all' || activityGroups[_tourActivityFilter]?.has(event.type));
   const activityRows = filteredActivity.slice(0, 50).map(event => {
     const detail = ['round_started', 'round_recorded'].includes(event.type) ? ` · ${escapeHtml(event.details?.courseName || '')}` :
-      ['round_corrected', 'round_approved', 'round_reopened'].includes(event.type) ? ` · ${escapeHtml(event.details?.courseName || '')}${event.details?.reason ? ` · anledning: ${escapeHtml(event.details.reason)}` : ''}` :
+      ['round_corrected', 'round_approved', 'round_reopened', 'round_withdrawn', 'round_disqualified', 'round_reinstated'].includes(event.type) ? ` · ${escapeHtml(event.details?.courseName || '')}${event.details?.reason ? ` · anledning: ${escapeHtml(event.details.reason)}` : ''}` :
       event.type === 'ownership_transferred' ? ` · ny ägare ${escapeHtml(event.details?.newOrganizerName || '')}` :
       event.details?.memberName ? ` · ${escapeHtml(event.details.memberName)}` : '';
     const system = event.actorRole === 'system';
@@ -7527,7 +7580,7 @@ function renderSharedTourDetail(code) {
   `;
   const sanitizedMarkup = DOMPurify.sanitize(sharedTourMarkup, { ALLOW_DATA_ATTR: true });
   el.innerHTML = sanitizedMarkup;
-  const actions = { backToSharedTourList, beginSharedTourEdit, cancelSharedTour, cancelSharedTourEdit, completeSharedTour, correctSharedTourRound, reviewSharedTourRound, showSharedRoundCorrections, leaveSharedTour, postSharedTourAnnouncement, removeSharedTour, restoreSharedTourContributor, retrySharedTourSubmissions, revokeSharedTourContributor, rotateSharedTourInvitation, saveSharedTourConditions, setTourActivityFilter, shareSharedTourInvitation, shareSharedTourSpectator, startSharedTourRound, toggleSharedTourAdministrator, transferSharedTourOwnership, updateMySharedTourMembership, updateSharedTourContributor };
+  const actions = { backToSharedTourList, beginSharedTourEdit, cancelSharedTour, cancelSharedTourEdit, completeSharedTour, correctSharedTourRound, reviewSharedTourRound, manageSharedTourResult, showSharedTourRoundScorecard, showSharedRoundCorrections, leaveSharedTour, postSharedTourAnnouncement, removeSharedTour, restoreSharedTourContributor, retrySharedTourSubmissions, revokeSharedTourContributor, rotateSharedTourInvitation, saveSharedTourConditions, setTourActivityFilter, shareSharedTourInvitation, shareSharedTourSpectator, startSharedTourRound, toggleSharedTourAdministrator, transferSharedTourOwnership, updateMySharedTourMembership, updateSharedTourContributor };
   el.querySelectorAll('[data-action-click], [data-action-change]').forEach(element => {
     for (const event of ['click', 'change']) {
       const name = element.getAttribute(`data-action-${event}`);
@@ -8460,7 +8513,7 @@ function renderHistoryList() {
       <div class="history-item" data-id="${escapeHtml(String(r.id))}">
         <div class="hi-header" onclick="toggleHistoryItem(this)">
           <button type="button" class="hi-summary" aria-expanded="false" aria-label="Visa detaljer för ${escapeHtml(r.courseName)}, ${r.date}" style="flex:1;min-width:0;text-align:left;border:0;background:transparent;color:inherit;padding:0;" onclick="event.stopPropagation();toggleHistoryItem(this.parentElement)">
-            <span style="display:block;" class="hi-date">${r.date} · ${r.roundKind === 'practice' ? 'Träning' : 'Vanlig runda'}${r.lifecycle === 'submitted' && r.tourRef?.syncStatus !== 'synced' ? ' · Väntar på toursynk' : ' · Avslutad'}${r.tourRef?.approvalStatus ? (r.tourRef.approvalStatus === 'confirmed' ? ' · Godkänd i touren' : ' · Preliminär i touren') : ''}${r.restoredFrom ? ' · Återställd lokalkopia' : ''} · ${r.holes} hål · ${hasMixedTees(r.subjects) ? '⛳ Blandat tee' : `${teeIconFor(r.tee)} ${escapeHtml(r.tee || '')}`}${r.weather && WEATHER[r.weather] ? ' · ' + WEATHER[r.weather].e : ''}</span>
+            <span style="display:block;" class="hi-date">${r.date} · ${r.roundKind === 'practice' ? 'Träning' : 'Vanlig runda'}${r.lifecycle === 'submitted' && r.tourRef?.syncStatus !== 'synced' ? ' · Väntar på toursynk' : ' · Avslutad'}${r.tourRef?.resultStatus === 'withdrawn' ? ' · Tillbakadragen i touren' : r.tourRef?.resultStatus === 'disqualified' ? ' · Diskvalificerad i touren' : ''}${r.tourRef?.approvalStatus && !['withdrawn', 'disqualified'].includes(r.tourRef?.resultStatus) ? (r.tourRef.approvalStatus === 'confirmed' ? ' · Godkänd i touren' : ' · Preliminär i touren') : ''}${r.restoredFrom ? ' · Återställd lokalkopia' : ''} · ${r.holes} hål · ${hasMixedTees(r.subjects) ? '⛳ Blandat tee' : `${teeIconFor(r.tee)} ${escapeHtml(r.tee || '')}`}${r.weather && WEATHER[r.weather] ? ' · ' + WEATHER[r.weather].e : ''}</span>
             <span style="display:block;" class="hi-course">${escapeHtml(r.courseName)}</span>
             <span style="display:block;" class="hi-meta">${topLine}</span>
           </button>

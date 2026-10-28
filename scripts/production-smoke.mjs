@@ -103,7 +103,29 @@ try {
   assert.equal(approvalAudit.corrections.length, 2);
   assert.equal(approvalAudit.corrections[1].before.approvalStatus, 'provisional');
   assert.equal(approvalAudit.corrections[1].after.approvalStatus, 'confirmed');
-  console.log(JSON.stringify({ ok: true, service: health.service, tour: created.code, realtime: true, correction: true, audit: true, retry: true, approval: true }));
+  let current = approved.round;
+  for (const resultStatus of ['withdrawn', 'disqualified', 'active']) {
+    const decision = await json(await fetch(correctionUrl, {
+      method: 'PATCH', headers: headers(created.organizerToken), body: JSON.stringify({ protocolVersion: 2, schemaVersion: 1,
+        mutationId: crypto.randomUUID(), expectedRoundRevision: current.revision, resultStatus, reason: `Smoke ${resultStatus}` }),
+    }));
+    current = decision.round;
+    assert.equal(current.resultStatus, resultStatus);
+    assert.equal(current.subjects[0].totalPoints, 17);
+    assert.equal(decision.tour.rounds.length, 0);
+    assert.equal(decision.tour.excludedRounds.length, resultStatus === 'active' ? 0 : 1);
+  }
+  assert.equal(current.approvalStatus, 'provisional');
+  const reconfirmed = await json(await fetch(correctionUrl, {
+    method: 'PATCH', headers: headers(created.organizerToken), body: JSON.stringify({ ...approval,
+      mutationId: crypto.randomUUID(), expectedRoundRevision: current.revision, reason: 'Smoke fresh approval after reinstatement' }),
+  }));
+  assert.equal(reconfirmed.tour.rounds.length, 1);
+  assert.equal(reconfirmed.tour.rounds[0].subjects[0].totalPoints, 17);
+  const finalAudit = await json(await fetch(`${correctionUrl}/corrections`, { headers: headers(created.organizerToken) }));
+  assert.equal(finalAudit.corrections.length, 6);
+  assert.equal(finalAudit.corrections.filter(entry => entry.type === 'result_status').length, 3);
+  console.log(JSON.stringify({ ok: true, service: health.service, tour: created.code, realtime: true, correction: true, audit: true, retry: true, approval: true, resultStatus: true }));
 } finally {
   if (created) await fetch(`${api}/tour/${created.code}`, { method: 'DELETE', headers: headers(created.organizerToken) }).catch(() => {});
 }

@@ -235,3 +235,11 @@ test('the new cache combines provisional review records without exposing duplica
   store.upsert({ code: 'ABCD2345', tour: { revision: 2, rounds: [{ id: 'confirmed' }, { id: 'pending', approvalStatus: 'confirmed' }], provisionalRounds: [] } });
   assert.equal(store.find('ABCD2345').tour.rounds.length, 2);
 });
+
+test('excluded records remain readable and synchronize status without changing local scores', () => {
+  const remote = { id: 'r1', clientRoundId: '123', resultStatus: 'disqualified', playedDate: '2026-06-01', subjects: [{ memberId: 'ada', totalPoints: 18, totalBrutto: 5, rows: [{ score: 5 }] }] };
+  const store = sync.createStore(memoryStorage()); store.upsert({ code: 'ABCD2345', tour: { revision: 2, rounds: [], provisionalRounds: [], excludedRounds: [remote] } });
+  const record = store.find('ABCD2345'); assert.equal(record.tour.rounds.length, 1);
+  const local = { id: 123, holes: 1, note: 'Keep', tourRef: { code: 'ABCD2345', submissionId: 'r1' }, subjects: [{ memberId: 'ada', rows: [{ score: 5 }] }] };
+  const updated = sync.reconcileRounds([local], record)[0]; assert.equal(updated.tourRef.resultStatus, 'disqualified'); assert.equal(updated.note, 'Keep'); assert.equal(updated.subjects[0].rows[0].score, 5);
+});

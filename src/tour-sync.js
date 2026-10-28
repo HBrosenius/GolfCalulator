@@ -119,8 +119,8 @@
   }
 
   function normalizeTour(tour) {
-    if (!tour || !Array.isArray(tour.provisionalRounds)) return tour;
-    const rounds = [...(tour.rounds || []), ...tour.provisionalRounds];
+    if (!tour || (!Array.isArray(tour.provisionalRounds) && !Array.isArray(tour.excludedRounds))) return tour;
+    const rounds = [...(tour.rounds || []), ...(tour.provisionalRounds || []), ...(tour.excludedRounds || [])];
     return { ...tour, rounds: rounds.filter((round, index) => rounds.findIndex(item => item.id === round.id) === index) };
   }
 
@@ -128,7 +128,7 @@
     return rounds.map(local => {
       if (local.tourRef?.code !== record.code) return local;
       const remote = record.tour?.rounds?.find(item => item.id === local.tourRef.submissionId || String(item.clientRoundId) === String(local.id));
-      if (!remote || (!remote.correctedAt && !remote.approvalStatus)) return local;
+      if (!remote || (!remote.correctedAt && !remote.approvalStatus && !remote.resultStatus)) return local;
       let matched = 0;
       const subjects = local.subjects.map(subject => {
         const memberIds = [subject.memberId, record.memberLinks?.[subject.playerId], ...(subject.memberIds || []).map(id => record.memberLinks?.[id])].filter(Boolean);
@@ -139,7 +139,7 @@
       });
       if (!matched) return local;
       return { ...local, date: remote.playedDate, subjects, lifecycle: 'completed',
-        tourRef: { ...local.tourRef, syncStatus: 'synced', submissionId: remote.id, ...(record.tour.approvalRequired ? { approvalStatus: remote.approvalStatus || 'provisional' } : {}) } };
+        tourRef: { ...local.tourRef, syncStatus: 'synced', submissionId: remote.id, ...(remote.resultStatus ? { resultStatus: remote.resultStatus } : {}), ...(record.tour.approvalRequired ? { approvalStatus: remote.approvalStatus || 'provisional' } : {}) } };
     });
   }
 
