@@ -111,3 +111,13 @@ test('version two validates local tours and keeps version one readable', () => {
   payload.version = 3;
   assert.equal(validation.isBackupPayload(payload), false);
 });
+
+test('approval status is portable in round history and rejects unknown states', () => {
+  const payload = validBackup();
+  payload.rounds[0].tourRef = { code: 'ABCD2345', syncStatus: 'synced', submissionId: 'server-1', approvalStatus: 'provisional' };
+  assert.equal(validation.isBackupPayload(payload), true);
+  payload.rounds[0].tourRef.approvalStatus = 'confirmed';
+  assert.equal(validation.isBackupPayload(payload), true);
+  payload.rounds[0].tourRef.approvalStatus = 'invented';
+  assert.equal(validation.isBackupPayload(payload), false);
+});

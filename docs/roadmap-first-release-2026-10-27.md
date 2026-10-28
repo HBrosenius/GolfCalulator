@@ -1,6 +1,6 @@
 # First roadmap increment — 27 October 2026
 
-Implementation of the three focused first choices from [the prioritized feature roadmap](feature-roadmap-2026-10-27.md). Follow-ups now include [local recovery and historical dates](roadmap-round-recovery-2026-10-27.md) and [shared-tour score corrections](roadmap-score-corrections-2026-10-28.md); approval and account draft handoff remain planned work.
+Implementation of the three focused first choices from [the prioritized feature roadmap](feature-roadmap-2026-10-27.md). Follow-ups now include [local recovery and historical dates](roadmap-round-recovery-2026-10-27.md) and [shared-tour score corrections](roadmap-score-corrections-2026-10-28.md); [optional organizer approval](roadmap-score-approval-2026-10-28.md) is also implemented; account draft handoff remains planned work.
 
 ## Implemented
 
@@ -34,7 +34,7 @@ Automated coverage includes setup replay without credential/score copying, curre
 
 ## Next model decisions: draft recovery and score corrections
 
-These were the implementation constraints recorded for the next increments. Local recovery and organizer score corrections have since shipped as described in the linked follow-ups. Approval and account handoff remain planned.
+These were the implementation constraints recorded for the next increments. Local recovery and organizer score corrections have since shipped as described in the linked follow-ups. Optional organizer approval has also been implemented in the linked approval follow-up; account handoff remains planned.
 
 1. **Separate round lifecycle from approval.** Round lifecycle is `draft → in_progress → submitted/completed`; approval is a separate `provisional/confirmed/withdrawn/disqualified` field. Casual rounds can complete without approval. Existing finished rounds migrate as completed, with their current standing behavior preserved.
 2. **Multiple local drafts first.** Persist named drafts transactionally per account, with an immutable ID, revision, setup snapshot, date, practice/competition flag, nullable hole results and local update time. Creating another draft must not overwrite an existing one. Use explicit picked-up state rather than treating every blank as zero.

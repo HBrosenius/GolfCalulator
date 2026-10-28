@@ -43,7 +43,7 @@ try {
   created = await json(await fetch(`${api}/tour`, {
     method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({
       protocolVersion: 2, schemaVersion: 1, name: `Smoke ${Date.now()}`,
-      startDate: iso(-1), endDate: iso(1), bestOfN: 1, duplicateCourseRule: 'best',
+      startDate: iso(-1), endDate: iso(1), bestOfN: 1, duplicateCourseRule: 'best', approvalRequired: true,
       members: [{ name: 'Smoke Player', hi: 10 }, { name: 'Smoke Marker', hi: 20 }],
       courses: [{ name: 'Smoke Course', holes: 9, maxRounds: 1, tees: [{
         name: 'Test', slope: 113, cr: 36, par: 36,
@@ -58,7 +58,7 @@ try {
     const timer = setTimeout(() => { socket.close(); reject(new Error('Live standings update timeout')); }, 10000);
     socket.onmessage = event => {
       const message = JSON.parse(event.data);
-      if (message.tour?.rounds?.length) { clearTimeout(timer); socket.close(); resolve(message); }
+      if (message.tour?.rounds?.length || message.tour?.provisionalRounds?.length) { clearTimeout(timer); socket.close(); resolve(message); }
     };
     socket.onerror = () => { clearTimeout(timer); reject(new Error('Live WebSocket failed after connecting')); };
     socket.onclose = event => {
@@ -70,8 +70,10 @@ try {
   const recorded = await json(await fetch(`${api}/tour/${created.code}/rounds`, {
     method: 'POST', headers: headers(created.organizerToken), body: JSON.stringify(submission),
   }));
+  assert.equal(recorded.round.approvalStatus, 'provisional');
   const realtime = await liveUpdate;
-  assert.equal(realtime.tour.rounds[0].subjects[0].totalPoints, 18);
+  assert.equal(realtime.tour.rounds.length, 0);
+  assert.equal(realtime.tour.provisionalRounds[0].subjects[0].totalPoints, 18);
   const correction = { protocolVersion: 2, schemaVersion: 1, mutationId: crypto.randomUUID(),
     expectedRoundRevision: recorded.round.revision || 1, reason: 'Automated smoke correction',
     changes: [{ memberId: recorded.round.subjects[0].memberId, hole: 1, score: recorded.round.subjects[0].rows[0].score + 1 }] };
@@ -79,7 +81,7 @@ try {
   const corrected = await json(await fetch(correctionUrl, {
     method: 'PATCH', headers: headers(created.organizerToken), body: JSON.stringify(correction),
   }));
-  assert.equal(corrected.tour.rounds[0].subjects[0].totalPoints, 17);
+  assert.equal(corrected.round.subjects[0].totalPoints, 17);
   const retry = await json(await fetch(correctionUrl, {
     method: 'PATCH', headers: headers(created.organizerToken), body: JSON.stringify(correction),
   }));
@@ -88,7 +90,20 @@ try {
   assert.equal(audit.corrections.length, 1);
   assert.equal(audit.corrections[0].before.subjects[0].totalPoints, 18);
   assert.equal(audit.corrections[0].after.subjects[0].totalPoints, 17);
-  console.log(JSON.stringify({ ok: true, service: health.service, tour: created.code, realtime: true, correction: true, audit: true, retry: true }));
+  assert.equal(corrected.round.approvalStatus, 'provisional');
+  assert.equal(corrected.tour.rounds.length, 0);
+  assert.equal(corrected.tour.provisionalRounds.length, 1);
+  const approval = { protocolVersion: 2, schemaVersion: 1, mutationId: crypto.randomUUID(),
+    expectedRoundRevision: corrected.round.revision, approvalStatus: 'confirmed', reason: 'Smoke scorecard reviewed' };
+  const approved = await json(await fetch(correctionUrl, {
+    method: 'PATCH', headers: headers(created.organizerToken), body: JSON.stringify(approval),
+  }));
+  assert.equal(approved.tour.rounds[0].approvalStatus, 'confirmed');
+  const approvalAudit = await json(await fetch(`${correctionUrl}/corrections`, { headers: headers(created.organizerToken) }));
+  assert.equal(approvalAudit.corrections.length, 2);
+  assert.equal(approvalAudit.corrections[1].before.approvalStatus, 'provisional');
+  assert.equal(approvalAudit.corrections[1].after.approvalStatus, 'confirmed');
+  console.log(JSON.stringify({ ok: true, service: health.service, tour: created.code, realtime: true, correction: true, audit: true, retry: true, approval: true }));
 } finally {
   if (created) await fetch(`${api}/tour/${created.code}`, { method: 'DELETE', headers: headers(created.organizerToken) }).catch(() => {});
 }

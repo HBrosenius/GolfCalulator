@@ -226,3 +226,12 @@ test('a tour correction preserves an unsubmitted guest sharing the local scoreca
   assert.equal(corrected.subjects[0].rows[0].score, 4);
   assert.equal(corrected.subjects[1], guest);
 });
+
+test('the new cache combines provisional review records without exposing duplicates', () => {
+  const store = sync.createStore(memoryStorage());
+  store.upsert({ code: 'ABCD2345', tour: { revision: 1, rounds: [{ id: 'confirmed' }], provisionalRounds: [{ id: 'pending' }] } });
+  assert.deepEqual(store.find('ABCD2345').tour.rounds.map(round => round.id), ['confirmed', 'pending']);
+  assert.equal(store.find('ABCD2345').tour.rounds.length, 2);
+  store.upsert({ code: 'ABCD2345', tour: { revision: 2, rounds: [{ id: 'confirmed' }, { id: 'pending', approvalStatus: 'confirmed' }], provisionalRounds: [] } });
+  assert.equal(store.find('ABCD2345').tour.rounds.length, 2);
+});

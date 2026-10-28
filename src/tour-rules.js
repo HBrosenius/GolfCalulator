@@ -195,6 +195,11 @@
     };
   }
 
+  function eligibleSharedRounds(tour) {
+    const rounds = [...(tour?.rounds || []), ...(tour?.provisionalRounds || [])];
+    return rounds.filter((round, index) => rounds.findIndex(item => item.id === round.id) === index).filter(round => !tour.approvalRequired || round.approvalStatus === 'confirmed');
+  }
+
   function computeSharedStandings(sharedTour) {
     const players = (sharedTour?.members || []).map(member => ({ id: member.id, name: member.name, hi: member.hi }));
     const localTour = {
@@ -205,7 +210,7 @@
       duplicateCourseRule: sharedTour.duplicateCourseRule,
       courses: (sharedTour.courses || []).map(course => ({ name: course.name, holes: course.holes, maxRounds: course.maxRounds })),
     };
-    const rounds = (sharedTour.rounds || []).map(round => ({
+    const rounds = eligibleSharedRounds(sharedTour).map(round => ({
       id: round.id,
       date: round.playedDate,
       courseName: round.courseName,
@@ -225,7 +230,7 @@
     const standings = computeSharedStandings(sharedTour);
     const position = new Map(standings.map((row, index) => [row.player.id, index + 1]));
     const performances = new Map((sharedTour?.members || []).map(member => [member.id, []]));
-    (sharedTour?.rounds || []).forEach(round => (round.subjects || []).forEach(subject => {
+    eligibleSharedRounds(sharedTour).forEach(round => (round.subjects || []).forEach(subject => {
       if (performances.has(subject.memberId)) performances.get(subject.memberId).push({
         points: subjectPoints(subject), courseName: round.courseName, playedDate: round.playedDate,
         gameMode: round.gameMode, roundId: round.id,
@@ -235,7 +240,7 @@
       const results = performances.get(member.id) || [];
       const points = results.map(result => result.points);
       const headToHead = { wins: 0, losses: 0, ties: 0 };
-      (sharedTour?.rounds || []).forEach(round => {
+      eligibleSharedRounds(sharedTour).forEach(round => {
         const own = (round.subjects || []).find(subject => subject.memberId === member.id);
         if (!own) return;
         (round.subjects || []).filter(subject => subject.memberId !== member.id).forEach(opponent => {

@@ -74,3 +74,50 @@ test('an in-flight correction cannot overwrite another account vault', async ({ 
   expect(await page.evaluate(() => roundsLoad())).toEqual([]);
   expect(await page.evaluate(() => sharedTourStore.load())).toEqual([]);
 });
+
+test('opt-in review counts only confirmed rounds and supports audited reopening', async ({ page }) => {
+  await setup(page);
+  await page.evaluate(code => { const record = sharedTourStore.find(code); record.tour.approvalRequired = true; record.tour.rounds[0].approvalStatus = 'provisional'; record.tour.provisionalRounds = record.tour.rounds; record.tour.rounds = []; sharedTourStore.upsert(record); renderSharedTourDetail(code); }, code);
+  await expect(page.locator('.tour-standing-row')).toHaveCount(0);
+  await expect(page.locator('#tourContent')).toContainText('Preliminär – väntar på granskning');
+  const original = await page.evaluate(code => sharedTourStore.find(code).tour, code);
+  let request;
+  await page.route(`**/tour/${code}/rounds/r1`, async route => {
+    request = route.request().postDataJSON(); const tour = structuredClone(original);
+    tour.revision++; Object.assign(tour.rounds[0], { revision: request.expectedRoundRevision + 1, approvalStatus: request.approvalStatus });
+    tour.provisionalRounds = tour.rounds.filter(round => round.approvalStatus !== 'confirmed');
+    tour.rounds = tour.rounds.filter(round => round.approvalStatus === 'confirmed');
+    await route.fulfill({ json: { tour } });
+  });
+  await page.getByRole('button', { name: 'Granska och godkänn', exact: true }).click();
+  const dialog = page.locator('#tourRoundDialog');
+  await expect(dialog.getByRole('columnheader', { name: 'Erhållna slag' })).toBeVisible();
+  await dialog.getByLabel('Kommentar till godkännandet').fill('Kontrollerat mot scorekort');
+  await dialog.getByRole('button', { name: 'Godkänn runda', exact: true }).click();
+  await expect(dialog).toHaveCount(0);
+  expect(request).toMatchObject({ expectedRoundRevision: 1, approvalStatus: 'confirmed', reason: 'Kontrollerat mot scorekort' });
+  await expect(page.locator('.tour-standing-score').first()).toContainText('18');
+  expect(await page.evaluate(() => roundsLoad()[0].tourRef.approvalStatus)).toBe('confirmed');
+  await page.getByRole('button', { name: 'Återöppna granskning', exact: true }).click();
+  await dialog.getByLabel('Anledning till återöppning').fill('Dubbelkontroll behövs');
+  await dialog.getByRole('button', { name: 'Återöppna granskning', exact: true }).click();
+  await expect(dialog).toHaveCount(0); await expect(page.locator('.tour-standing-row')).toHaveCount(0);
+  expect(await page.evaluate(() => roundsLoad()[0].tourRef.approvalStatus)).toBe('provisional');
+  await page.evaluate(code => { _spectatorTour = sharedTourStore.find(code).tour; _tourViewMode = 'spectator'; renderSpectatorTourDetail(code); }, code);
+  await expect(page.locator('#tourContent')).toContainText('Endast godkända rundor räknas i ställningen');
+  await expect(page.locator('.tour-standing-row')).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Granska och godkänn', exact: true })).toHaveCount(0);
+});
+
+test('approval policy is selectable only before the first submitted round', async ({ page }) => {
+  await setup(page);
+  await page.getByRole('button', { name: '✎ Redigera villkor' }).click();
+  await expect(page.getByLabel('Kräv organisatörens godkännande av rundor')).toBeDisabled();
+  await page.evaluate(code => { const record = sharedTourStore.find(code); record.tour.rounds = []; sharedTourStore.upsert(record); renderSharedTourDetail(code); }, code);
+  await expect(page.getByLabel('Kräv organisatörens godkännande av rundor')).toBeEnabled();
+  await page.getByLabel('Kräv organisatörens godkännande av rundor').check();
+  let payload;
+  await page.route(`**/tour/${code}/conditions`, async route => { payload = route.request().postDataJSON(); const tour = await page.evaluate(code => sharedTourStore.find(code).tour, code); await route.fulfill({ json: { ...tour, revision: tour.revision + 1, approvalRequired: payload.approvalRequired } }); });
+  await page.getByRole('button', { name: 'Spara villkor' }).click();
+  await expect(page.locator('#sharedTourEditApproval')).toHaveCount(0); expect(payload.approvalRequired).toBe(true);
+});

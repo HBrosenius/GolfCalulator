@@ -1,6 +1,6 @@
 # Shared-tour score corrections — 28 October 2026
 
-Organizers and appointed administrators can correct a submitted hole score or pickup, or change the played date, with a required explanation. Contributors can read the correction history. Casual submission behavior remains unchanged; approval/provisional results and withdrawal/disqualification are later increments.
+Organizers and appointed administrators can correct a submitted hole score or pickup, or change the played date, with a required explanation. Contributors can read the correction history. Casual submission behavior remains unchanged; [approval/provisional results](roadmap-score-approval-2026-10-28.md) are covered by the follow-up increment; withdrawal/disqualification remain planned.
 
 ## Authority and scoring
 

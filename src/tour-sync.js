@@ -118,11 +118,17 @@
     });
   }
 
+  function normalizeTour(tour) {
+    if (!tour || !Array.isArray(tour.provisionalRounds)) return tour;
+    const rounds = [...(tour.rounds || []), ...tour.provisionalRounds];
+    return { ...tour, rounds: rounds.filter((round, index) => rounds.findIndex(item => item.id === round.id) === index) };
+  }
+
   function reconcileRounds(rounds, record) {
     return rounds.map(local => {
       if (local.tourRef?.code !== record.code) return local;
       const remote = record.tour?.rounds?.find(item => item.id === local.tourRef.submissionId || String(item.clientRoundId) === String(local.id));
-      if (!remote?.correctedAt) return local;
+      if (!remote || (!remote.correctedAt && !remote.approvalStatus)) return local;
       let matched = 0;
       const subjects = local.subjects.map(subject => {
         const memberIds = [subject.memberId, record.memberLinks?.[subject.playerId], ...(subject.memberIds || []).map(id => record.memberLinks?.[id])].filter(Boolean);
@@ -133,7 +139,7 @@
       });
       if (!matched) return local;
       return { ...local, date: remote.playedDate, subjects, lifecycle: 'completed',
-        tourRef: { ...local.tourRef, syncStatus: 'synced', submissionId: remote.id } };
+        tourRef: { ...local.tourRef, syncStatus: 'synced', submissionId: remote.id, ...(record.tour.approvalRequired ? { approvalStatus: remote.approvalStatus || 'provisional' } : {}) } };
     });
   }
 
@@ -141,7 +147,7 @@
     function load() {
       try {
         const parsed = JSON.parse(storage.getItem(STORE_KEY) || '[]');
-        return Array.isArray(parsed) ? parsed : [];
+        return Array.isArray(parsed) ? parsed.map(record => ({ ...record, ...(record.tour ? { tour: normalizeTour(record.tour) } : {}) })) : [];
       } catch (_) {
         return [];
       }
@@ -154,7 +160,7 @@
 
     function upsert(record) {
       const records = load();
-      const normalized = { ...record, code: String(record.code).toUpperCase(), cachedAt: Date.now() };
+      const normalized = { ...record, ...(record.tour ? { tour: normalizeTour(record.tour) } : {}), code: String(record.code).toUpperCase(), cachedAt: Date.now() };
       const index = records.findIndex(item => item.code === normalized.code);
       if (index >= 0) {
         if (normalized.tour && (records[index].tour?.revision || 0) > (normalized.tour.revision || 0)) normalized.tour = records[index].tour;
@@ -241,6 +247,6 @@
 
   return Object.freeze({
     DEFAULT_BASE_URL, PROTOCOL_VERSION, SCHEMA_VERSION, STORE_KEY,
-    createClient, createStore, reconcileRounds, flushPending, invitationFragment, parseInvitationFragment,
+    createClient, createStore, normalizeTour, reconcileRounds, flushPending, invitationFragment, parseInvitationFragment,
   });
 }));

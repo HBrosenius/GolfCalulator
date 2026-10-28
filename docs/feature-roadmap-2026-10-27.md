@@ -26,7 +26,7 @@ Suggested acceptance measures: returning users can start their usual game withou
 
 ### Score submission, approval and correction
 
-Implementation update (28 October): [organizer score corrections](roadmap-score-corrections-2026-10-28.md) now cover hole/pickup and date changes, server recalculation, revision checks, retained audit evidence and local-history reconciliation. Optional approval, provisional status and withdrawal/disqualification remain planned.
+Implementation update (28 October): [organizer score corrections](roadmap-score-corrections-2026-10-28.md) now cover hole/pickup and date changes, server recalculation, revision checks, retained audit evidence and local-history reconciliation. [Optional organizer approval and provisional status](roadmap-score-approval-2026-10-28.md) are now implemented. Withdrawal/disqualification and independent marker approval remain planned.
 
 Add a review screen and optional marker/organizer approval. Show provisional versus confirmed results. Allow an organizer to correct a specific hole with an explanation, recalculate the leaderboard, notify affected players and retain an immutable before/after record. Support withdrawal/disqualification without deleting the evidence.
 

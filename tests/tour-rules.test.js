@@ -177,3 +177,14 @@ test('tour player profiles summarize appearances, averages, best rounds and meda
   assert.deepEqual([profiles[0].member.name, profiles[0].appearances, profiles[0].averagePoints, profiles[0].bestRound.points, profiles[0].wins], ['Ada', 2, 35, 40, 1]);
   assert.deepEqual(profiles[0].headToHead, { wins: 1, losses: 1, ties: 0 });
 });
+
+test('approval tours count confirmed rounds only, including profiles and head-to-head results', () => {
+  const shared = { startDate: '2026-01-01', endDate: '2026-12-31', bestOfN: 1, duplicateCourseRule: 'best',
+    members: [{ id: 'ada', name: 'Ada', hi: 10 }, { id: 'bo', name: 'Bo', hi: 12 }], courses: [{ name: 'Banan', holes: 9, maxRounds: 2 }],
+    rounds: ['confirmed', 'provisional', undefined].map((approvalStatus, i) => ({ id: String(i), approvalStatus, playedDate: '2026-06-01', courseName: 'Banan', holes: 9, gameMode: 'individual', subjects: [{ memberId: 'ada', totalPoints: 18 + i * 10 }, { memberId: 'bo', totalPoints: 20 }] })) };
+  const casual = tours.computeSharedStandings(shared); assert.equal(casual[0].total, 38);
+  shared.approvalRequired = true;
+  const strict = tours.computeSharedStandings(shared); assert.equal(strict.find(row => row.player.id === 'ada').total, 18);
+  const profile = tours.computePlayerProfiles(shared).find(row => row.member.id === 'ada');
+  assert.equal(profile.appearances, 1); assert.equal(profile.headToHead.losses, 1); assert.equal(profile.headToHead.wins, 0);
+});
