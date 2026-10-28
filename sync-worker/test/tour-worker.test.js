@@ -782,3 +782,23 @@ it('keeps a scheduled venue day open beyond the default UTC tour deadline', asyn
     event: { name: 'Late golf', date: config.endDate, timeZone: 'America/Los_Angeles', courseId: created.tour.courses[0].id, status: 'cancelled', note: '', groups: scheduled.event.groups } }) });
   expect(cancelled.status).toBe(200); expect((await cancelled.json()).tour.retentionUntil).toBe(Date.parse(config.endDate + 'T23:59:59.999Z') + 1 + 365 * 86400000);
 });
+
+describe('competition settings and frozen rules', () => {
+  it('validates formats and locks format, tie-break and counting rules when play starts', async () => {
+    const invalid = await SELF.fetch('https://worker.test/tour', { method:'POST', headers:{'Content-Type':'application/json','CF-Connecting-IP':crypto.randomUUID()}, body:JSON.stringify({...configuration(),bestOfN:null,competition:{format:'gross',tieBreak:'shared'}}) }); expect(invalid.status).toBe(400);
+    const created = await createTour({...configuration(),bestOfN:1,competition:{format:'net',tieBreak:'shared'}});
+    const started = await SELF.fetch(`https://worker.test/tour/${created.code}/round-starts`, {method:'POST',headers:headers(created.organizerToken),body:JSON.stringify({protocolVersion:PROTOCOL_VERSION,schemaVersion:TOUR_SCHEMA_VERSION,courseId:created.tour.courses[0].id,memberIds:[created.tour.members[0].id],rulesRevision:created.tour.rulesRevision})}); expect(started.status).toBe(201); const start=await started.json(); expect(start.rulesLocked).toBe(true);
+    for (const change of [{competition:{format:'gross',tieBreak:'shared'}},{competition:{format:'net',tieBreak:'best_round'}},{bestOfN:2},{duplicateCourseRule:'first'},{courseLimits:start.courses.map(course=>({courseId:course.id,maxRounds:3}))}]) {
+      const response=await SELF.fetch(`https://worker.test/tour/${created.code}/conditions`,{method:'PATCH',headers:headers(created.organizerToken),body:JSON.stringify(updatePayload(start,change))}); expect(response.status).toBe(400);
+    }
+    const renamed=await SELF.fetch(`https://worker.test/tour/${created.code}/conditions`,{method:'PATCH',headers:headers(created.organizerToken),body:JSON.stringify(updatePayload(start,{name:'Nytt namn'}))});expect(renamed.status).toBe(200);
+  });
+  it('snapshots settings, rejects stale clients and pickups, and keeps old clients from misranking results', async () => {
+    const created=await createTour({...configuration(),bestOfN:1,competition:{format:'net',tieBreak:'shared'}}), body={...submission(created),rulesRevision:1};
+    const submit=payload=>SELF.fetch(`https://worker.test/tour/${created.code}/rounds`,{method:'POST',headers:headers(created.organizerToken),body:JSON.stringify(payload)});
+    expect((await submit({...body,rulesRevision:undefined})).status).toBe(426); expect((await submit({...body,rulesRevision:99})).status).toBe(409);
+    const pickup=structuredClone(body);Object.assign(pickup.subjects[0].rows[0],{score:'–',netto:'–',pts:0,skipped:true});expect((await submit(pickup)).status).toBe(400);
+    const response=await submit(body);expect(response.status).toBe(201);const saved=await response.json();expect(saved.tour.rounds).toHaveLength(0);expect(saved.tour.competitionRounds).toHaveLength(1);expect(saved.round.scoringSnapshot.competition.competition).toEqual({format:'net',tieBreak:'shared'});
+    const correction=await SELF.fetch(`https://worker.test/tour/${created.code}/rounds/${saved.round.id}`,{method:'PATCH',headers:headers(created.organizerToken),body:JSON.stringify({protocolVersion:PROTOCOL_VERSION,schemaVersion:TOUR_SCHEMA_VERSION,expectedRoundRevision:1,mutationId:crypto.randomUUID(),reason:'Pickup',changes:[{memberId:saved.round.subjects[0].memberId,hole:1,score:null}]})});expect(correction.status).toBe(400);
+  });
+});

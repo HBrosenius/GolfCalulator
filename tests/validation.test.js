@@ -127,3 +127,8 @@ test('result status remains portable without accepting unknown states', () => {
   for (const status of ['active', 'withdrawn', 'disqualified']) { payload.rounds[0].tourRef.resultStatus = status; assert.equal(validation.isBackupPayload(payload), true); }
   payload.rounds[0].tourRef.resultStatus = 'invented'; assert.equal(validation.isBackupPayload(payload), false);
 });
+
+test('scorecards retain the rules revision used for a shared tour', () => {
+  const payload=validBackup();payload.rounds[0].tourRef={code:'ABCD2345',rulesRevision:2};assert.equal(validation.isBackupPayload(payload),true);
+  payload.rounds[0].tourRef.rulesRevision=0;assert.equal(validation.isBackupPayload(payload),false);
+});

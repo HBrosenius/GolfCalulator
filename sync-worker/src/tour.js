@@ -7,6 +7,7 @@ import { correctRound, correctionEvidence } from './round-corrections.js';
 import '../../src/tour-events.js';
 import { notifyUsers } from './push.js';
 
+const Competition = globalThis.GolfCompetition;
 const TOUR_KEY = 'tour';
 const RETENTION_MS = 365 * 24 * 60 * 60 * 1000;
 const result = (status, data = {}) => ({ status, ...data });
@@ -65,6 +66,7 @@ function validMembershipRequest(body, extraKeys = []) {
 }
 
 function publicTour(tour) {
+  const counted = tour.rounds.filter(round => (!round.resultStatus || round.resultStatus === 'active') && (!tour.approvalRequired || round.approvalStatus === 'confirmed'));
   return {
     protocolVersion: PROTOCOL_VERSION,
     schemaVersion: TOUR_SCHEMA_VERSION,
@@ -78,12 +80,14 @@ function publicTour(tour) {
     status: tour.status,
     completedReason: tour.completedReason || null,
     approvalRequired: !!tour.approvalRequired,
+    competition: Competition.config(tour), rulesRevision: tour.rulesRevision || 1, rulesLocked: !!tour.rulesLockedAt || tour.rounds.length > 0,
     scheduleRevision: tour.scheduleRevision || 0,
     bestOfN: tour.bestOfN,
     duplicateCourseRule: tour.duplicateCourseRule,
     members: tour.members,
     courses: tour.courses,
-    rounds: tour.rounds.filter(round => (!round.resultStatus || round.resultStatus === 'active') && (!tour.approvalRequired || round.approvalStatus === 'confirmed')),
+    rounds: Competition.isLegacy(tour) ? counted : [],
+    competitionRounds: Competition.isLegacy(tour) ? [] : counted,
     provisionalRounds: tour.approvalRequired ? tour.rounds.filter(round => (!round.resultStatus || round.resultStatus === 'active') && round.approvalStatus !== 'confirmed') : [],
     excludedRounds: tour.rounds.filter(round => ['withdrawn', 'disqualified'].includes(round.resultStatus)),
     announcements: (tour.announcements || []).slice().reverse(),
@@ -230,6 +234,7 @@ export class Tour extends DurableObject {
       status: 'open',
       completedReason: null,
       approvalRequired: config.approvalRequired === true,
+      competition: Competition.config(config), rulesRevision: 1,
       bestOfN: config.bestOfN,
       duplicateCourseRule: config.duplicateCourseRule,
       members: config.members.map(member => ({ id: crypto.randomUUID(), name: member.name.trim(), hi: member.hi })),
@@ -401,6 +406,8 @@ export class Tour extends DurableObject {
     if (body.expectedRevision !== tour.revision) return result(409, { error: 'Tour changed; refresh and try again' });
     const scheduledEvents = [...(await this.ctx.storage.list({ prefix: 'event:', limit: 50 })).values()];
     if (scheduledEvents.some(event => event.status === 'scheduled' && (event.date < body.startDate || event.date > body.endDate))) return result(400, { error: 'Tour dates must include scheduled events' });
+    const oldRules = JSON.stringify(Competition.snapshot(tour));
+    if (body.competition !== undefined) tour.competition = Competition.config({ competition: body.competition });
     if (body.approvalRequired !== undefined) tour.approvalRequired = body.approvalRequired;
     tour.name = body.name.trim();
     tour.startDate = body.startDate;
@@ -409,6 +416,7 @@ export class Tour extends DurableObject {
     tour.duplicateCourseRule = body.duplicateCourseRule;
     const limits = new Map(body.courseLimits.map(item => [item.courseId, item.maxRounds]));
     tour.courses.forEach(course => { course.maxRounds = limits.get(course.id); });
+    if (JSON.stringify(Competition.snapshot(tour)) !== oldRules) tour.rulesRevision = (tour.rulesRevision || 1) + 1;
     addActivity(tour, 'conditions_updated', actor);
     tour.retentionUntil = this.completionAt(tour) + RETENTION_MS;
     if (tour.completedReason === 'expired' || tour.status === 'open') {
@@ -475,6 +483,11 @@ export class Tour extends DurableObject {
     return result(200, { deleted: true });
   }
 
+  freezeCompetition(tour) {
+    if (!tour.rulesSnapshot) tour.rulesSnapshot = Competition.snapshot(tour);
+    tour.rulesLockedAt ||= Date.now();
+  }
+
   async submitRound(body, token, accountUserId = null) {
     const stored = await this.ctx.storage.get(TOUR_KEY);
     const tour = stored ? await this.ensureLifecycle(stored) : null;
@@ -484,8 +497,11 @@ export class Tour extends DurableObject {
     // Retries of an already-recorded round stay idempotent even after the tour closed.
     const existing = typeof body?.clientRoundId === 'string' && tour.rounds.find(round => round.clientRoundId === body.clientRoundId);
     if (existing) return result(200, { tour: publicTour(tour), round: existing, duplicate: true });
+    if ((!Competition.isLegacy(tour) && body?.rulesRevision === undefined)) return result(426, { error: 'Update the app to submit competition results' });
+    if (body?.rulesRevision !== undefined && body.rulesRevision !== (tour.rulesRevision || 1)) return result(409, { error: 'Competition rules changed; review this scorecard before submitting' });
     const invalid = validateTourRoundSubmission(body, tour);
     if (invalid) return result(invalid.startsWith('Unsupported') ? 426 : 400, { error: invalid });
+    this.freezeCompetition(tour);
     const course = tour.courses.find(item => item.id === body.courseId);
     const memberById = new Map(tour.members.map(member => [member.id, member]));
     const submittedAt = Date.now();
@@ -502,7 +518,7 @@ export class Tour extends DurableObject {
       resultStatus: 'active',
       liveRoomCode: body.liveRoomCode || null,
       revision: 1,
-      scoringSnapshot: { course: structuredClone(course), members: structuredClone(tour.members.filter(member => body.subjects.some(subject => subject.memberId === member.id))) },
+      scoringSnapshot: { competition: structuredClone(tour.rulesSnapshot), course: structuredClone(course), members: structuredClone(tour.members.filter(member => body.subjects.some(subject => subject.memberId === member.id))) },
       submittedAt,
       submittedBy: actor.id,
       subjects: calculateTourSubjects(body, tour).map(subject => ({
@@ -519,8 +535,9 @@ export class Tour extends DurableObject {
     tour.revision++;
     await this.ctx.storage.put(TOUR_KEY, tour);
     this.broadcast(tour, 'round_recorded');
-    const leader = round.subjects.slice().sort((a, b) => b.totalPoints - a.totalPoints)[0];
-    this.ctx.waitUntil(notifyUsers(this.env, accountUsers(tour, actor.accountUserId), 'rounds', pushPayload(tour, `Ställningen är uppdaterad · ${tour.name}`, `${actorName(tour, actor)} registrerade ${course.name}${leader ? ` · ${leader.name} ${leader.totalPoints}p` : ''}.`)));
+    const format = Competition.config(tour).format;
+    const leader = round.subjects.slice().sort((a,b) => (format === 'stableford' ? -1 : 1) * (Competition.metric(a, format, round.holes) - Competition.metric(b, format, round.holes)))[0];
+    this.ctx.waitUntil(notifyUsers(this.env, accountUsers(tour, actor.accountUserId), 'rounds', pushPayload(tour, `Ställningen är uppdaterad · ${tour.name}`, `${actorName(tour, actor)} registrerade ${course.name}${leader ? ` · ${leader.name} ${Competition.metric(leader, format, round.holes)}${format === 'stableford' ? 'p' : ' slag'}` : ''}.`)));
     return result(201, { tour: publicTour(tour), round, duplicate: false });
   }
 
@@ -581,10 +598,13 @@ export class Tour extends DurableObject {
     if (!tour) return result(404, { error: 'Tour not found' });
     const actor = await this.actorForToken(tour, token, accountUserId);
     if (!actor) return result(403, { error: 'Not authorized' });
-    if (!validMembershipRequest(body, ['courseId', 'memberIds']) || tour.status !== 'open' ||
+    if (!validMembershipRequest(body, ['courseId', 'memberIds', 'rulesRevision']) || tour.status !== 'open' ||
       !tour.courses.some(course => course.id === body.courseId) || !Array.isArray(body.memberIds) ||
       body.memberIds.length < 1 || body.memberIds.length > 4 ||
       body.memberIds.some(id => !tour.members.some(member => member.id === id))) return result(400, { error: 'Invalid round start' });
+    if (!Competition.isLegacy(tour) && body.rulesRevision === undefined) return result(426, { error: 'Update the app to start this competition round' });
+    if (body.rulesRevision !== undefined && body.rulesRevision !== (tour.rulesRevision || 1)) return result(409, { error: 'Competition rules changed; refresh before starting' });
+    this.freezeCompetition(tour);
     const course = tour.courses.find(item => item.id === body.courseId);
     const names = body.memberIds.map(id => tour.members.find(member => member.id === id)?.name).filter(Boolean);
     addActivity(tour, 'round_started', actor, { courseName: course.name, playerNames: names });
@@ -655,6 +675,7 @@ export class Tour extends DurableObject {
       new Date(date + 'T00:00:00Z').toISOString().slice(0, 10) !== date || date < tour.startDate || date > tour.endDate || tour.status === 'cancelled') return result(400, { error: 'Invalid correction date or tour status' });
     let corrected;
     try { corrected = body.resultStatus !== undefined ? structuredClone(round) : correctRound(round, body.changes); } catch (error) { return result(400, { error: error.message }); }
+    if (Competition.config(tour).format !== 'stableford' && !corrected.subjects.every(subject => Competition.complete(subject, corrected.holes))) return result(400, { error: 'Stroke play requires a score on every hole' });
     corrected.playedDate = date;
     const scoreChanged = date !== round.playedDate || JSON.stringify(corrected.subjects) !== JSON.stringify(round.subjects);
     const previousStatus = round.resultStatus || 'active';

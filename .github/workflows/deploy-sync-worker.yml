@@ -10,6 +10,8 @@ on:
       - 'src/account-sync.js'
       - 'src/scoring.js'
       - 'src/tour-events.js'
+      - 'src/competition.js'
+      - 'src/tour-rules.js'
       - '.github/workflows/deploy-sync-worker.yml'
 
 permissions: {}

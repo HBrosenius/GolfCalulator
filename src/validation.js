@@ -127,10 +127,10 @@
   }
 
   function isTourRef(value) {
-    return hasOnlyKeys(value, new Set(['code', 'syncStatus', 'submissionId', 'approvalStatus', 'resultStatus'])) &&
+    return hasOnlyKeys(value, new Set(['code', 'syncStatus', 'submissionId', 'approvalStatus', 'resultStatus', 'rulesRevision'])) &&
       /^[A-HJ-KM-NP-Z2-9]{8}$/.test(value.code) &&
       optional(value.syncStatus, status => ['pending', 'synced'].includes(status)) &&
-      optional(value.submissionId, id => isText(id, 80)) && optional(value.approvalStatus, status => ['provisional', 'confirmed'].includes(status)) && optional(value.resultStatus, status => ['active', 'withdrawn', 'disqualified'].includes(status));
+      optional(value.submissionId, id => isText(id, 80)) && optional(value.approvalStatus, status => ['provisional', 'confirmed'].includes(status)) && optional(value.resultStatus, status => ['active', 'withdrawn', 'disqualified'].includes(status)) && optional(value.rulesRevision, value => isInteger(value, 1, Number.MAX_SAFE_INTEGER));
   }
 
   function isRound(round) {

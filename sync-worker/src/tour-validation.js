@@ -1,3 +1,5 @@
+import '../../src/competition.js';
+const Competition = globalThis.GolfCompetition;
 import '../../src/scoring.js';
 const Scoring = globalThis.GolfScoring;
 import { PROTOCOL_VERSION } from './validation.js';
@@ -55,7 +57,7 @@ function validateMember(member) {
 export function validateTourCreate(body) {
   const allowed = new Set([
     'protocolVersion', 'schemaVersion', 'name', 'startDate', 'endDate',
-    'bestOfN', 'duplicateCourseRule', 'members', 'courses', 'approvalRequired',
+    'bestOfN', 'duplicateCourseRule', 'members', 'courses', 'approvalRequired', 'competition',
   ]);
   if (!body || body.protocolVersion !== PROTOCOL_VERSION) return 'Unsupported protocol version';
   if (body.schemaVersion !== TOUR_SCHEMA_VERSION) return 'Unsupported tour schema version';
@@ -74,14 +76,14 @@ export function validateTourCreate(body) {
   }
   const courseKeys = body.courses.map(course => `${course.name.trim().toLocaleLowerCase('sv-SE')}\u0000${course.holes}`);
   if (new Set(courseKeys).size !== courseKeys.length) return 'Tour courses must be unique';
-  return null;
+  return Competition.validate(body.competition, body);
 }
 
 export function validateTourUpdate(body, tour) {
   if (body?.approvalRequired !== undefined && tour.rounds.length && body.approvalRequired !== !!tour.approvalRequired) return 'Approval policy is locked after the first submission';
   const allowed = new Set([
     'protocolVersion', 'schemaVersion', 'expectedRevision', 'name', 'startDate', 'endDate',
-    'bestOfN', 'duplicateCourseRule', 'courseLimits', 'approvalRequired',
+    'bestOfN', 'duplicateCourseRule', 'courseLimits', 'approvalRequired', 'competition',
   ]);
   if (!body || body.protocolVersion !== PROTOCOL_VERSION) return 'Unsupported protocol version';
   if (body.schemaVersion !== TOUR_SCHEMA_VERSION) return 'Unsupported tour schema version';
@@ -103,6 +105,12 @@ export function validateTourUpdate(body, tour) {
   if (tour.rounds.some(round => round.playedDate < body.startDate || round.playedDate > body.endDate)) {
     return 'Tour dates must include existing rounds';
   }
+  const competition = body.competition === undefined ? tour.competition : body.competition;
+  const proposed = { ...tour, ...body, rulesSnapshot: null, competition, courses: tour.courses.map(course => ({ ...course, maxRounds: limits.get(course.id) })) };
+  const invalid = Competition.validate(competition, proposed); if (invalid) return invalid;
+  if (tour.rulesLockedAt || tour.rounds.length) {
+    if (JSON.stringify(Competition.config(proposed)) !== JSON.stringify(Competition.config(tour)) || body.bestOfN !== tour.bestOfN || body.duplicateCourseRule !== tour.duplicateCourseRule || tour.courses.some(course => limits.get(course.id) !== course.maxRounds)) return 'Competition rules are locked after play starts';
+  }
   return null;
 }
 
@@ -118,12 +126,14 @@ function validateResultRow(row, expectedHole) {
 export function validateTourRoundSubmission(body, tour) {
   const allowed = new Set([
     'protocolVersion', 'schemaVersion', 'clientRoundId', 'playedDate', 'courseId',
-    'gameMode', 'subjects', 'liveRoomCode', 'roundKind',
+    'gameMode', 'subjects', 'liveRoomCode', 'roundKind', 'rulesRevision',
   ]);
   if (!body || body.protocolVersion !== PROTOCOL_VERSION) return 'Unsupported protocol version';
   if (body.schemaVersion !== TOUR_SCHEMA_VERSION) return 'Unsupported tour schema version';
   if (!hasOnlyKeys(body, allowed) || !isText(body.clientRoundId, 80) || !isDate(body.playedDate)) return 'Invalid round submission';
   if (tour.status !== 'open' || body.playedDate < tour.startDate || body.playedDate > tour.endDate) return 'Round is outside the open tour';
+  if (body.rulesRevision !== undefined && !isInteger(body.rulesRevision, 1, Number.MAX_SAFE_INTEGER)) return 'Invalid rules revision';
+  if (Competition.config(tour).format !== 'stableford' && (body.gameMode !== 'individual' || !Array.isArray(body.subjects) || !body.subjects.every(subject => Competition.complete(subject, tour.courses.find(course => course.id === body.courseId)?.holes)))) return 'Stroke play requires individual play and a score on every hole';
   if (body.roundKind !== undefined && body.roundKind !== 'competitive') return 'Practice rounds cannot be submitted to a tour';
   if (!['individual', 'scramble', 'fourball', 'foursome', 'match'].includes(body.gameMode)) return 'Unsupported tour game mode';
   if (body.liveRoomCode !== undefined && !/^([A-HJ-KM-NP-Z2-9]{4}|[A-HJ-KM-NP-Z2-9]{20})$/.test(body.liveRoomCode)) return 'Invalid live room code';
