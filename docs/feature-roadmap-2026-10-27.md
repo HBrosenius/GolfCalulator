@@ -44,6 +44,8 @@ Effort: medium–large. Success: an organizer can run a small golf weekend witho
 
 ### Competition settings
 
+Implementation update (28 October): [shared-tour formats and tie-breaks](roadmap-competition-settings-2026-10-28.md) now cover Stableford, individual gross/net stroke play, three tie policies, frozen counting rules and counted-round explanations. Divisions, dedicated team leaderboards, match-play tournament structures and season placement points remain later work.
+
 Expose presets for Stableford, gross/net stroke play and match play where appropriate. Add configurable tie-breaks, divisions, team leaderboards and season placement points. Freeze the applicable rules and handicap snapshot per event; explain how each counted round contributes to a standing.
 
 Existing gross totals and team formats are a foundation, not a complete configurable competition system. Avoid making every possible rule a required setup field.

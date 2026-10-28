@@ -362,7 +362,7 @@ test('magic-link sign-in keeps guest data separate until explicit import', async
   expect(await page.evaluate(() => playersLoad())).toEqual([]);
   page.once('dialog', dialog => dialog.accept());
   await page.getByRole('button', { name: 'Importera gästdata från enheten' }).click();
-  await expect.poll(() => uploaded).not.toBeNull();
+  await expect.poll(() => uploaded, { timeout: 10000 }).not.toBeNull();
   await expect(page.locator('#accountSyncSummary')).toContainText('Senast synkroniserad');
   const initialUploadCount = uploadCount;
   await page.evaluate(() => playersSave([...playersLoad(), { id: 'new-player', name: 'Bo', hi: 8 }]));

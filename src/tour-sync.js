@@ -103,9 +103,9 @@
       announce: (code, token, message) => jsonRequest(`/tour/${String(code).toUpperCase()}/announcements`, {
         method: 'POST', headers: headers(token), body: JSON.stringify({ protocolVersion: PROTOCOL_VERSION, schemaVersion: SCHEMA_VERSION, message }),
       }),
-      startRound: (code, token, courseId, memberIds) => jsonRequest(`/tour/${String(code).toUpperCase()}/round-starts`, {
+      startRound: (code, token, courseId, memberIds, rulesRevision) => jsonRequest(`/tour/${String(code).toUpperCase()}/round-starts`, {
         method: 'POST', headers: headers(token), body: JSON.stringify({
-          protocolVersion: PROTOCOL_VERSION, schemaVersion: SCHEMA_VERSION, courseId, memberIds,
+          protocolVersion: PROTOCOL_VERSION, schemaVersion: SCHEMA_VERSION, courseId, memberIds, ...(rulesRevision ? { rulesRevision } : {}),
         }),
       }),
       liveUrl: code => `${baseUrl.replace(/^http/, 'ws')}/tour/${String(code).toUpperCase()}/live`,
@@ -121,8 +121,8 @@
   }
 
   function normalizeTour(tour) {
-    if (!tour || (!Array.isArray(tour.provisionalRounds) && !Array.isArray(tour.excludedRounds))) return tour;
-    const rounds = [...(tour.rounds || []), ...(tour.provisionalRounds || []), ...(tour.excludedRounds || [])];
+    if (!tour || (!Array.isArray(tour.provisionalRounds) && !Array.isArray(tour.excludedRounds) && !Array.isArray(tour.competitionRounds))) return tour;
+    const rounds = [...(tour.rounds || []), ...(tour.provisionalRounds || []), ...(tour.excludedRounds || []), ...(tour.competitionRounds || [])];
     return { ...tour, rounds: rounds.filter((round, index) => rounds.findIndex(item => item.id === round.id) === index) };
   }
 

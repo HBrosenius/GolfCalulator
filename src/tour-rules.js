@@ -1,8 +1,8 @@
 (function (root, factory) {
-  const api = factory();
+  const api = factory(typeof module === 'object' && module.exports ? require('./competition.js') : root.GolfCompetition);
   if (typeof module === 'object' && module.exports) module.exports = api;
   root.GolfTourRules = api;
-}(typeof globalThis !== 'undefined' ? globalThis : this, function () {
+}(typeof globalThis !== 'undefined' ? globalThis : this, function (Competition) {
   'use strict';
 
   const SHARED_TOUR_SCHEMA_VERSION = 1;
@@ -52,60 +52,7 @@
 
   function computeStandings(tour, rounds, players) {
     const roster = rosterPlayers(tour, players);
-    const eligible = matchingRounds(tour, rounds, players);
-    const perPlayer = new Map(roster.map(player => [player.id, []]));
-    eligible.forEach(round => {
-      (round.subjects || []).forEach(subject => {
-        roster.filter(candidate => subjectMatchesPlayer(subject, candidate)).forEach(player => {
-          perPlayer.get(player.id).push({
-            points: subjectPoints(subject),
-            date: round.date,
-            courseName: round.courseName,
-            holes: round.holes,
-            roundId: round.id,
-          });
-        });
-      });
-    });
-
-    const duplicateRule = tour.duplicateCourseRule || 'best';
-    const maxRounds = result => {
-      const course = tour.courses.find(candidate => courseMatches(candidate, {
-        courseName: result.courseName,
-        holes: result.holes,
-      }));
-      return course && course.maxRounds > 0 ? course.maxRounds : 1;
-    };
-    const courseKey = result => `${result.courseName}\u0000${result.holes == null ? '' : result.holes}`;
-
-    const rows = roster.map(player => {
-      const results = perPlayer.get(player.id);
-      const byCourse = new Map();
-      results.forEach(result => {
-        const key = courseKey(result);
-        if (!byCourse.has(key)) byCourse.set(key, []);
-        byCourse.get(key).push(result);
-      });
-      const eligibleForBestOf = [];
-      byCourse.forEach(list => {
-        const sorted = list.slice().sort((a, b) => duplicateRule === 'first'
-          ? a.date.localeCompare(b.date)
-          : b.points - a.points || a.date.localeCompare(b.date));
-        eligibleForBestOf.push(...sorted.slice(0, maxRounds(list[0])));
-      });
-      eligibleForBestOf.sort((a, b) => b.points - a.points || a.date.localeCompare(b.date));
-      const count = tour.bestOfN ? Math.min(tour.bestOfN, eligibleForBestOf.length) : eligibleForBestOf.length;
-      const counted = eligibleForBestOf.slice(0, count);
-      return {
-        player,
-        total: counted.reduce((sum, result) => sum + result.points, 0),
-        roundsPlayed: results.length,
-        roundsCounted: counted.length,
-      };
-    }).filter(row => row.roundsPlayed > 0);
-
-    rows.sort((a, b) => b.total - a.total || (a.player.hi || 0) - (b.player.hi || 0));
-    return rows;
+    return Competition.standings(tour, matchingRounds(tour, rounds, players), roster, subjectMatchesPlayer);
   }
 
   function buildSharedTourCreate(tour, players, courseEntries) {
@@ -145,6 +92,7 @@
 
   function buildRoundSubmission(round, sharedRecord) {
     if (!round || !sharedRecord?.tour) throw new Error('Shared tour context is required');
+    if (Competition.config(sharedRecord.tour).format !== 'stableford' && (round.gameMode !== 'individual' || !round.subjects.every(subject => Competition.complete(subject, round.holes)))) throw new Error('Slagspel kräver individuellt spel och slag på alla hål.');
     if (round.roundKind === 'practice') throw new Error('Träningsrundor kan inte skickas till en tour.');
     const course = sharedRecord.tour.courses.find(item => item.name === round.courseName && item.holes === round.holes);
     if (!course) throw new Error('Round course is not in the shared tour');
@@ -185,6 +133,7 @@
     return {
       protocolVersion: LIVE_PROTOCOL_VERSION,
       schemaVersion: SHARED_TOUR_SCHEMA_VERSION,
+      rulesRevision: round.tourRef?.rulesRevision || sharedRecord.tour.rulesRevision || 1,
       clientRoundId: String(round.id),
       playedDate: round.date,
       courseId: course.id,
@@ -196,8 +145,8 @@
   }
 
   function eligibleSharedRounds(tour) {
-    const rounds = [...(tour?.rounds || []), ...(tour?.provisionalRounds || []), ...(tour?.excludedRounds || [])];
-    return rounds.filter((round, index) => rounds.findIndex(item => item.id === round.id) === index).filter(round => (!round.resultStatus || round.resultStatus === 'active') && (!tour.approvalRequired || round.approvalStatus === 'confirmed'));
+    const rounds = [...(tour?.rounds || []), ...(tour?.provisionalRounds || []), ...(tour?.excludedRounds || []), ...(tour?.competitionRounds || [])];
+    return rounds.filter((round, index) => rounds.findIndex(item => item.id === round.id) === index).filter(round => (!round.resultStatus || round.resultStatus === 'active') && (!tour.approvalRequired || round.approvalStatus === 'confirmed') && (Competition.config(tour).format === 'stableford' || (round.gameMode === 'individual' && round.subjects.every(subject => Competition.complete(subject, round.holes)))));
   }
 
   function computeSharedStandings(sharedTour) {
@@ -208,6 +157,7 @@
       endDate: sharedTour.endDate,
       bestOfN: sharedTour.bestOfN,
       duplicateCourseRule: sharedTour.duplicateCourseRule,
+      competition: Competition.config(sharedTour),
       courses: (sharedTour.courses || []).map(course => ({ name: course.name, holes: course.holes, maxRounds: course.maxRounds })),
     };
     const rounds = eligibleSharedRounds(sharedTour).map(round => ({
@@ -220,6 +170,7 @@
         playerId: subject.memberId,
         name: subject.name,
         totalPoints: subject.totalPoints,
+        totalBrutto: subject.totalBrutto,
         rows: subject.rows,
       })),
     }));
@@ -228,11 +179,12 @@
 
   function computePlayerProfiles(sharedTour) {
     const standings = computeSharedStandings(sharedTour);
-    const position = new Map(standings.map((row, index) => [row.player.id, index + 1]));
+    const format = Competition.config(sharedTour).format, direction = format === 'stableford' ? 1 : -1;
+    const position = new Map(standings.map(row => [row.player.id, row.position]));
     const performances = new Map((sharedTour?.members || []).map(member => [member.id, []]));
     eligibleSharedRounds(sharedTour).forEach(round => (round.subjects || []).forEach(subject => {
       if (performances.has(subject.memberId)) performances.get(subject.memberId).push({
-        points: subjectPoints(subject), courseName: round.courseName, playedDate: round.playedDate,
+        points: Competition.metric(subject, format, round.holes), courseName: round.courseName, playedDate: round.playedDate,
         gameMode: round.gameMode, roundId: round.id,
       });
     }));
@@ -244,7 +196,7 @@
         const own = (round.subjects || []).find(subject => subject.memberId === member.id);
         if (!own) return;
         (round.subjects || []).filter(subject => subject.memberId !== member.id).forEach(opponent => {
-          const difference = subjectPoints(own) - subjectPoints(opponent);
+          const difference = direction * (Competition.metric(own, format, round.holes) - Competition.metric(opponent, format, round.holes));
           if (difference > 0) headToHead.wins++;
           else if (difference < 0) headToHead.losses++;
           else headToHead.ties++;
@@ -256,7 +208,7 @@
         appearances: results.length,
         totalPoints: points.reduce((sum, value) => sum + value, 0),
         averagePoints: points.length ? Math.round(points.reduce((sum, value) => sum + value, 0) / points.length * 10) / 10 : 0,
-        bestRound: results.slice().sort((a, b) => b.points - a.points || a.playedDate.localeCompare(b.playedDate))[0] || null,
+        bestRound: results.slice().sort((a, b) => direction * (b.points - a.points) || a.playedDate.localeCompare(b.playedDate))[0] || null,
         wins: position.get(member.id) === 1 && sharedTour?.status === 'completed' ? 1 : 0,
         podiums: position.get(member.id) && position.get(member.id) <= 3 && sharedTour?.status === 'completed' ? 1 : 0,
         headToHead,

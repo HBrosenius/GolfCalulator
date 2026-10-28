@@ -243,3 +243,8 @@ test('excluded records remain readable and synchronize status without changing l
   const local = { id: 123, holes: 1, note: 'Keep', tourRef: { code: 'ABCD2345', submissionId: 'r1' }, subjects: [{ memberId: 'ada', rows: [{ score: 5 }] }] };
   const updated = sync.reconcileRounds([local], record)[0]; assert.equal(updated.tourRef.resultStatus, 'disqualified'); assert.equal(updated.note, 'Keep'); assert.equal(updated.subjects[0].rows[0].score, 5);
 });
+
+test('custom competition results normalize without leaking into legacy counted rounds', () => {
+  const tour={rounds:[],competitionRounds:[{id:'net-1'}],provisionalRounds:[],excludedRounds:[]};
+  assert.equal(sync.normalizeTour(tour).rounds[0].id,'net-1');assert.equal(tour.rounds.length,0);
+});

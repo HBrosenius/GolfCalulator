@@ -15,7 +15,7 @@
 <script src="src/scoring.js?v=20260809-2"></script>
 <script src="src/storage.js?v=20261027-2"></script>
 <script src="src/live-sync.js?v=20260809-2"></script>
-<script src="src/validation.js?v=20261028-2"></script>
+<script src="src/validation.js?v=20261028-3"></script>
 <script src="src/score-explanations.js?v=20261027-1"></script>
 <script src="src/round-recovery.js?v=20261027-1"></script>
 <script src="src/round-setup.js?v=20261027-1"></script>
@@ -23,9 +23,10 @@
 <script src="src/vendor/qrcode.js?v=2.0.4"></script>
 <script src="src/round-extras.js?v=20260809-2"></script>
 <script src="src/live-round.js?v=20261027-1"></script>
-<script src="src/tour-rules.js?v=20261028-2"></script>
+<script src="src/competition.js?v=20261028-1"></script>
+<script src="src/tour-rules.js?v=20261028-3"></script>
 <script src="src/tour-events.js?v=20261028-1"></script>
-<script src="src/tour-sync.js?v=20261028-4"></script>
+<script src="src/tour-sync.js?v=20261028-5"></script>
 <script src="src/account-sync.js?v=20261027-2"></script>
 <script src="src/course-catalog.js?v=20260814-1"></script>
 <script>
@@ -201,6 +202,9 @@
   .tour-timeline-item { position:relative;padding:0 0 14px 8px;font-size:.84rem; }
   .tour-timeline-item::before { content:"";position:absolute;left:-20px;top:4px;width:10px;height:10px;border-radius:50%;background:var(--accent);box-shadow:0 0 0 3px var(--card); }
   .tour-timeline-time { display:block;color:var(--muted);font-size:.72rem;margin-top:2px; }
+  .tour-count-explanation { margin-top:6px;font-size:.75rem;overflow-wrap:anywhere; }
+  .tour-count-explanation summary { cursor:pointer; }
+  .tour-count-explanation ul { padding-left:16px;margin-top:5px; }
   .tour-profile-grid { display:grid;grid-template-columns:repeat(auto-fit,minmax(145px,1fr));gap:8px;margin-top:8px; }
   .tour-profile { border:1px solid var(--border);border-radius:12px;padding:10px;background:var(--card); }
   .tour-profile summary { cursor:pointer;font-weight:800;color:var(--heading); }
@@ -2089,6 +2093,8 @@ async function loadSavedCourseAndAdvance(entry) {
   // unrelated later course selection.
   if (_pendingTourPlayHoles === 18 && entry.holes === 9) setPlayMode(18);
   _pendingTourPlayHoles = null;
+  document.getElementById('btnPlay9').disabled = !!state.tourContext?.dedicated && state.holes !== 9;
+  document.getElementById('btnPlay18').disabled = !!state.tourContext?.dedicated && state.holes !== 18;
   return true;
 }
 
@@ -3656,6 +3662,7 @@ function detectQualifyingTours(players) {
   const localMatches = toursLoad().filter(tour => tour.status === 'open' && GolfTourRules.matchingRounds(tour, [synthetic], playersLoad()).length);
   const sharedMatches = sharedTourStore.load().filter(record => record.tour?.status === 'open' && record.tour.startDate <= date && record.tour.endDate >= date &&
     record.tour.courses?.some(course => course.name === state.courseName && (!course.holes || course.holes === state.holes)) &&
+    (GolfCompetition.config(record.tour).format === 'stableford' || state.gameMode === 'individual') &&
     players.some(player => record.tour.members?.some(member => member.name === player.name)));
   state._qualifyingTourNames = [...localMatches.map(tour => tour.name), ...sharedMatches.map(record => record.tour.name)];
   if (sharedMatches.length === 1) {
@@ -3664,8 +3671,8 @@ function detectQualifyingTours(players) {
       const member = record.tour.members.find(item => item.name === player.name);
       if (member) { player.memberId = member.id; state.playerMemberIds[index] = member.id; }
     });
-    const baseline = Object.fromEntries(GolfTourRules.computeSharedStandings(record.tour).map((row, index) => [String(row.player.id), { position: index + 1, total: row.total }]));
-    state.tourContext = { kind: 'shared', code: record.code, submissionOwner: true, dedicated: false, tourName: record.tour.name, baselineStandings: baseline };
+    const baseline = Object.fromEntries(GolfTourRules.computeSharedStandings(record.tour).map((row, index) => [String(row.player.id), { position: row.position, total: row.total }]));
+    state.tourContext = { kind: 'shared', code: record.code, submissionOwner: true, dedicated: false, rulesRevision: record.tour.rulesRevision || 1, tourName: record.tour.name, baselineStandings: baseline };
   }
 }
 
@@ -3702,6 +3709,8 @@ function renderTournamentLivePanel() {
     notice.classList.toggle('hidden', !names.length);
     if (names.length) notice.textContent = `✓ Den här rundan kvalificerar för: ${names.join(', ')}`;
   }
+  const liveTour = state.tourContext?.code && sharedTourStore.find(state.tourContext.code)?.tour;
+  if (panel && body && liveTour && GolfCompetition.config(liveTour).format !== 'stableford') { panel.classList.remove('hidden'); body.textContent = `${GolfCompetition.formatName(GolfCompetition.config(liveTour).format)} · hela rundor krävs. Se tourställningen för räknade resultat.`; return; }
   const projection = tournamentProjection();
   if (!panel || !body || !projection) { panel?.classList.add('hidden'); return; }
   panel.classList.remove('hidden');
@@ -3713,14 +3722,20 @@ function renderTournamentLivePanel() {
   body.innerHTML = `<div style="font-size:.74rem;color:var(--muted);margin-bottom:4px;">Prognos efter inmatade hål · ${escapeHtml(state.tourContext.tourName || 'Tour')}</div>` + projection.standings.map((row, index) => {
     const key = String(row.player.id);
     const baseline = state.tourContext.baselineStandings?.[key];
-    const movement = baseline ? baseline.position - (index + 1) : 0;
+    const movement = baseline ? baseline.position - (row.position || index + 1) : 0;
     const move = movement > 0 ? `<span class="tournament-move-up">▲${movement}</span>` : movement < 0 ? `<span class="tournament-move-down">▼${Math.abs(movement)}</span>` : '<span>—</span>';
     const completed = completedById[key] ?? completedById[`name:${row.player.nick || row.player.name}`];
-    return `<div class="tournament-live-row"><strong>${index + 1}</strong><span><strong>${escapeHtml(row.player.nick || row.player.name)}</strong><br><span style="color:var(--muted);">${completed != null ? `${completed}/${state.holes} hål · ` : ''}${row.roundsCounted}/${row.roundsPlayed} rundor</span></span><span style="text-align:right;">${move}<br><strong>${row.total}p</strong></span></div>`;
+    return `<div class="tournament-live-row"><strong>${row.position || '—'}</strong><span><strong>${escapeHtml(row.player.nick || row.player.name)}</strong><br><span style="color:var(--muted);">${completed != null ? `${completed}/${state.holes} hål · ` : ''}${row.roundsCounted}/${row.roundsPlayed} rundor</span></span><span style="text-align:right;">${move}<br><strong>${row.total}p</strong></span></div>`;
   }).join('');
 }
 
 function renderTournamentImpact() {
+  const shared = state.tourContext?.code && sharedTourStore.find(state.tourContext.code)?.tour;
+  if (shared && GolfCompetition.config(shared).format !== 'stableford') {
+    const round = roundFind(state.editingId), container = document.getElementById('rankingContainer');
+    if (round && container) container.insertAdjacentHTML('afterend', `<div class="card"><div class="card-title">${GolfCompetition.formatName(GolfCompetition.config(shared).format)} · ${escapeHtml(shared.name)}</div>${round.subjects.map(subject => `<p>${escapeHtml(subject.name)}: ${tourMetricText(shared, subject, round.holes)}</p>`).join('')}<p>Tourresultatet räknas efter synkning och eventuell granskning.</p></div>`);
+    return;
+  }
   let projection = tournamentProjection();
   if (state.tourContext?.localTourId) {
     const tour = tourFind(state.tourContext.localTourId);
@@ -3731,7 +3746,7 @@ function renderTournamentImpact() {
   const rows = projection.standings.map((row, index) => {
     const previous = state.tourContext.baselineStandings?.[String(row.player.id)];
     const delta = previous ? row.total - previous.total : row.total;
-    return `<div class="tournament-live-row"><strong>${index + 1}</strong><span>${escapeHtml(row.player.nick || row.player.name)}</span><span style="text-align:right;"><strong>${row.total}p</strong>${delta ? `<br><span class="tournament-move-up">+${delta}p</span>` : ''}</span></div>`;
+    return `<div class="tournament-live-row"><strong>${row.position || '—'}</strong><span>${escapeHtml(row.player.nick || row.player.name)}</span><span style="text-align:right;"><strong>${row.total}p</strong>${delta ? `<br><span class="tournament-move-up">+${delta}p</span>` : ''}</span></div>`;
   }).join('');
   container.insertAdjacentHTML('afterend', `<div class="card" style="margin-top:10px;"><div class="card-title">🏆 Tourpåverkan · ${escapeHtml(state.tourContext.tourName || 'Tour')}</div>${rows}<p style="font-size:.74rem;color:var(--muted);margin-top:8px;">Visar den nya prognosen efter rundan och vilka poäng som tillkom.</p></div>`);
 }
@@ -3751,6 +3766,13 @@ async function calculateAll() {
     }
   }
 
+  const activeCompetition = state.tourContext?.code && sharedTourStore.find(state.tourContext.code)?.tour;
+  if (activeCompetition && state.tourContext.rulesRevision && state.tourContext.rulesRevision !== (activeCompetition.rulesRevision || 1)) { alert('Tourreglerna har ändrats sedan scorekortet startades. Utkastet finns kvar. Öppna touren och starta ett scorekort med aktuella regler.'); return; }
+  if (activeCompetition && GolfCompetition.config(activeCompetition).format !== 'stableford') {
+    const course = activeCompetition.courses.find(course => course.name === state.courseName && course.holes === state.holes);
+    if (!course || state.players.some(player => !course.tees.some(tee => tee.name === (player.tee || state.teeColor)))) { alert('Slagspelsrundan måste använda tourens valda bana, hålantal och tee. Utkastet finns kvar.'); return; }
+  }
+  if (activeCompetition && GolfCompetition.config(activeCompetition).format !== 'stableford' && (state.gameMode !== 'individual' || state.scores.some(row => row.length !== state.holes || row.some(score => !Number.isInteger(score) || score < 1)))) { alert('Slagspel kräver individuellt spel och slag på alla hål. Utkastet finns kvar medan du fyller i resten.'); return; }
   const unfinished = state.scores.reduce((sum, row) => sum + row.filter(score => score == null || score === '').length, 0);
   if (unfinished && !confirm(`${unfinished} hålresultat saknas. Avsluta ändå och räkna dessa som upplockade (0 poäng)? Avbryt för att fortsätta spela.`)) return;
   const anyScore = state.scores.some(ps => ps.some(s => s !== null && s >= 0));
@@ -3789,6 +3811,8 @@ async function calculateAll() {
 
   if (isFourball) applyFourballTeamScoring(results);
 
+  const competitionTour = state.tourContext?.code && sharedTourStore.find(state.tourContext.code)?.tour;
+  if (competitionTour && GolfCompetition.config(competitionTour).format !== 'stableford' && (state.gameMode !== 'individual' || !results.every(result => GolfCompetition.complete(result, state.holes)))) { alert('Slagspel kräver individuellt spel och slag på alla hål. Fyll i scorekortet innan du avslutar.'); return; }
   if (!await saveCurrentRound(results)) return;
   renderResults(results, undefined, undefined, state.markers);
   renderTournamentImpact();
@@ -5450,6 +5474,9 @@ async function restoreDeletedRound(id) {
   } catch (error) { alert(error.message); }
 }
 function renderRoundDetails() {
+  const competitionTour = state.tourContext?.code && sharedTourStore.find(state.tourContext.code)?.tour;
+  const strokePlay = !!competitionTour && GolfCompetition.config(competitionTour).format !== 'stableford';
+  document.querySelectorAll('#gameModeRow button').forEach(button => { button.disabled = strokePlay && button.id !== 'btnModeIndividual'; });
   const date = state.playedDate || state.editingDate || localPlayedToday();
   document.getElementById('roundPlayedDate').value = date;
   document.getElementById('roundPlayedDate').max = roundPlayedToday();
@@ -6012,7 +6039,7 @@ async function saveCurrentRound(playerResults) {
     minTeeShots: isScramble ? (state.minTeeShots || null) : null,
     bets: state.bets || [],
     liveRoomCode: isEditing ? (originalRound?.liveRoomCode || null) : (state.liveRoomCode || null),
-    tourRef: isEditing ? (originalRound?.tourRef || null) : (state.tourContext?.code ? { code: state.tourContext.code, syncStatus: 'pending' } : null),
+    tourRef: isEditing ? (originalRound?.tourRef || null) : (state.tourContext?.code ? { code: state.tourContext.code, syncStatus: 'pending', rulesRevision: state.tourContext.rulesRevision || 1 } : null),
     subjects
   };
   if (isEditing) { if (!roundUpdate(roundData)) return false; }
@@ -6914,12 +6941,17 @@ async function openSpectatorTour(code) {
   } catch (_) { content.innerHTML = '<p>Touren kunde inte hittas.</p>'; }
 }
 
+function tourMetricText(tour, subject, holes) {
+  const format = GolfCompetition.config(tour).format, value = GolfCompetition.metric(subject, format, holes);
+  return value === null ? 'Ej fullständig' : `${value}${format === 'stableford' ? 'p' : ' slag'}`;
+}
+
 function renderTournamentProfiles(tour) {
   const profiles = GolfTourRules.computePlayerProfiles(tour);
   return `<div class="tour-profile-grid">${profiles.map(profile => `<details class="tour-profile">
     <summary>${profile.position ? `#${profile.position} · ` : ''}${escapeHtml(profile.member.name)}</summary>
     <div class="tour-profile-metrics">
-      <span><strong>${profile.appearances}</strong>starter</span><span><strong>${profile.averagePoints}</strong>snittpoäng</span>
+      <span><strong>${profile.appearances}</strong>starter</span><span><strong>${profile.averagePoints}</strong>${GolfCompetition.config(tour).format === 'stableford' ? 'snittpoäng' : 'snittslag'}</span>
       <span><strong>${profile.bestRound?.points ?? '–'}</strong>bästa runda</span><span><strong>${profile.wins ? '🏆' : profile.podiums ? '🏅' : '–'}</strong>medaljer</span>
       <span style="grid-column:1/-1;"><strong>${profile.headToHead.wins}–${profile.headToHead.losses}–${profile.headToHead.ties}</strong>inbördes vinster–förluster–delade</span>
     </div>${profile.bestRound ? `<div style="font-size:.72rem;color:var(--muted);margin-top:7px;">Bäst: ${escapeHtml(profile.bestRound.courseName)} · ${escapeHtml(profile.bestRound.playedDate)}</div>` : ''}
@@ -6928,7 +6960,7 @@ function renderTournamentProfiles(tour) {
 
 function tournamentTimeline(tour, activity = []) {
   const events = [
-    ...(tour.rounds || []).map(round => ({ at: new Date(`${round.playedDate}T12:00:00`).getTime(), icon: '⛳', title: `${round.courseName} · ${sharedRoundApprovalLabel(tour, round)} · ${round.subjects.map(subject => `${subject.name} ${GolfTourRules.subjectPoints(subject)}p · ${Number.isFinite(subject.totalBrutto) ? subject.totalBrutto : '–'} slag`).join(', ')}` })),
+    ...(tour.rounds || []).map(round => ({ at: new Date(`${round.playedDate}T12:00:00`).getTime(), icon: '⛳', title: `${round.courseName} · ${sharedRoundApprovalLabel(tour, round)} · ${round.subjects.map(subject => `${subject.name} ${tourMetricText(tour, subject, round.holes)} · ${Number.isFinite(subject.totalBrutto) ? subject.totalBrutto : '–'} slag`).join(', ')}` })),
     ...(tour.announcements || []).map(item => ({ at: item.at, icon: '📣', title: `${item.author}: ${item.message}` })),
     ...(activity || []).filter(item => item.type === 'round_started').map(item => ({ at: item.at, icon: '🏌️', title: `Runda startad på ${item.details?.courseName || 'tourbanan'} · ${(item.details?.playerNames || []).join(', ')}` })),
   ].sort((a, b) => b.at - a.at).slice(0, 30);
@@ -6971,6 +7003,7 @@ function renderSpectatorTourDetail(code) {
   const dates = node('span', '', `${tour.startDate || ''} – ${tour.endDate || ''}`);
   dates.style.cssText = 'font-size:.8rem;color:var(--muted);';
   heading.append(live, name, document.createElement('br'), dates);
+  heading.append(node('p', '', `${GolfCompetition.formatName(GolfCompetition.config(tour).format)} · ${GolfCompetition.tieName(GolfCompetition.config(tour).tieBreak)}`));
   board.append(heading, node('div', 'spectator-update', `Uppdaterad ${new Date(tour.updatedAt || Date.now()).toLocaleTimeString('sv-SE')}`));
 
   const standingsSection = node('section', 'tour-standings');
@@ -6982,16 +7015,17 @@ function renderSpectatorTourDetail(code) {
   standings.forEach((row, index) => {
     const playerName = row.player.nick || row.player.name || '';
     const line = node('div', 'tour-standing-row');
-    const place = node('div', 'tour-standing-place', `#${index + 1}`);
-    if (medals[index]) place.prepend(node('span', 'tour-standing-medal', medals[index]));
+    const rank = row.position === null ? null : (row.position || index + 1);
+    const place = node('div', 'tour-standing-place', rank ? `#${rank}${row.tied ? ' delad' : ''}` : '—');
+    if (rank && medals[rank - 1]) place.prepend(node('span', 'tour-standing-medal', medals[rank - 1]));
     const avatar = node('div', 'tour-standing-avatar');
     const photo = isValidPhotoUrl(row.player.photo) ? row.player.photo : _photoForName(playerName);
     if (photo) { const image = node('img'); image.src = photo; image.alt = ''; avatar.append(image); }
     else avatar.textContent = playerName.split(/\s+/).filter(Boolean).slice(0, 2).map(part => part[0]).join('').toLocaleUpperCase('sv-SE') || '?';
     const player = node('div');
-    player.append(node('div', 'tour-standing-name', playerName), node('div', 'tour-standing-rounds', `${Number(row.roundsCounted) || 0} räknade av ${Number(row.roundsPlayed) || 0} spelade rundor`));
+    player.append(node('div', 'tour-standing-name', playerName), node('div', 'tour-standing-rounds', `${Number(row.roundsCounted) || 0} räknade av ${Number(row.roundsPlayed) || 0} spelade rundor${row.complete === false ? ' · Ofullständig serie' : ''}`));
     const score = node('div', 'tour-standing-score', row.total);
-    score.append(node('span', '', 'poäng'));
+    score.append(node('span', '', row.format === 'stableford' ? 'poäng' : 'slag'));
     line.append(place, avatar, player, score);
     standingsSection.append(line);
   });
@@ -7009,7 +7043,7 @@ function renderSpectatorTourDetail(code) {
 
   board.append(title('Tourens tidslinje'));
   const events = [
-    ...(tour.rounds || []).map(round => ({ at: new Date(`${round.playedDate}T12:00:00`).getTime(), icon: '⛳', roundId: round.id, text: `${round.courseName} · ${sharedRoundApprovalLabel(tour, round)} · ${(round.subjects || []).map(subject => `${subject.name} ${GolfTourRules.subjectPoints(subject)}p · ${Number.isFinite(subject.totalBrutto) ? subject.totalBrutto : '–'} slag`).join(', ')}` })),
+    ...(tour.rounds || []).map(round => ({ at: new Date(`${round.playedDate}T12:00:00`).getTime(), icon: '⛳', roundId: round.id, text: `${round.courseName} · ${sharedRoundApprovalLabel(tour, round)} · ${(round.subjects || []).map(subject => `${subject.name} ${tourMetricText(tour, subject, round.holes)} · ${Number.isFinite(subject.totalBrutto) ? subject.totalBrutto : '–'} slag`).join(', ')}` })),
     ...(tour.announcements || []).map(item => ({ at: item.at, icon: '📣', text: `${item.author}: ${item.message}` })),
   ].sort((a, b) => b.at - a.at).slice(0, 30);
   const timeline = node('div', 'tour-timeline');
@@ -7022,7 +7056,7 @@ function renderSpectatorTourDetail(code) {
     const details = node('details', 'tour-profile');
     details.append(node('summary', '', `${profile.position ? `#${profile.position} · ` : ''}${profile.member.name || ''}`));
     const metrics = node('div', 'tour-profile-metrics');
-    [[profile.appearances, 'starter'], [profile.averagePoints, 'snittpoäng'], [profile.bestRound?.points ?? '–', 'bästa runda'], [profile.wins ? '🏆' : profile.podiums ? '🏅' : '–', 'medaljer'], [`${profile.headToHead.wins}–${profile.headToHead.losses}–${profile.headToHead.ties}`, 'inbördes vinster–förluster–delade']].forEach(([value, label], index) => { const metric = node('span'); if (index === 4) metric.style.gridColumn = '1/-1'; metric.append(node('strong', '', value), document.createTextNode(label)); metrics.append(metric); });
+    [[profile.appearances, 'starter'], [profile.averagePoints, GolfCompetition.config(tour).format === 'stableford' ? 'snittpoäng' : 'snittslag'], [profile.bestRound?.points ?? '–', 'bästa runda'], [profile.wins ? '🏆' : profile.podiums ? '🏅' : '–', 'medaljer'], [`${profile.headToHead.wins}–${profile.headToHead.losses}–${profile.headToHead.ties}`, 'inbördes vinster–förluster–delade']].forEach(([value, label], index) => { const metric = node('span'); if (index === 4) metric.style.gridColumn = '1/-1'; metric.append(node('strong', '', value), document.createTextNode(label)); metrics.append(metric); });
     details.append(metrics);
     if (profile.bestRound) { const best = node('div', '', `Bäst: ${profile.bestRound.courseName} · ${profile.bestRound.playedDate}`); best.style.cssText = 'font-size:.72rem;color:var(--muted);margin-top:7px;'; details.append(best); }
     profileGrid.append(details);
@@ -7482,6 +7516,7 @@ function cancelSharedTourEdit(code) {
 }
 
 async function saveSharedTourConditions(code) {
+  const scope = recoveryScope();
   const record = sharedTourStore.find(code);
   if (!record || !['organizer', 'administrator'].includes(record.role)) return;
   const bestValue = document.getElementById('sharedTourEditBest').value;
@@ -7495,13 +7530,18 @@ async function saveSharedTourConditions(code) {
     bestOfN: bestValue === '' ? null : Number(bestValue),
     duplicateCourseRule: document.getElementById('sharedTourEditRule').value,
     approvalRequired: document.getElementById('sharedTourEditApproval').checked,
+    competition: { format: document.getElementById('sharedTourEditFormat').value, tieBreak: document.getElementById('sharedTourEditTie').value },
     courseLimits: Array.from(document.querySelectorAll('.shared-tour-course-limit')).map(input => ({
       courseId: input.dataset.courseId, maxRounds: Number(input.value),
     })),
   };
+  const invalidCompetition = GolfCompetition.validate(payload.competition, { ...record.tour, bestOfN: payload.bestOfN, courses: record.tour.courses.map(course => ({ ...course, maxRounds: payload.courseLimits.find(limit => limit.courseId === course.id).maxRounds })) });
+  if (invalidCompetition) { alert(invalidCompetition); return; }
   try {
     const response = await sharedTourClient.updateConditions(code, record.token, payload);
-    sharedTourStore.upsert({ ...record, tour: response.tour || response });
+    if (scope !== recoveryScope()) return;
+    const latest = sharedTourStore.find(code); if (!latest) return;
+    sharedTourStore.upsert({ ...latest, tour: response.tour || response });
     _editingSharedTourCode = null;
     renderSharedTourDetail(code);
     renderActiveToursCard();
@@ -7509,6 +7549,7 @@ async function saveSharedTourConditions(code) {
     showShareToast('Tourvillkoren har uppdaterats.');
   } catch (error) {
     if (error.status === 409) await refreshSharedTour(code);
+    if (scope !== recoveryScope()) return;
     alert('Kunde inte uppdatera tourvillkoren: ' + (error.message || 'nätverksfel'));
   }
 }
@@ -7527,6 +7568,8 @@ function renderTourStandings(standings, emptyText = 'Inga rundor ännu.', resolv
   const medals = ['🥇', '🥈', '🥉'];
   const rows = standings.map((row, index) => {
     const name = row.player.nick || row.player.name;
+    const place = row.position === null ? null : (row.position || index + 1), unit = row.format && row.format !== 'stableford' ? 'slag' : 'poäng';
+    const explanation = row.results ? `<details class="tour-count-explanation"><summary>Vilka rundor räknas?</summary><p>${GolfCompetition.tieName(row.tieBreak || 'handicap')}</p>${row.requiredRounds ? `<p>${row.roundsCounted}/${row.requiredRounds} hela rundor. ${row.complete ? 'Serien är komplett.' : 'Ingen placering förrän serien är komplett.'}</p>` : ''}<ul>${row.results.map(result => `<li>${escapeHtml(result.date)} · ${escapeHtml(result.courseName)} · ${result.points} ${unit}: ${result.counted ? 'räknas' : result.reason === 'course_limit' ? 'utanför banans maxgräns' : 'utanför de bästa räknade rundorna'}</li>`).join('')}</ul></details>` : '';
     const counted = Number(row.roundsCounted) || 0;
     const played = Number(row.roundsPlayed) || 0;
     const resolvedPhoto = typeof resolvePhoto === 'function' ? resolvePhoto(row.player) : null;
@@ -7534,10 +7577,10 @@ function renderTourStandings(standings, emptyText = 'Inga rundor ännu.', resolv
       (isValidPhotoUrl(row.player.photo) ? row.player.photo : _photoForName(name));
     const initials = name.split(/\s+/).filter(Boolean).slice(0, 2).map(part => part[0]).join('').toLocaleUpperCase('sv-SE');
     return `<div class="tour-standing-row">
-      <div class="tour-standing-place">${medals[index] ? `<span class="tour-standing-medal" aria-label="Placering ${index + 1}">${medals[index]}</span>` : ''}#${index + 1}</div>
+      <div class="tour-standing-place">${place && medals[place - 1] ? `<span class="tour-standing-medal" aria-label="Placering ${place}">${medals[place - 1]}</span>` : ''}${place ? '#' + place + (row.tied ? ' delad' : '') : '—'}</div>
       <div class="tour-standing-avatar">${photo ? `<img src="${escapeHtml(photo)}" alt="">` : escapeHtml(initials || '?')}</div>
-      <div><div class="tour-standing-name">${escapeHtml(name)}</div><div class="tour-standing-rounds">${counted} räknade av ${played} spelade rundor</div></div>
-      <div class="tour-standing-score">${row.total}<span>poäng</span></div>
+      <div><div class="tour-standing-name">${escapeHtml(name)}</div><div class="tour-standing-rounds">${counted} räknade av ${played} spelade rundor${row.complete === false ? ' · Ofullständig serie' : ''}</div>${explanation}</div>
+      <div class="tour-standing-score">${row.total}<span>${unit}</span></div>
     </div>`;
   }).join('');
   return `<section class="tour-standings" aria-label="Tourställning">
@@ -7558,6 +7601,7 @@ function renderSharedTourDetail(code) {
   if (!record?.tour) { el.innerHTML = '<p>Den delade touren kunde inte läsas.</p>'; return; }
   const tour = record.tour;
   const canAdmin = ['organizer', 'administrator'].includes(record.role);
+  const competition = GolfCompetition.config(tour), rulesLocked = !!tour.rulesLocked || tour.rounds.length > 0;
   const standings = GolfTourRules.computeSharedStandings(tour);
   const memberLinks = record.memberLinks || {};
   const localPlayers = playersLoad();
@@ -7567,7 +7611,7 @@ function renderSharedTourDetail(code) {
     return localPlayer?.photo || null;
   });
   const roundRows = (tour.rounds || []).slice().sort((a, b) => b.playedDate.localeCompare(a.playedDate)).map(round =>
-    `<div class="hi-row"><strong>${escapeHtml(round.courseName)}</strong> · ${round.playedDate}${round.correctedAt ? ' · korrigerad' : ''} · ${sharedRoundApprovalLabel(tour, round)}<br><span style="color:var(--muted);font-size:0.8rem;">${round.subjects.map(subject => `${escapeHtml(subject.name)} <strong style="color:var(--heading);">${subject.totalPoints}p</strong> · ${Number.isFinite(subject.totalBrutto) ? subject.totalBrutto : '–'} slag`).join(', ')}</span>${canAdmin && !['withdrawn', 'disqualified'].includes(round.resultStatus) ? `<button class="btn secondary" style="margin-top:7px;" data-action-click="correctSharedTourRound" data-args="${escapeHtml(JSON.stringify([record.code,round.id,round.playedDate]))}">Korrigera resultat</button>` : ''}${canAdmin && tour.approvalRequired && !['withdrawn', 'disqualified'].includes(round.resultStatus) ? `<button class="btn secondary" style="margin-top:7px;" data-action-click="reviewSharedTourRound" data-args="${escapeHtml(JSON.stringify([record.code,round.id,round.approvalStatus === 'confirmed' ? 'provisional' : 'confirmed']))}">${round.approvalStatus === 'confirmed' ? 'Återöppna granskning' : 'Granska och godkänn'}</button>` : ''}${canAdmin ? `<button class="btn secondary" style="margin-top:7px;" data-action-click="manageSharedTourResult" data-args="${escapeHtml(JSON.stringify([record.code,round.id]))}">Hantera resultat</button>` : ''}<button class="btn secondary" style="margin-top:7px;" data-action-click="showSharedTourRoundScorecard" data-args="${escapeHtml(JSON.stringify([record.code,round.id]))}">Visa scorekort</button><button class="btn secondary" style="margin-top:7px;" data-action-click="showSharedRoundCorrections" data-args="${escapeHtml(JSON.stringify([record.code,round.id]))}">Korrigeringshistorik</button></div>`).join('');
+    `<div class="hi-row"><strong>${escapeHtml(round.courseName)}</strong> · ${round.playedDate}${round.correctedAt ? ' · korrigerad' : ''} · ${sharedRoundApprovalLabel(tour, round)}<br><span style="color:var(--muted);font-size:0.8rem;">${round.subjects.map(subject => `${escapeHtml(subject.name)} <strong style="color:var(--heading);">${tourMetricText(tour, subject, round.holes)}</strong> · ${Number.isFinite(subject.totalBrutto) ? subject.totalBrutto : '–'} slag`).join(', ')}</span>${canAdmin && !['withdrawn', 'disqualified'].includes(round.resultStatus) ? `<button class="btn secondary" style="margin-top:7px;" data-action-click="correctSharedTourRound" data-args="${escapeHtml(JSON.stringify([record.code,round.id,round.playedDate]))}">Korrigera resultat</button>` : ''}${canAdmin && tour.approvalRequired && !['withdrawn', 'disqualified'].includes(round.resultStatus) ? `<button class="btn secondary" style="margin-top:7px;" data-action-click="reviewSharedTourRound" data-args="${escapeHtml(JSON.stringify([record.code,round.id,round.approvalStatus === 'confirmed' ? 'provisional' : 'confirmed']))}">${round.approvalStatus === 'confirmed' ? 'Återöppna granskning' : 'Granska och godkänn'}</button>` : ''}${canAdmin ? `<button class="btn secondary" style="margin-top:7px;" data-action-click="manageSharedTourResult" data-args="${escapeHtml(JSON.stringify([record.code,round.id]))}">Hantera resultat</button>` : ''}<button class="btn secondary" style="margin-top:7px;" data-action-click="showSharedTourRoundScorecard" data-args="${escapeHtml(JSON.stringify([record.code,round.id]))}">Visa scorekort</button><button class="btn secondary" style="margin-top:7px;" data-action-click="showSharedRoundCorrections" data-args="${escapeHtml(JSON.stringify([record.code,round.id]))}">Korrigeringshistorik</button></div>`).join('');
   const courseRows = (tour.courses || []).map(course => {
     const tees = (course.tees || []).map(tee => escapeHtml(tee.name)).join(', ');
     const roundLimit = Number.isInteger(course.maxRounds)
@@ -7577,22 +7621,26 @@ function renderSharedTourDetail(code) {
       <span style="color:var(--muted);font-size:0.8rem;">${course.holes} hål · tee ${tees || 'saknas'}${roundLimit}</span></div>`;
   }).join('');
   const conditionRows = `
+    <div class="tour-condition-row"><span>🏆</span><div><strong>${GolfCompetition.formatName(competition.format)}</strong><br>${GolfCompetition.tieName(competition.tieBreak)}${rulesLocked ? ' · Regler låsta' : ''}</div></div>
     <div class="tour-condition-row"><span>📅</span><div><strong>Spelperiod</strong><br>${tour.startDate} – ${tour.endDate}</div></div>
     <div class="tour-condition-row"><span>✓</span><div><strong>Resultatgranskning</strong><br>${tour.approvalRequired ? 'Endast godkända rundor räknas. Korrigeringar kräver nytt godkännande.' : 'Ingen granskning krävs – registrerade rundor räknas direkt.'}</div></div>
     <div class="tour-condition-row"><span>⭐</span><div><strong>Rundor som räknas</strong><br>${tour.bestOfN ? `Spelarens bästa ${tour.bestOfN} rundor` : 'Alla godkända rundor'}</div></div>
     <div class="tour-condition-row"><span>🔁</span><div><strong>Fler rundor på samma bana</strong><br>${tour.duplicateCourseRule === 'first' ? 'De första rundorna upp till banans gräns räknas' : 'De bästa rundorna upp till banans gräns räknas'}</div></div>
-    <div class="tour-condition-row"><span>🏌️</span><div><strong>Godkända spelformer</strong><br>Individuellt, Scramble, bästboll, Foursome och matchspel</div></div>`;
+    <div class="tour-condition-row"><span>🏌️</span><div><strong>Godkända spelformer</strong><br>${competition.format === 'stableford' ? 'Individuellt, Scramble, bästboll, Foursome och matchspel' : 'Individuellt slagspel med slag på alla hål'}</div></div>`;
   const editing = canAdmin && _editingSharedTourCode === record.code;
   const conditionEditor = editing ? `<div class="tour-condition-editor">
+    <label>Tävlingsformat<select id="sharedTourEditFormat"${rulesLocked ? ' disabled' : ''}>${[['stableford','Poängbogey – högst poäng'],['gross','Individuellt bruttoslagspel – lägst slag'],['net','Individuellt nettoslagspel – lägst nettoslag']].map(([value,label]) => `<option value="${value}"${competition.format === value ? ' selected' : ''}>${label}</option>`).join('')}</select></label>
+    <label>Särskiljning vid lika total<select id="sharedTourEditTie"${rulesLocked ? ' disabled' : ''}>${[['handicap','Lägre HCP, sedan tourens spelarordning'],['shared','Delad placering'],['best_round','Bästa räknade runda, sedan nästa']].map(([value,label]) => `<option value="${value}"${competition.tieBreak === value ? ' selected' : ''}>${label}</option>`).join('')}</select></label>
+    <p style="font-size:.8rem;">Slagspel kräver individuellt spel, slag på alla hål, lika långa banor och ett fast antal räknade rundor. Oavslutade serier får ingen placering. Format, särskiljning och räkneregler låses när spel startar.</p>
     <label>Namn<input id="sharedTourEditName" maxlength="80" value="${escapeHtml(tour.name)}"></label>
     <div class="tour-edit-grid">
       <label>Startdatum<input id="sharedTourEditStart" type="date" value="${tour.startDate}"></label>
       <label>Slutdatum<input id="sharedTourEditEnd" type="date" value="${tour.endDate}"></label>
     </div>
     <label><input id="sharedTourEditApproval" type="checkbox" style="width:auto;"${tour.approvalRequired ? ' checked' : ''}${tour.rounds?.length ? ' disabled' : ''}> Kräv organisatörens godkännande av rundor</label><p style="font-size:.78rem;">Välj före första registrerade rundan. Preliminära rundor visas men räknas inte i ställningen.</p>
-    <label>Antal bästa rundor (tomt = alla)<input id="sharedTourEditBest" type="number" min="1" max="100" value="${tour.bestOfN || ''}"></label>
-    <label>Flera rundor på samma bana<select id="sharedTourEditRule"><option value="best"${tour.duplicateCourseRule === 'best' ? ' selected' : ''}>Bästa rundorna räknas</option><option value="first"${tour.duplicateCourseRule === 'first' ? ' selected' : ''}>Första rundorna räknas</option></select></label>
-    ${(tour.courses || []).map(course => `<label>Max rundor · ${escapeHtml(course.name)}<input class="shared-tour-course-limit" data-course-id="${escapeHtml(course.id)}" type="number" min="1" max="50" value="${course.maxRounds}"></label>`).join('')}
+    <label>Antal bästa rundor (tomt = alla)<input id="sharedTourEditBest"${rulesLocked ? ' disabled' : ''} type="number" min="1" max="100" value="${tour.bestOfN || ''}"></label>
+    <label>Flera rundor på samma bana<select id="sharedTourEditRule"${rulesLocked ? ' disabled' : ''}><option value="best"${tour.duplicateCourseRule === 'best' ? ' selected' : ''}>Bästa rundorna räknas</option><option value="first"${tour.duplicateCourseRule === 'first' ? ' selected' : ''}>Första rundorna räknas</option></select></label>
+    ${(tour.courses || []).map(course => `<label>Max rundor · ${escapeHtml(course.name)}<input class="shared-tour-course-limit"${rulesLocked ? ' disabled' : ''} data-course-id="${escapeHtml(course.id)}" type="number" min="1" max="50" value="${course.maxRounds}"></label>`).join('')}
     <p style="font-size:.78rem;color:var(--muted);">Banor och spelare är låsta efter publicering. Datum kan inte utesluta redan registrerade rundor.</p>
     <div class="tour-admin-actions"><button class="btn" data-action-click="saveSharedTourConditions" data-args="${escapeHtml(JSON.stringify([record.code]))}">Spara villkor</button><button class="btn secondary" data-action-click="cancelSharedTourEdit" data-args="${escapeHtml(JSON.stringify([record.code]))}">Avbryt</button></div>
   </div>` : '';
@@ -7737,7 +7785,7 @@ function tournamentSource(kind, id) {
     const inverse = Object.fromEntries(Object.entries(record.memberLinks || {}).map(([playerId, memberId]) => [String(memberId), playerId]));
     return {
       kind, id: record.code, record, tour: record.tour,
-      members: record.tour.members.map(member => ({ ...member, memberId: member.id, playerId: inverse[String(member.id)] || null })),
+      members: record.tour.members.map(member => ({ ...member, memberId: member.id, playerId: playersLoad().find(player => String(player.id) === inverse[String(member.id)])?.id || null })),
       standings: GolfTourRules.computeSharedStandings(record.tour),
     };
   }
@@ -7781,14 +7829,14 @@ async function confirmTournamentRoundSetup(kind, id) {
   if (kind === 'shared') (course.tees || []).forEach(tee => dbUpsert({ name: course.name, tee: tee.name, holes: course.holes, slope: tee.slope, cr: tee.cr, par: tee.par, hpar: tee.hpar, si: tee.si }));
   const entry = dbLoad().find(item => item.name === course.name && (!course.holes || item.holes === course.holes));
   if (!entry) { alert('Banans tee-data saknas på enheten. Öppna eller lägg till banan först.'); return; }
-  const baseline = Object.fromEntries(source.standings.map((row, index) => [String(row.player.id), { position: index + 1, total: row.total }]));
+  const baseline = Object.fromEntries(source.standings.map((row, index) => [String(row.player.id), { position: row.position, total: row.total }]));
   document.getElementById('tournamentSetup')?.remove();
   stopSharedTourRefresh();
   document.getElementById('tourView').classList.add('hidden');
   if (!await newRound() || setupScope !== recoveryScope()) return;
   state.tourContext = {
     ...(kind === 'shared' ? { code: source.record.code, submissionOwner: true } : { localTourId: source.tour.id }),
-    kind, dedicated: true, tourName: source.tour.name, selectedPlayers: checked,
+    kind, dedicated: true, ...(kind === 'shared' ? { rulesRevision: source.tour.rulesRevision || 1 } : {}), tourName: source.tour.name, selectedPlayers: checked,
     baselineStandings: baseline,
     ...(scheduled ? { eventTimeZone: scheduled.timeZone, eventName: scheduled.name } : {}),
   };
@@ -7797,9 +7845,9 @@ async function confirmTournamentRoundSetup(kind, id) {
   if (!await loadSavedCourseAndAdvance(entry)) return;
   goToStep3Players();
   if (kind === 'shared') {
-    sharedTourClient.startRound(source.record.code, source.record.token, course.id, checked.map(member => member.memberId || member.id))
-      .then(started => { if (setupScope !== recoveryScope()) return; const latest = sharedTourStore.find(source.record.code); if (latest) sharedTourStore.upsert({ ...latest, tour: started.tour || latest.tour }); })
-      .catch(() => { if (setupScope === recoveryScope()) showShareToast('Rundan startar, men övriga medlemmar kunde inte notifieras just nu.'); });
+    sharedTourClient.startRound(source.record.code, source.record.token, course.id, checked.map(member => member.memberId || member.id), state.tourContext.rulesRevision)
+      .then(started => { if (setupScope !== recoveryScope()) return; const latest = sharedTourStore.find(source.record.code); if (latest) sharedTourStore.upsert({ ...latest, tour: started.tour || started }); })
+      .catch(error => { if (setupScope !== recoveryScope()) return; if (error.status === 409 || error.status === 426) { showShareToast('Tourreglerna har ändrats. Hämta aktuella villkor och starta scorekortet igen.'); refreshSharedTour(source.record.code); } else showShareToast('Rundan startar, men övriga medlemmar kunde inte notifieras just nu.'); });
   }
 }
 

@@ -1,3 +1,5 @@
+import Competition from '../src/competition.js';
+import TourRules from '../src/tour-rules.js';
 import TourEvents from '../src/tour-events.js';
 import assert from 'node:assert/strict';
 import { buildSmokeSubmission } from './smoke-round.mjs';
@@ -44,7 +46,7 @@ try {
   created = await json(await fetch(`${api}/tour`, {
     method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({
       protocolVersion: 2, schemaVersion: 1, name: `Smoke ${Date.now()}`,
-      startDate: iso(-1), endDate: iso(1), bestOfN: 1, duplicateCourseRule: 'best', approvalRequired: true,
+      startDate: iso(-1), endDate: iso(1), bestOfN: 1, duplicateCourseRule: 'best', approvalRequired: true, competition: { format: 'net', tieBreak: 'shared' },
       members: [{ name: 'Smoke Player', hi: 10 }, { name: 'Smoke Marker', hi: 20 }],
       courses: [{ name: 'Smoke Course', holes: 9, maxRounds: 1, tees: [{
         name: 'Test', slope: 113, cr: 36, par: 36,
@@ -78,11 +80,13 @@ try {
     };
   });
 
-  const submission = buildSmokeSubmission(created.tour, iso(0));
+  const submission = { ...buildSmokeSubmission(created.tour, iso(0)), rulesRevision: created.tour.rulesRevision };
   const recorded = await json(await fetch(`${api}/tour/${created.code}/rounds`, {
     method: 'POST', headers: headers(created.organizerToken), body: JSON.stringify(submission),
   }));
   assert.equal(recorded.round.approvalStatus, 'provisional');
+  assert.equal(recorded.tour.rulesLocked, true);
+  assert.equal(recorded.round.scoringSnapshot.competition.competition.format, 'net');
   const realtime = await liveUpdate;
   assert.equal(realtime.tour.rounds.length, 0);
   assert.equal(realtime.tour.provisionalRounds[0].subjects[0].totalPoints, 18);
@@ -110,7 +114,10 @@ try {
   const approved = await json(await fetch(correctionUrl, {
     method: 'PATCH', headers: headers(created.organizerToken), body: JSON.stringify(approval),
   }));
-  assert.equal(approved.tour.rounds[0].approvalStatus, 'confirmed');
+  assert.equal(approved.tour.rounds.length, 0);
+  assert.equal(approved.tour.competitionRounds[0].approvalStatus, 'confirmed');
+  assert.equal(Competition.metric(approved.round.subjects[0], 'net', 9), 37);
+  assert.equal(TourRules.computeSharedStandings(approved.tour)[0].total, 37);
   const approvalAudit = await json(await fetch(`${correctionUrl}/corrections`, { headers: headers(created.organizerToken) }));
   assert.equal(approvalAudit.corrections.length, 2);
   assert.equal(approvalAudit.corrections[1].before.approvalStatus, 'provisional');
@@ -132,8 +139,8 @@ try {
     method: 'PATCH', headers: headers(created.organizerToken), body: JSON.stringify({ ...approval,
       mutationId: crypto.randomUUID(), expectedRoundRevision: current.revision, reason: 'Smoke fresh approval after reinstatement' }),
   }));
-  assert.equal(reconfirmed.tour.rounds.length, 1);
-  assert.equal(reconfirmed.tour.rounds[0].subjects[0].totalPoints, 17);
+  assert.equal(reconfirmed.tour.competitionRounds.length, 1);
+  assert.equal(reconfirmed.tour.competitionRounds[0].subjects[0].totalPoints, 17);
   const finalAudit = await json(await fetch(`${correctionUrl}/corrections`, { headers: headers(created.organizerToken) }));
   assert.equal(finalAudit.corrections.length, 6);
   assert.equal(finalAudit.corrections.filter(entry => entry.type === 'result_status').length, 3);
@@ -143,7 +150,7 @@ try {
   }));
   assert.equal(cancelledEvent.event.status, 'cancelled'); assert.equal(cancelledEvent.event.groups[0].id, 'smoke-group');
   assert.equal(cancelledEvent.tour.retentionUntil, Date.parse(created.tour.endDate + 'T23:59:59.999Z') + 1 + 365 * 86400000);
-  console.log(JSON.stringify({ ok: true, service: health.service, tour: created.code, realtime: true, correction: true, audit: true, retry: true, approval: true, resultStatus: true, schedule: true }));
+  console.log(JSON.stringify({ ok: true, service: health.service, tour: created.code, realtime: true, correction: true, audit: true, retry: true, approval: true, resultStatus: true, schedule: true, competition: true }));
 } finally {
   if (created) await fetch(`${api}/tour/${created.code}`, { method: 'DELETE', headers: headers(created.organizerToken) }).catch(() => {});
 }
