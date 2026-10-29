@@ -5,7 +5,7 @@ import { PROTOCOL_VERSION, readJson, validateCreate } from './validation.js';
 import { TOUR_SCHEMA_VERSION, validateTourCreate } from './tour-validation.js';
 import { deletePushSubscription, getPushKey, getPushSettings, notifyUsers, savePushSubscription } from './push.js';
 import { clientErrorPayload, reportOperationalError, structuredLog } from './observability.js';
-import { searchCourseCatalog } from './course-catalog.js';
+import { searchCourseCatalog, getCourseCatalog, reportCourse, listCourseReports } from './course-catalog.js';
 import {
   accountIdentity, deleteAccount, deleteSession, exchangeMagicLink, exportAccount, forgetAccountTour, getAccount, getProfile,
   getCareerStats, getSnapshot, listAccountSessions, listAccountTours, listSecurityEvents, putProfile, putSnapshot, rememberAccountTour,
@@ -143,6 +143,17 @@ async function route(request, env, ctx = null) {
     return searchCourseCatalog(request, env);
   }
   const parts = url.pathname.split('/').filter(Boolean);
+  if(parts[0]==='courses'&&/^[a-z0-9-]{1,80}$/.test(parts[1]||'')) {
+    if(!env.ACCOUNTS_DB)return json({error:'Course catalog is not configured'},503);
+    if(parts.length===2&&request.method==='GET')return getCourseCatalog(env,parts[1]);
+    if(parts.length===4&&parts[2]==='versions'&&/^[1-9][0-9]{0,8}$/.test(parts[3])&&request.method==='GET')return getCourseCatalog(env,parts[1],Number(parts[3]));
+    if(parts.length===3&&parts[2]==='reports'&&['GET','POST'].includes(request.method)){
+      const user=await userForSession(request,env);if(!user)return json({error:'Logga in för att rapportera eller se dina rapporter'},401);
+      if(request.method==='GET')return listCourseReports(env,parts[1],user.id);
+      const parsed=await bodyOrResponse(request);return parsed.response||reportCourse(env,parts[1],user.id,parsed.body);
+    }
+  }
+
   if (parts[0] === 'account') {
     if (parts.length === 2 && parts[1] === 'push-key' && request.method === 'GET') return getPushKey(env);
     if (!env.ACCOUNTS_DB) return json({ error: 'Accounts are not configured' }, 503);

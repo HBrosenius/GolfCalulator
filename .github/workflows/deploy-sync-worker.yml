@@ -9,6 +9,7 @@ on:
       - 'src/validation.js'
       - 'src/hole-stats.js'
       - 'src/player-merge.js'
+      - 'src/course-catalog.js'
       - 'src/account-sync.js'
       - 'src/scoring.js'
       - 'src/tour-events.js'

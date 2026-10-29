@@ -47,6 +47,7 @@
   function optional(value, check) { return value === undefined || value === null || check(value); }
 
   function isCourse(course) {
+    if (!isObject(course)) return false;
     const keys = new Set(['id', 'name', 'tee', 'holes', 'slope', 'cr', 'par', 'hpar', 'si',
       'ratingCategory', 'catalogTee', 'catalogId', 'catalogVersion', 'catalogUpdatedAt',
       'catalogSource', 'catalogVerifiedAt', 'catalogVerificationStatus']);
@@ -136,10 +137,10 @@
 
   function isRound(round) {
     const keys = new Set([
-      'schemaVersion', 'id', 'date', 'courseName', 'tee', 'mixedTees', 'holes', 'slope', 'cr', 'par',
+      'schemaVersion', 'id', 'date', 'courseName', 'courseSnapshot', 'tee', 'mixedTees', 'holes', 'slope', 'cr', 'par',
       'gameMode', 'roundKind', 'lifecycle', 'sourceDraftId', 'restoredFrom', 'note', 'weather', 'markers', 'minTeeShots', 'bets', 'liveRoomCode', 'tourRef', 'subjects',
     ]);
-    return isObject(round) && optional(round.roundKind, value => ['competitive', 'practice'].includes(value)) &&
+    return isObject(round) && optional(round.courseSnapshot, value => Array.isArray(value) && value.length <= 12 && value.every(isCourse)) && optional(round.roundKind, value => ['competitive', 'practice'].includes(value)) &&
       optional(round.lifecycle, value => ['submitted', 'completed'].includes(value)) &&
       optional(round.sourceDraftId, value => isText(value, 80)) && optional(round.restoredFrom, value => isText(value, 80)) &&
       hasOnlyKeys(round, keys) && optional(round.schemaVersion, value => value === 1 || value === 2) &&
@@ -228,5 +229,5 @@
       Array.isArray(value.players) && value.players.length <= 500 && value.players.every(isPlayer);
   }
 
-  return Object.freeze({ isBackupPayload, isPlayerMerge, isPersonalGoal, isRoundSetup, isJoinCode, isPhotoDataUrl, isPositiveInteger });
+  return Object.freeze({ isCourse, isBackupPayload, isPlayerMerge, isPersonalGoal, isRoundSetup, isJoinCode, isPhotoDataUrl, isPositiveInteger });
 }));

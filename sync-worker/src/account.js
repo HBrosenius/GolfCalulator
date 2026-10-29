@@ -345,19 +345,21 @@ export async function deleteAccount(request, env) {
 export async function exportAccount(request, env) {
   const user = await userForSession(request, env);
   if (!user) return accountJson({ error: 'Inte inloggad' }, 401);
-  const [profile, snapshot, tours, sessions, securityEvents, pushSubscriptions] = await Promise.all([
+  const [profile, snapshot, tours, sessions, securityEvents, pushSubscriptions, courseReports] = await Promise.all([
     env.ACCOUNTS_DB.prepare('SELECT display_name AS displayName,handicap,player_id AS playerId,updated_at AS updatedAt FROM account_profiles WHERE user_id = ?').bind(user.id).first(),
     env.ACCOUNTS_DB.prepare('SELECT version,payload,updated_at AS updatedAt FROM account_snapshots WHERE user_id = ?').bind(user.id).first(),
     env.ACCOUNTS_DB.prepare('SELECT tour_code AS code,role,member_id AS memberId,joined_at AS joinedAt FROM account_tours WHERE user_id = ? ORDER BY joined_at').bind(user.id).all(),
     env.ACCOUNTS_DB.prepare('SELECT session_id AS id,device_name AS deviceName,device_type AS deviceType,created_at AS createdAt,last_seen_at AS lastSeenAt,expires_at AS expiresAt FROM sessions WHERE user_id = ? ORDER BY created_at').bind(user.id).all(),
     env.ACCOUNTS_DB.prepare('SELECT id,event_type AS type,created_at AS at,device_name AS deviceName,details FROM account_security_events WHERE user_id = ? ORDER BY created_at').bind(user.id).all(),
     env.ACCOUNTS_DB.prepare('SELECT session_id AS sessionId,preferences,created_at AS createdAt,updated_at AS updatedAt FROM push_subscriptions WHERE user_id = ? ORDER BY created_at').bind(user.id).all(),
+    env.ACCOUNTS_DB.prepare('SELECT id,course_id AS courseId,observed_version AS observedVersion,request_json,created_at AS createdAt,status,review_note AS reviewNote,reviewed_at AS reviewedAt,applied_version AS appliedVersion FROM course_correction_reports WHERE user_id = ? ORDER BY created_at').bind(user.id).all(),
   ]);
   return accountJson({
     format: 'poangbogey-account-export', version: 1, exportedAt: new Date().toISOString(),
     account: { id: user.id, email: user.email, createdAt: user.createdAt }, profile: profile || null,
     snapshot: snapshot ? { version: snapshot.version, updatedAt: snapshot.updatedAt, data: JSON.parse(snapshot.payload) }
       : { version: 0, updatedAt: null, data: { courses: [], rounds: [], roundDeletions: [], players: [], tours: [], tourDeletions: [] } },
+    courseReports: (courseReports.results || []).map(({request_json, ...report}) => ({...report,request:JSON.parse(request_json)})),
     sharedTours: tours.results || [], sessions: sessions.results || [],
     securityEvents: (securityEvents.results || []).map(event => ({ ...event, details: event.details ? JSON.parse(event.details) : null })),
     notificationSettings: (pushSubscriptions.results || []).map(item => ({ ...item, preferences: JSON.parse(item.preferences) })),

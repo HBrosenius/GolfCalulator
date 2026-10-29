@@ -5,6 +5,7 @@ import { hashToken } from '../src/auth.js';
 beforeAll(async () => {
   await env.ACCOUNTS_DB.exec(`
     CREATE TABLE IF NOT EXISTS users (id TEXT PRIMARY KEY,email TEXT NOT NULL UNIQUE,created_at INTEGER NOT NULL,last_login_at INTEGER NOT NULL);
+    CREATE TABLE IF NOT EXISTS course_correction_reports (id TEXT PRIMARY KEY,course_id TEXT,user_id TEXT,observed_version INTEGER,request_json TEXT,created_at INTEGER,status TEXT,review_note TEXT,reviewed_at INTEGER,applied_version INTEGER);
     CREATE TABLE IF NOT EXISTS login_tokens (token_hash TEXT PRIMARY KEY,email TEXT NOT NULL,expires_at INTEGER NOT NULL,created_at INTEGER NOT NULL);
     CREATE TABLE IF NOT EXISTS sessions (token_hash TEXT PRIMARY KEY,user_id TEXT NOT NULL,expires_at INTEGER NOT NULL,created_at INTEGER NOT NULL,last_seen_at INTEGER NOT NULL,session_id TEXT,device_name TEXT,device_type TEXT);
     CREATE TABLE IF NOT EXISTS account_snapshots (user_id TEXT PRIMARY KEY,version INTEGER NOT NULL DEFAULT 1,payload TEXT NOT NULL,updated_at INTEGER NOT NULL);
