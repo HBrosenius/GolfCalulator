@@ -1,8 +1,8 @@
 (function (root, factory) {
-  const api = factory();
+  const api = factory(typeof module === 'object' && module.exports ? require('./player-merge.js') : null);
   if (typeof module === 'object' && module.exports) module.exports = api;
   root.GolfAccountSync = api;
-}(typeof globalThis !== 'undefined' ? globalThis : this, function () {
+}(typeof globalThis !== 'undefined' ? globalThis : this, function (MergeApi) {
   'use strict';
 
   function createClient(baseUrl, fetchImpl) {
@@ -66,7 +66,12 @@
   }
 
   function mergeSnapshots(remote, local, baseline) {
-    const output = {};
+    const Merge=MergeApi || globalThis.GolfPlayerMerge;
+    const existingLogs=[...(remote?.playerMerges||[]),...(local?.playerMerges||[])];
+    if(existingLogs.length && (!Merge || !Array.isArray(local?.playerMerges))) {const error=new Error('Uppdatera appen innan du synkroniserar sammanslagna spelare.');error.status=426;throw error;}
+    const logs=Merge?Merge.combine(remote?.playerMerges,local?.playerMerges):[];
+    if(logs.length){remote=Merge.normalize({...remote,playerMerges:logs});local=Merge.normalize({...local,playerMerges:logs});if(baseline)baseline=Merge.normalize({...baseline,playerMerges:logs});}
+    const output = {playerMerges:logs};
     const conflicts = [];
     for (const collection of ['courses', 'rounds', 'players', 'tours', 'setups', 'goals']) {
       const keyOf = item => collection === 'courses' ? courseId(item) : String(item.id);
@@ -105,7 +110,7 @@
       error.conflicts = conflicts;
       throw error;
     }
-    return output;
+    return logs.length ? Merge.normalize(output) : output;
   }
 
   return Object.freeze({ createClient, mergeSnapshots, courseId });

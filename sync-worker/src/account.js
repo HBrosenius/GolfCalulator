@@ -1,3 +1,4 @@
+import '../../src/player-merge.js';
 import '../../src/hole-stats.js';
 import '../../src/validation.js';
 import '../../src/account-sync.js';
@@ -23,9 +24,10 @@ function accountJson(data, status = 200) {
 function validSnapshot(value) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
   const keys = Object.keys(value);
-  if (keys.some(key => !['courses', 'rounds', 'roundDeletions', 'players', 'tours', 'tourDeletions', 'playerDeletions', 'courseDeletions', 'setups', 'setupDeletions', 'goals', 'goalDeletions'].includes(key))) return false;
-  if (!['courses', 'rounds', 'roundDeletions', 'players', 'tours', 'tourDeletions', 'playerDeletions', 'courseDeletions', 'setups', 'setupDeletions', 'goals', 'goalDeletions']
+  if (keys.some(key => !['courses', 'rounds', 'roundDeletions', 'players', 'tours', 'tourDeletions', 'playerDeletions', 'courseDeletions', 'setups', 'setupDeletions', 'goals', 'goalDeletions', 'playerMerges'].includes(key))) return false;
+  if (!['courses', 'rounds', 'roundDeletions', 'players', 'tours', 'tourDeletions', 'playerDeletions', 'courseDeletions', 'setups', 'setupDeletions', 'goals', 'goalDeletions', 'playerMerges']
     .every(key => value[key] === undefined || Array.isArray(value[key]))) return false;
+  if (value.playerMerges !== undefined && (value.playerMerges.length > 100 || !value.playerMerges.every(globalThis.GolfValidation.isPlayerMerge))) return false;
   if (value.goals !== undefined && (value.goals.length > 500 || !value.goals.every(globalThis.GolfValidation.isPersonalGoal))) return false;
   if (value.setups !== undefined && (value.setups.length > 100 || !value.setups.every(globalThis.GolfValidation.isRoundSetup))) return false;
   return [...(value.roundDeletions || []), ...(value.tourDeletions || []), ...(value.playerDeletions || []), ...(value.courseDeletions || []), ...(value.setupDeletions || []), ...(value.goalDeletions || [])]
@@ -44,14 +46,14 @@ function preserveSnapshotDeletions(existingData, incomingData) {
     });
     return [...deletions.values()];
   };
-  const data = { ...incomingData, setups: incomingData.setups ?? existingData?.setups ?? [], goals: incomingData.goals ?? existingData?.goals ?? [] };
+  const data = { ...incomingData, playerMerges: globalThis.GolfPlayerMerge.combine(existingData?.playerMerges, incomingData.playerMerges), setups: incomingData.setups ?? existingData?.setups ?? [], goals: incomingData.goals ?? existingData?.goals ?? [] };
   for (const collection of ['rounds', 'tours', 'players', 'courses', 'setups', 'goals']) {
     const key = `${collection.slice(0, -1)}Deletions`;
     data[key] = preserve(key);
     const deleted = new Set(data[key].map(item => item.id));
     data[collection] = (data[collection] || []).filter(item => !deleted.has(collection === 'courses' ? globalThis.GolfAccountSync.courseId(item) : String(item?.id)));
   }
-  return data;
+  return globalThis.GolfPlayerMerge.normalize(data);
 }
 
 async function sendMagicLink(env, email, token, idempotencyKey) {
@@ -385,7 +387,10 @@ export async function putSnapshot(body, request, env) {
     return accountJson({ error: 'Synkkonflikt', currentVersion }, 409);
   }
   const existingData = existing ? JSON.parse(existing.payload) : null;
-  const data = preserveSnapshotDeletions(existingData, body.data);
+  if(existingData?.playerMerges?.length && !Array.isArray(body.data.playerMerges)) return accountJson({error:'Uppdatera appen innan du synkroniserar sammanslagna spelare'},426);
+  if((existingData?.playerMerges||[]).some(op=>!(body.data.playerMerges||[]).some(item=>item.id===op.id&&item.revision>=op.revision))) return accountJson({error:'Sammanslagningen ändrades; synkronisera igen'},409);
+  let data;
+  try { data = preserveSnapshotDeletions(existingData, body.data); } catch(error) { return accountJson({error:error.message},409); }
   const payload = JSON.stringify(data);
   if (encoder.encode(payload).byteLength > MAX_SNAPSHOT_BYTES) return accountJson({ error: 'Synkdata är för stor' }, 413);
   const now = Date.now();
@@ -412,10 +417,12 @@ export async function getCareerStats(request, env) {
   ]);
   const data = row ? JSON.parse(row.payload) : { rounds: [] };
   const name = profile?.displayName || null;
+  const rawPlayerId=profile?.playerId;
+  const linkedPlayerId=globalThis.GolfPlayerMerge.resolver(data.playerMerges || [])(Number.isSafeInteger(Number(rawPlayerId))&&String(Number(rawPlayerId))===String(rawPlayerId)?Number(rawPlayerId):rawPlayerId);
   const performances = [];
   for (const round of data.rounds || []) for (const subject of round.subjects || []) {
     // Without a linked player or display name nothing can be attributed to this account.
-    if (profile?.playerId ? String(subject.playerId) !== profile.playerId : (!name || subject.name !== name)) continue;
+    if (profile?.playerId ? String(subject.playerId) !== String(linkedPlayerId) : (!name || subject.name !== name)) continue;
     if (typeof subject.totalPoints === 'number') performances.push({ points: subject.totalPoints, date: round.date || round.playedDate, course: round.courseName });
   }
   const totalPoints = performances.reduce((sum, item) => sum + item.points, 0);

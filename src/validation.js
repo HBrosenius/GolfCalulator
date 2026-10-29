@@ -1,8 +1,8 @@
 (function (root, factory) {
-  const api = factory(typeof module === 'object' && module.exports ? require('./hole-stats.js') : null);
+  const api = factory(typeof module === 'object' && module.exports ? require('./hole-stats.js') : null, typeof module === 'object' && module.exports ? require('./player-merge.js') : null);
   if (typeof module === 'object' && module.exports) module.exports = api;
   root.GolfValidation = api;
-}(typeof globalThis !== 'undefined' ? globalThis : this, function (Stats) {
+}(typeof globalThis !== 'undefined' ? globalThis : this, function (Stats, Merge) {
   'use strict';
 
   function isJoinCode(value) {
@@ -212,9 +212,13 @@
         [9,18].includes(goal.holes) && isInteger(goal.target, goal.holes, goal.holes * 20) && isText(goal.courseKey, 2048) && isText(goal.courseLabel, 240));
   }
 
+  function isPlayerMerge(value) {
+    return !!(Merge || globalThis.GolfPlayerMerge)?.valid(value, {players:isPlayer,rounds:isRound,tours:isLocalTour,setups:isRoundSetup,goals:isPersonalGoal});
+  }
+
   function isBackupPayload(value) {
-    const keys = new Set(['version', 'exportedAt', 'courses', 'rounds', 'players', 'playerDeletions', 'courseDeletions', 'setups', 'setupDeletions', 'goals', 'goalDeletions', ...(value?.version === 2 ? ['tours'] : [])]);
-    return optional(value?.goals, items => Array.isArray(items) && items.length <= 500 && items.every(isPersonalGoal)) && optional(value?.setups, items => Array.isArray(items) && items.length <= 100 && items.every(isRoundSetup)) && ['playerDeletions', 'courseDeletions', 'setupDeletions', 'goalDeletions'].every(key => optional(value?.[key], entries => Array.isArray(entries) && entries.length <= 5000 && entries.every(item => hasOnlyKeys(item, new Set(['id', 'deletedAt'])) && isText(item.id, 128) && isInteger(item.deletedAt, 1, Number.MAX_SAFE_INTEGER)))) && hasOnlyKeys(value, keys) && (value.version === 1 || value.version === 2) &&
+    const keys = new Set(['version', 'exportedAt', 'courses', 'rounds', 'players', 'playerDeletions', 'courseDeletions', 'setups', 'setupDeletions', 'goals', 'goalDeletions', 'playerMerges', ...(value?.version === 2 ? ['tours'] : [])]);
+    return optional(value?.playerMerges, items => Array.isArray(items) && items.length <= 100 && items.every(isPlayerMerge)) && optional(value?.goals, items => Array.isArray(items) && items.length <= 500 && items.every(isPersonalGoal)) && optional(value?.setups, items => Array.isArray(items) && items.length <= 100 && items.every(isRoundSetup)) && ['playerDeletions', 'courseDeletions', 'setupDeletions', 'goalDeletions'].every(key => optional(value?.[key], entries => Array.isArray(entries) && entries.length <= 5000 && entries.every(item => hasOnlyKeys(item, new Set(['id', 'deletedAt'])) && isText(item.id, 128) && isInteger(item.deletedAt, 1, Number.MAX_SAFE_INTEGER)))) && hasOnlyKeys(value, keys) && (value.version === 1 || value.version === 2) &&
       (value.version === 1 || (Array.isArray(value.tours) && value.tours.length <= 500 && value.tours.every(isLocalTour))) && optional(value.exportedAt, date => {
       if (!isText(date, 40)) return false;
       const parsed = new Date(date);
@@ -224,5 +228,5 @@
       Array.isArray(value.players) && value.players.length <= 500 && value.players.every(isPlayer);
   }
 
-  return Object.freeze({ isBackupPayload, isPersonalGoal, isRoundSetup, isJoinCode, isPhotoDataUrl, isPositiveInteger });
+  return Object.freeze({ isBackupPayload, isPlayerMerge, isPersonalGoal, isRoundSetup, isJoinCode, isPhotoDataUrl, isPositiveInteger });
 }));

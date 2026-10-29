@@ -8,6 +8,7 @@ on:
       - 'sync-worker/**'
       - 'src/validation.js'
       - 'src/hole-stats.js'
+      - 'src/player-merge.js'
       - 'src/account-sync.js'
       - 'src/scoring.js'
       - 'src/tour-events.js'

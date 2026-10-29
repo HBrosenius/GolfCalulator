@@ -321,3 +321,22 @@ it('validates personal goals, preserves them for old clients and keeps deletion 
   expect((await put(2,{goals:[],goalDeletions:[{id:'g1',deletedAt:now}]})).status).toBe(200);expect((await put(3,{goals:[goal]})).status).toBe(200);
   snapshot=await(await SELF.fetch('https://worker.test/account/snapshot',{headers})).json();expect(snapshot.data.goals).toEqual([]);expect(snapshot.data.goalDeletions).toEqual([{id:'g1',deletedAt:now}]);
 });
+
+it('normalizes merged identities, rejects legacy/stale merge uploads and preserves explicit undo',async()=>{
+  await import('../../src/player-merge.js');const Merge=globalThis.GolfPlayerMerge;
+  const userId=crypto.randomUUID(),token=crypto.randomUUID().replace(/-/g,'')+'12345678901',now=Date.now();
+  await env.ACCOUNTS_DB.batch([
+    env.ACCOUNTS_DB.prepare('INSERT INTO users (id,email,created_at,last_login_at) VALUES (?,?,?,?)').bind(userId,`${userId}@example.com`,now,now),
+    env.ACCOUNTS_DB.prepare('INSERT INTO sessions (token_hash,user_id,expires_at,created_at,last_seen_at) VALUES (?,?,?,?,?)').bind(await hashToken(token),userId,now+60_000,now,now),
+    env.ACCOUNTS_DB.prepare('INSERT INTO account_profiles (user_id,display_name,handicap,player_id,updated_at) VALUES (?,?,?,?,?)').bind(userId,'Ada',18,'1',now),
+  ]);
+  const source={id:1,name:'Ada old',hi:18},target={id:2,name:'Ada',hi:12},round={id:11,date:'2026-07-01',courseName:'Test',tee:'Gul',holes:9,slope:113,cr:36,par:36,gameMode:'individual',subjects:[{playerId:1,name:'Ada old',hi:18,ph:9,totalPoints:18,totalBrutto:45,rows:Array.from({length:9},(_,h)=>({h:h+1,par:4,si:h+1,strokes:1,score:5,netto:4,pts:2,skipped:false}))}]};
+  const original={players:[source,target],rounds:[round],playerMerges:[]},merged=Merge.prepare(original,1,2,'m1',now).snapshot;
+  const headers={Authorization:`Bearer ${token}`,'Content-Type':'application/json'},put=(baseVersion,data)=>SELF.fetch('https://worker.test/account/snapshot',{method:'PUT',headers,body:JSON.stringify({baseVersion,data})});
+  expect((await put(0,merged)).status).toBe(200);expect((await put(1,original)).status).toBe(409);expect((await put(1,{players:[source,target],rounds:[round]})).status).toBe(426);
+  expect((await put(1,{...original,playerMerges:merged.playerMerges})).status).toBe(200);
+  let snapshot=await(await SELF.fetch('https://worker.test/account/snapshot',{headers})).json();expect(snapshot.data.players.map(p=>p.id)).toEqual([2]);expect(snapshot.data.rounds[0].subjects[0].playerId).toBe(2);
+  const stats=await(await SELF.fetch('https://worker.test/account/stats',{headers})).json();expect(stats.stats.rounds).toBe(1);
+  const undone=Merge.undo(snapshot.data,'m1',now+100);expect((await put(2,undone)).status).toBe(200);expect((await put(3,merged)).status).toBe(409);
+  snapshot=await(await SELF.fetch('https://worker.test/account/snapshot',{headers})).json();expect(snapshot.data.players.length).toBe(2);expect(snapshot.data.rounds[0].subjects[0].playerId).toBe(1);
+});
