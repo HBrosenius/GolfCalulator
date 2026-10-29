@@ -929,6 +929,9 @@
   #courseInsightsContent table { border-collapse: collapse; font-size: 0.9rem; }
   #courseInsightsContent th, #courseInsightsContent td { padding: 8px 6px; border-bottom: 1px solid var(--border); }
   #courseInsightsView input[type="date"] { padding: 10px 8px; border: 1px solid var(--border); border-radius: 8px; font: inherit; background: var(--card); color: var(--text); min-height: 44px; }
+  .round-readiness { margin: 12px 0; padding: 12px; border: 1px solid var(--border); border-radius: 10px; font-size: .82rem; line-height: 1.5; }
+  .round-readiness p { margin: 6px 0; }
+  .round-readiness .btn { margin-top: 8px; font-size: .82rem; padding: 9px; }
 </style>
 </head>
 <body>
@@ -1416,6 +1419,7 @@
       <button class="btn secondary" onclick="goToStep(2)">← Tillbaka</button>
       <button class="btn" onclick="goToStep4Score()">Nästa →</button>
     </div>
+    <div class="card round-readiness" style="margin-top:12px"><strong>Redo för offline?</strong><div id="offlineSetupStatus" role="status"></div><button type="button" class="btn secondary" onclick="checkRoundOffline(true)">Spara och kontrollera offline</button></div>
     <button class="btn secondary" id="startLiveRoundBtn" style="margin-top:10px;" onclick="startLiveRound()">📡 Starta som live-runda</button>
   </div>
 
@@ -1427,6 +1431,7 @@
       <label for="roundDraftName">Utkastets namn</label>
       <input id="roundDraftName" maxlength="80" onchange="state.draftName=this.value.trim();inprogressSave()">
       <p id="draftSaveStatus" role="status" style="font-size:.8rem;"></p>
+      <div class="round-readiness"><div id="offlineScoreStatus" role="status"></div><button type="button" class="btn secondary" onclick="checkRoundOffline()">Kontrollera offline</button><button type="button" class="btn secondary retry-round-save hidden" onclick="inprogressSave()">Försök spara igen</button><button type="button" class="btn secondary retry-round-upload hidden" onclick="retryRoundUploads()">Försök ladda upp igen</button></div>
       <button class="btn secondary" onclick="newRound()">Pausa och börja en ny runda</button>
       <div style="font-size:0.8rem; color:var(--muted); margin-bottom:12px;">
         <span style="color:var(--green);">Grön badge</span> = spelhandicap per spelare.
@@ -1466,6 +1471,7 @@
   <div id="step5" class="hidden">
     <div class="card">
       <div class="card-title"><span class="icon">🏆</span> Resultat</div>
+      <div class="round-readiness no-print"><div id="offlineResultStatus" role="status"></div><button type="button" class="btn secondary retry-round-upload hidden" onclick="retryRoundUploads()">Försök ladda upp igen</button></div>
       <div id="rankingContainer"></div>
     </div>
 
@@ -4298,6 +4304,7 @@ function accountSessionSave(session) {
   renderSavedCourses();
   renderSavedPlayersList();
   updateAccountButton();
+  renderRoundReadiness();
   refreshRecoveryUi(true);
 }
 
@@ -4379,6 +4386,7 @@ function saveAccountSyncMeta(patch) {
   const next = { ...accountSyncMeta(), ...patch };
   storageDb.save(ACCOUNT_SYNC_META_KEY, next);
   updateAccountSyncSummary();
+  renderRoundReadiness();
   return next;
 }
 
@@ -4902,6 +4910,7 @@ function goToStep(n) {
   if (heading) { heading.tabIndex = -1; heading.focus({ preventScroll: true }); }
   if (n === 4) liveSyncStart(); else liveSyncStop();
   if (n === 1) { renderActiveToursCard(); refreshRecoveryUi(); }
+  if ([3,4,5].includes(n)) { renderRoundReadiness(); checkRoundOffline(); }
 }
 
 // ============================================================
@@ -4939,17 +4948,25 @@ const liveScorePushController = GolfLiveSync.createScorePushController({
     hostToken: state.liveHostToken,
     scores: state.scores,
   }),
-  send: ({ code, seat, token, scores }) => liveSyncClient.request(`/room/${code}`, {
-    method: 'PATCH',
-    headers: liveMutationHeaders(token),
-    body: JSON.stringify({ protocolVersion: LIVE_PROTOCOL_VERSION, seat, scores }),
-  }).then(response => response.ok),
+  send: async ({ code, seat, token, scores }) => {
+    const key = `${recoveryScope()}|live|${code}`;
+    try {
+      const response = await liveSyncClient.request(`/room/${code}`, {
+        method: 'PATCH', headers: liveMutationHeaders(token),
+        body: JSON.stringify({ protocolVersion: LIVE_PROTOCOL_VERSION, seat, scores }),
+      });
+      _roundUploadStatus.set(key, response.ok ? { at: Date.now() } : { ..._roundUploadStatus.get(key), error: 'Livescore kunde inte laddas upp' });
+      return response.ok;
+    } catch (error) { _roundUploadStatus.set(key, { ..._roundUploadStatus.get(key), error: 'Livescore kunde inte laddas upp' }); throw error; }
+    finally { setTimeout(renderRoundReadiness, 0); }
+  },
 });
 
 // `seat` defaults to this device's own seat; the host also passes the seat number
 // when filling in scores for a player whose seat nobody has claimed yet.
 function liveSyncPush(seat) {
   liveScorePushController.mark(seat);
+  renderRoundReadiness();
 }
 
 window.addEventListener('online', () => {
@@ -5334,12 +5351,97 @@ const _draftAliases = new Map();
 let _draftSaveTail = Promise.resolve();
 const _draftSaveErrors = new Map();
 let _recoveryRender = 0;
+let _draftSaveSequence = 0;
+const _roundDraftStatus = new Map();
 const recoveryScope = () => scopedStorage.key('golf_round_recovery');
 const localPlayedToday = () => new Date().toLocaleDateString('sv-SE');
 const roundPlayedToday = () => state.tourContext?.eventTimeZone ? GolfTourEvents.todayInZone(state.tourContext.eventTimeZone) : localPlayedToday();
 function draftSaveStatus(message) {
   const element = document.getElementById('draftSaveStatus');
   if (element) element.textContent = message;
+}
+let _offlineShellStatus = { ready: false, checked: false };
+let _offlineCheckSequence = 0;
+const _roundUploadStatus = new Map();
+function roundStatusTime(at) { return new Date(at).toLocaleString('sv-SE'); }
+function renderRoundReadiness() {
+  const scope = recoveryScope();
+  const saved = state.editingId != null ? roundFind(state.editingId) : null;
+  const draft = _roundDraftStatus.get(`${scope}|${state.draftId}`);
+  const lines = [navigator.onLine ? 'Nätverk: ansluten. Uppladdningar bekräftas separat nedan.' : 'Offline: scoresparande på enheten fortsätter. Uppladdningar väntar på nätverk.'];
+  lines.push(_offlineShellStatus.ready ? `App offline: verifierad ${roundStatusTime(_offlineShellStatus.at)}.` : _offlineShellStatus.checked ? 'App offline: kunde inte verifieras. Öppna appen online och kontrollera igen.' : 'App offline: ännu inte kontrollerad.');
+  if (saved) lines.push('Rundan är sparad på den här enheten. Ändrad score sparas när du beräknar resultatet igen.');
+  else if (draft?.status === 'saved') lines.push(`Utkast och bandata sparade på den här enheten ${roundStatusTime(draft.at)}. Kontrollera igen efter ändringar i uppställningen.`);
+  else if (draft?.status === 'saving') lines.push('Utkast: sparar på enheten…');
+  else if (draft?.status === 'error') lines.push('Utkastet kunde inte sparas. Behåll scorekortet öppet och försök spara igen.');
+  else lines.push('Utkast: inte verifierat sparat. Spara och kontrollera före spel.');
+  lines.push('Pågående utkast överförs inte mellan enheter.');
+  let retry = false;
+  document.querySelectorAll('.retry-round-save').forEach(button => button.classList.toggle('hidden', !!saved || draft?.status !== 'error'));
+  if (accountSessionLoad()) {
+    const meta = accountSyncMeta();
+    lines.push(`Konto (sparade rundor och banor): ${accountSyncLabel(meta)}${meta.lastSyncedAt && meta.status !== 'synced' ? ` · senaste lyckade synk ${roundStatusTime(meta.lastSyncedAt)}` : ''}.`);
+    retry ||= ['error','offline','pending','conflict'].includes(meta.status);
+  } else lines.push('Konto: inte inloggad. Rundor och utkast sparas på den här enheten.');
+  if (state.liveRoomCode) {
+    const live = _roundUploadStatus.get(`${scope}|live|${state.liveRoomCode}`);
+    const pending = liveScorePushController.pendingSeats().length;
+    lines.push(`Livescore: ${pending ? `${pending} scorekort väntar på uppladdning` : 'inga väntande ändringar i denna vy'}${live?.error ? ` · ${live.error}` : ''}${live?.at ? ` · senast uppladdat ${roundStatusTime(live.at)}` : ''}.`);
+    retry ||= pending > 0 || !!live?.error;
+  }
+  if (saved?.tourRef) {
+    const record = sharedTourStore.find(saved.tourRef.code);
+    const queued = record?.pendingSubmissions?.find(item => item.payload.clientRoundId === String(saved.id));
+    const upload = _roundUploadStatus.get(`${scope}|tour|${saved.id}`);
+    const confirmed = saved.tourRef.syncStatus === 'synced';
+    lines.push(`Tourresultat: ${confirmed ? 'mottaget av touren (eventuell godkänning visas i touren)' : queued ? 'sparat på enheten, väntar på uppladdning' : 'inte uppladdat – försök igen'}${queued?.lastError || upload?.error ? ` · ${queued?.lastError || upload.error}` : ''}${upload?.at ? ` · senast uppladdat ${roundStatusTime(upload.at)}` : ''}.`);
+    retry ||= !confirmed;
+  }
+  ['offlineSetupStatus','offlineScoreStatus','offlineResultStatus'].forEach(id => {
+    const element = document.getElementById(id); if (!element) return;
+    element.replaceChildren(...lines.map(line => { const p = document.createElement('p'); p.textContent = line; return p; }));
+  });
+  document.querySelectorAll('.retry-round-upload').forEach(button => button.classList.toggle('hidden', !retry));
+}
+async function checkRoundOffline(saveSetup = false) {
+  if (saveSetup && !buildStep4State()) return;
+  const sequence = ++_offlineCheckSequence, scope = recoveryScope(), source = state;
+  if (saveSetup && !await checkpointDrafts()) return;
+  let ready = false;
+  try {
+    const worker = navigator.serviceWorker?.controller || (await navigator.serviceWorker?.getRegistration())?.active;
+    if (worker && typeof MessageChannel !== 'undefined') ready = await new Promise(resolve => {
+      const channel = new MessageChannel();
+      const finish = value => { clearTimeout(timer); channel.port1.close(); resolve(value); };
+      const timer = setTimeout(() => finish(false), 2500);
+      channel.port1.onmessage = event => finish(event.data?.ready === true);
+      worker.postMessage({type:'CHECK_OFFLINE_SHELL', urls:[...document.scripts].filter(script => script.src).map(script => script.src)}, [channel.port2]);
+    });
+  } catch (_) {}
+  if (sequence !== _offlineCheckSequence || scope !== recoveryScope() || source !== state) return;
+  _offlineShellStatus = {ready, checked:true, at:Date.now()};
+  renderRoundReadiness();
+}
+async function retryRoundUploads() {
+  const scope = recoveryScope();
+  try {
+  if (!state.editingId && usableDraft(state)) inprogressSave();
+  const saved = state.editingId != null ? roundFind(state.editingId) : null;
+  if (saved?.tourRef && saved.tourRef.syncStatus !== 'synced') {
+    const record = sharedTourStore.find(saved.tourRef.code);
+    const queued = record?.pendingSubmissions?.some(item => item.payload.clientRoundId === String(saved.id));
+    if (!queued) queueSharedTourRound(saved, saved.tourRef.code);
+  }
+  if (navigator.onLine) {
+    await liveScorePushController.flush();
+    if (scope !== recoveryScope()) return;
+    await syncSharedTourSubmissions(saved?.tourRef?.code || null);
+    if (scope !== recoveryScope()) return;
+    if (accountSyncMeta().status === 'conflict') { openAccountView(); renderAccountConflictPanel(); }
+    else await syncAccountNow({silent:true});
+  }
+  } catch (error) { if (scope === recoveryScope()) showShareToast('Uppladdningen kunde inte slutföras: ' + error.message); }
+  finally { if (scope === recoveryScope()) renderRoundReadiness(); }
 }
 function usableDraft(s) {
   const subjects = isSharedScoreMode(s.gameMode) ? s.teams : s.players;
@@ -5385,7 +5487,10 @@ function inprogressSave() {
   const key = `${scope}|${snapshot.draftId}`;
   if (!_draftVersions.has(key)) _draftVersions.set(key, snapshot.draftRevision || 0);
   storageDb.save(INPROGRESS_KEY, { savedAt: Date.now(), state: snapshot }, true);
+  const saveSequence = ++_draftSaveSequence;
+  _roundDraftStatus.set(key, { status: 'saving' });
   draftSaveStatus('Sparar utkast på enheten…');
+  renderRoundReadiness();
   _draftSaveTail = _draftSaveTail.then(async () => {
     await ensureRecoveryVault(scope);
     let id = snapshot.draftId;
@@ -5398,9 +5503,13 @@ function inprogressSave() {
       state.draftId = result.draft.id; state.draftRevision = result.draft.revision;
       if (result.forked) { state.draftName = result.draft.name; document.getElementById('roundDraftName').value = result.draft.name; }
       storageDb.save(INPROGRESS_KEY, { savedAt: result.draft.updatedAt, state: { ...JSON.parse(JSON.stringify(state)), draftId: result.draft.id } }, true);
-      draftSaveStatus(result.forked ? 'En annan flik ändrade utkastet. Dina ändringar sparades som en konfliktkopia.' : `Sparat på enheten · ${result.draft.status === 'draft' ? 'Utkast' : 'Pågående'} · ${new Date().toLocaleTimeString('sv-SE', { hour: '2-digit', minute: '2-digit' })}`);
+      if (saveSequence === _draftSaveSequence) {
+        _roundDraftStatus.set(`${scope}|${result.draft.id}`, { status: 'saved', at: result.draft.updatedAt });
+        draftSaveStatus(result.forked ? 'En annan flik ändrade utkastet. Dina ändringar sparades som en konfliktkopia.' : `Sparat på enheten · ${result.draft.status === 'draft' ? 'Utkast' : 'Pågående'} · ${new Date().toLocaleTimeString('sv-SE', { hour: '2-digit', minute: '2-digit' })}`);
+        renderRoundReadiness();
+      }
     }
-  }).catch(error => { _draftSaveErrors.set(scope, error); if (scope === recoveryScope()) draftSaveStatus(`Kunde inte spara utkastet: ${error.message}`); });
+  }).catch(error => { _draftSaveErrors.set(scope, error); _roundDraftStatus.set(key, { status: 'error' }); if (scope === recoveryScope() && saveSequence === _draftSaveSequence) { draftSaveStatus(`Kunde inte spara utkastet: ${error.message}`); renderRoundReadiness(); } });
 }
 function inprogressLoad() {
   const snap = storageDb.load(INPROGRESS_KEY, null);
@@ -5465,6 +5574,8 @@ async function resumeRecoveryDraft(id) {
     if (scope !== recoveryScope() || !draft) return;
     if (!usableDraft(draft.state)) { alert('Det äldre utkastet saknar spelar- eller bandata. Det finns kvar sparat, men kan inte öppnas som scorekort.'); return; }
     liveSyncStop(); state = draft.state; _singleHole = null;
+    _roundDraftStatus.set(`${scope}|${draft.id}`, { status: 'saved', at: draft.updatedAt });
+    draftSaveStatus(`Sparat på enheten · ${new Date(draft.updatedAt).toLocaleTimeString('sv-SE')}`);
     _draftVersions.set(`${scope}|${draft.id}`, draft.revision);
     storageDb.save(INPROGRESS_KEY, { savedAt: draft.updatedAt, state });
     buildScoreTable(); restoreScoresToTable(); goToStep(4);
@@ -6075,6 +6186,7 @@ async function saveCurrentRound(playerResults) {
     inprogressClear();
   }
   state.editingId = roundData.id; state.editingDate = roundData.date;
+  renderRoundReadiness();
   refreshRecoveryUi();
   return true;
 }
@@ -7920,9 +8032,13 @@ function queueSharedTourRound(round, code) {
   if (!record) return;
   try {
     const payload = GolfTourRules.buildRoundSubmission(round, record);
-    sharedTourStore.queueSubmission(code, payload);
+    if (!sharedTourStore.queueSubmission(code, payload)) throw new Error('Kunde inte spara uppladdningskön på enheten');
+    _roundUploadStatus.delete(`${recoveryScope()}|tour|${round.id}`);
+    renderRoundReadiness();
     syncSharedTourSubmissions();
   } catch (error) {
+    _roundUploadStatus.set(`${recoveryScope()}|tour|${round.id}`, { error: error.message });
+    renderRoundReadiness();
     showShareToast('Tourrundan sparades lokalt men kunde inte köas: ' + error.message);
   }
 }
@@ -7932,6 +8048,7 @@ async function syncSharedTourSubmissions(onlyCode = null) {
   const scope = recoveryScope(), key = scopedStorage.key(GolfTourSync.STORE_KEY);
   const pinnedStore = GolfTourSync.createStore({ getItem: () => localStorage.getItem(key), setItem: (_, value) => localStorage.setItem(key, value) }, record => { if (scope === recoveryScope()) reconcileSharedTourHistory(record); });
   _sharedTourSyncPromise = GolfTourSync.flushPending(pinnedStore, sharedTourClient, onlyCode);
+  renderRoundReadiness();
   const results = await _sharedTourSyncPromise.finally(() => { _sharedTourSyncPromise = null; });
   if (scope !== recoveryScope() || !results.length) return;
   const rounds = roundsLoad();
@@ -7939,6 +8056,7 @@ async function syncSharedTourSubmissions(onlyCode = null) {
   results.forEach(result => {
     const round = rounds.find(item => String(item.id) === result.clientRoundId);
     if (!round?.tourRef) return;
+    _roundUploadStatus.set(`${scope}|tour|${round.id}`, result.ok ? { at: Date.now() } : { error: result.error?.message || 'Uppladdningen misslyckades' });
     if (result.ok) round.lifecycle = 'completed';
     round.tourRef = {
       ...round.tourRef,
@@ -7951,6 +8069,7 @@ async function syncSharedTourSubmissions(onlyCode = null) {
     reportClientOperationalError('error', `Tour submission remains queued after ${result.attempts} attempts`, 'tour-sync');
   });
   if (changed) roundsSave(rounds);
+  renderRoundReadiness();
   renderActiveToursCard();
   if (_tourViewMode === 'shared' && _tourViewActiveId) renderSharedTourDetail(_tourViewActiveId);
 }
@@ -9202,11 +9321,14 @@ try {
   else if (accountSessionLoad()) scheduleAccountSync('startup', 800);
 } catch(e) {}
 window.addEventListener('online', () => {
+  renderRoundReadiness();
+  checkRoundOffline();
   syncSharedTourSubmissions();
   scheduleAccountSync('online', 300);
   if (_tourViewMode === 'shared' && _tourViewActiveId) startSharedTourRefresh(_tourViewActiveId);
 });
 window.addEventListener('offline', () => {
+  renderRoundReadiness();
   if (accountSessionLoad()) saveAccountSyncMeta({ status: 'offline', error: null });
 });
 document.addEventListener('visibilitychange', () => {

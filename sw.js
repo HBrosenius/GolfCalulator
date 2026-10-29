@@ -71,6 +71,16 @@ self.addEventListener('activate', event => {
 
 self.addEventListener('message', event => {
   if (event.data && event.data.type === 'SKIP_WAITING') self.skipWaiting();
+  if (event.data?.type === 'CHECK_OFFLINE_SHELL') event.waitUntil((async () => {
+    try {
+      const cache = await currentCache();
+      const requested = Array.isArray(event.data.urls) ? event.data.urls.slice(0, 64) : [];
+      const urls = [...new Set([...SHELL, ...requested].map(path => new URL(path, self.location.href).href))];
+      const valid = urls.every(url => new URL(url).origin === self.location.origin);
+      const missing = !valid || !cache ? urls : (await Promise.all(urls.map(async url => (await cache.match(url))?.ok ? null : url))).filter(Boolean);
+      event.ports?.[0]?.postMessage({ ready: valid && !!cache && missing.length === 0 });
+    } catch (_) { event.ports?.[0]?.postMessage({ ready: false }); }
+  })());
   if (event.data && event.data.type === 'GET_NOTIFICATION_HISTORY') event.waitUntil((async () => {
     const meta = await caches.open(META_CACHE);
     const response = await meta.match(NOTIFICATION_HISTORY_KEY);
