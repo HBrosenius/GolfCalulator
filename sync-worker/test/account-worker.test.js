@@ -306,3 +306,18 @@ it('syncs validated saved groups, preserves them for older clients and keeps del
   expect(snapshot.data.setups).toEqual([]);
   expect(snapshot.data.setupDeletions).toEqual([{ id: 'group', deletedAt: now }]);
 });
+
+it('validates personal goals, preserves them for old clients and keeps deletion evidence',async()=>{
+  const userId=crypto.randomUUID(),token=crypto.randomUUID().replace(/-/g,'')+'12345678901',now=Date.now();
+  await env.ACCOUNTS_DB.batch([
+    env.ACCOUNTS_DB.prepare('INSERT INTO users (id,email,created_at,last_login_at) VALUES (?,?,?,?)').bind(userId,`${userId}@example.com`,now,now),
+    env.ACCOUNTS_DB.prepare('INSERT INTO sessions (token_hash,user_id,expires_at,created_at,last_seen_at) VALUES (?,?,?,?,?)').bind(await hashToken(token),userId,now+60_000,now,now),
+  ]);
+  const headers={Authorization:`Bearer ${token}`,'Content-Type':'application/json'},goal={id:'g1',playerId:1,type:'rounds',target:10,holes:0,roundKind:'competitive',startDate:'2026-01-01',endDate:'2026-12-31',courseKey:null,courseLabel:null};
+  const put=(baseVersion,data)=>SELF.fetch('https://worker.test/account/snapshot',{method:'PUT',headers,body:JSON.stringify({baseVersion,data})});
+  expect((await put(0,{goals:[goal]})).status).toBe(200);expect((await put(1,{rounds:[]})).status).toBe(200);
+  let snapshot=await(await SELF.fetch('https://worker.test/account/snapshot',{headers})).json();expect(snapshot.data.goals).toEqual([goal]);
+  expect((await put(2,{goals:[{...goal,target:0}]})).status).toBe(400);
+  expect((await put(2,{goals:[],goalDeletions:[{id:'g1',deletedAt:now}]})).status).toBe(200);expect((await put(3,{goals:[goal]})).status).toBe(200);
+  snapshot=await(await SELF.fetch('https://worker.test/account/snapshot',{headers})).json();expect(snapshot.data.goals).toEqual([]);expect(snapshot.data.goalDeletions).toEqual([{id:'g1',deletedAt:now}]);
+});

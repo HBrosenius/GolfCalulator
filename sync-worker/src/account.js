@@ -23,11 +23,12 @@ function accountJson(data, status = 200) {
 function validSnapshot(value) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
   const keys = Object.keys(value);
-  if (keys.some(key => !['courses', 'rounds', 'roundDeletions', 'players', 'tours', 'tourDeletions', 'playerDeletions', 'courseDeletions', 'setups', 'setupDeletions'].includes(key))) return false;
-  if (!['courses', 'rounds', 'roundDeletions', 'players', 'tours', 'tourDeletions', 'playerDeletions', 'courseDeletions', 'setups', 'setupDeletions']
+  if (keys.some(key => !['courses', 'rounds', 'roundDeletions', 'players', 'tours', 'tourDeletions', 'playerDeletions', 'courseDeletions', 'setups', 'setupDeletions', 'goals', 'goalDeletions'].includes(key))) return false;
+  if (!['courses', 'rounds', 'roundDeletions', 'players', 'tours', 'tourDeletions', 'playerDeletions', 'courseDeletions', 'setups', 'setupDeletions', 'goals', 'goalDeletions']
     .every(key => value[key] === undefined || Array.isArray(value[key]))) return false;
+  if (value.goals !== undefined && (value.goals.length > 500 || !value.goals.every(globalThis.GolfValidation.isPersonalGoal))) return false;
   if (value.setups !== undefined && (value.setups.length > 100 || !value.setups.every(globalThis.GolfValidation.isRoundSetup))) return false;
-  return [...(value.roundDeletions || []), ...(value.tourDeletions || []), ...(value.playerDeletions || []), ...(value.courseDeletions || []), ...(value.setupDeletions || [])]
+  return [...(value.roundDeletions || []), ...(value.tourDeletions || []), ...(value.playerDeletions || []), ...(value.courseDeletions || []), ...(value.setupDeletions || []), ...(value.goalDeletions || [])]
     .every(item => item && typeof item === 'object' && !Array.isArray(item) &&
     Object.keys(item).every(key => ['id', 'deletedAt'].includes(key)) &&
     typeof item.id === 'string' && item.id.length > 0 && item.id.length <= 128 &&
@@ -43,8 +44,8 @@ function preserveSnapshotDeletions(existingData, incomingData) {
     });
     return [...deletions.values()];
   };
-  const data = { ...incomingData, setups: incomingData.setups ?? existingData?.setups ?? [] };
-  for (const collection of ['rounds', 'tours', 'players', 'courses', 'setups']) {
+  const data = { ...incomingData, setups: incomingData.setups ?? existingData?.setups ?? [], goals: incomingData.goals ?? existingData?.goals ?? [] };
+  for (const collection of ['rounds', 'tours', 'players', 'courses', 'setups', 'goals']) {
     const key = `${collection.slice(0, -1)}Deletions`;
     data[key] = preserve(key);
     const deleted = new Set(data[key].map(item => item.id));
