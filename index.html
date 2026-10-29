@@ -14,6 +14,7 @@
 <script src="src/vendor/dompurify.min.js?v=3.4.17"></script>
 <script src="src/scoring.js?v=20260809-2"></script>
 <script src="src/storage.js?v=20261027-2"></script>
+<script src="src/course-insights.js?v=20261029-1"></script>
 <script src="src/live-sync.js?v=20260809-2"></script>
 <script src="src/validation.js?v=20261028-3"></script>
 <script src="src/score-explanations.js?v=20261027-1"></script>
@@ -923,6 +924,11 @@
   .explanation-button:focus-visible { outline:3px solid var(--green);outline-offset:2px; }
   #scoreExplanationDialog::backdrop { background:rgba(0,0,0,.5); }
 #liveCodeModal .crop-sheet, #joinLiveModal .crop-sheet { max-height:calc(100dvh - 32px);overflow-y:auto; }
+  #courseInsightsView p { margin: 12px 0; line-height: 1.5; }
+  #courseInsightsContent h3 { margin: 22px 0 10px; font-size: 1rem; color: var(--heading); }
+  #courseInsightsContent table { border-collapse: collapse; font-size: 0.9rem; }
+  #courseInsightsContent th, #courseInsightsContent td { padding: 8px 6px; border-bottom: 1px solid var(--border); }
+  #courseInsightsView input[type="date"] { padding: 10px 8px; border: 1px solid var(--border); border-radius: 8px; font: inherit; background: var(--card); color: var(--text); min-height: 44px; }
 </style>
 </head>
 <body>
@@ -1084,10 +1090,25 @@
     <div class="card">
       <div class="card-title"><span class="icon">📊</span> Statistik</div>
       <div class="statistics-menu">
+        <button type="button" onclick="openCourseInsights()"><span>⛳</span><span><strong>Mina baninsikter</strong><small>Hål, niohålssnitt och senaste rundor</small></span></button>
         <button type="button" onclick="openSeasonView()"><span>📅</span><span><strong>Säsong</strong><small>Order of Merit för valt datumintervall</small></span></button>
         <button type="button" onclick="openHallOfFame()"><span>🏆</span><span><strong>Hall of Fame</strong><small>Topplistor och personliga rekord</small></span></button>
         <button type="button" onclick="openCourseRecordsView()"><span>🏟️</span><span><strong>Banrekord</strong><small>Bästa resultat per bana</small></span></button>
       </div>
+    </div>
+  </div>
+
+  <div id="courseInsightsView" class="hidden">
+    <div class="card">
+      <button type="button" onclick="openStatisticsView()" class="btn btn-secondary">← Statistik</button>
+      <h2 class="card-title" style="margin-top:16px">Mina baninsikter</h2>
+      <p>Jämför egna slag mot par på samma bana, tee och banversion. Lagspel och matchspel ingår inte.</p>
+      <label for="insightsPlayer">Spelare</label><select id="insightsPlayer" onchange="resetCourseInsights()" style="width:100%;margin-bottom:12px"></select>
+      <label for="insightsCourse">Bana, tee och hål</label><select id="insightsCourse" onchange="renderCourseInsights()" style="width:100%;margin-bottom:12px"></select>
+      <label for="insightsKind">Rundtyp</label><select id="insightsKind" onchange="renderCourseInsights()" style="width:100%;margin-bottom:12px"><option value="competitive">Tävlingsrundor</option><option value="practice">Träningsrundor</option></select>
+      <label for="insightsCompletion">Underlag</label><select id="insightsCompletion" onchange="renderCourseInsights()" style="width:100%;margin-bottom:12px"><option value="complete">Fullständiga scorekort</option><option value="incomplete">Ofullständiga scorekort – registrerade hål</option></select>
+      <div style="display:flex;gap:12px;flex-wrap:wrap"><div style="flex:1;min-width:120px"><label for="insightsFrom">Från datum</label><input type="date" id="insightsFrom" onchange="renderCourseInsights()" style="width:100%;box-sizing:border-box"></div><div style="flex:1;min-width:120px"><label for="insightsTo">Till datum</label><input type="date" id="insightsTo" onchange="renderCourseInsights()" style="width:100%;box-sizing:border-box"></div></div>
+      <div id="courseInsightsContent" aria-live="polite" style="margin-top:16px"></div>
     </div>
   </div>
 
@@ -4163,7 +4184,7 @@ function step4Back() {
 }
 
 const MAIN_VIEW_IDS = [
-  'historyView', 'playersView', 'statisticsView', 'seasonView',
+  'historyView', 'playersView', 'statisticsView', 'courseInsightsView', 'seasonView',
   'hallOfFameView', 'courseRecordsView', 'tourView', 'playerHistoryView',
   'seasonDetailView', 'courseRecordsDetailView', 'accountView'
 ];
@@ -6402,8 +6423,51 @@ function openPlayerHistory(id) {
       }).join('');
   }
 
+  listEl.insertAdjacentHTML('afterbegin', `<button type="button" class="btn btn-secondary" onclick="openCourseInsights(${escapeHtml(JSON.stringify(player.id))})">⛳ Mina baninsikter</button>`);
   document.getElementById('playersView').classList.add('hidden');
   document.getElementById('playerHistoryView').classList.remove('hidden');
+}
+
+function openCourseInsights(playerId) {
+  const players = playersLoad();
+  document.getElementById('insightsPlayer').innerHTML = players.map((player, i) => `<option value="${i}">${escapeHtml(player.nick || player.name)}</option>`).join('');
+  const selected = players.findIndex(player => player.id === playerId);
+  document.getElementById('insightsPlayer').value = String(Math.max(0, selected));
+  document.getElementById('insightsKind').value = 'competitive';
+  document.getElementById('insightsCompletion').value = 'complete';
+  document.getElementById('insightsFrom').value = '';
+  document.getElementById('insightsTo').value = '';
+  showPrimaryView('statistics', 'courseInsightsView');
+  resetCourseInsights();
+}
+
+function resetCourseInsights() {
+  const player = playersLoad()[Number(document.getElementById('insightsPlayer').value)];
+  const groups = GolfCourseInsights.groups(roundsLoad(), player);
+  document.getElementById('insightsCourse').innerHTML = groups.map((group, i) => `<option value="${i}">${escapeHtml(group.courseName)} · ${escapeHtml(group.tee)} · ${group.holes} hål · CR ${escapeHtml(String(group.cr ?? '–'))}/Slope ${escapeHtml(String(group.slope ?? '–'))}${groups.some(other => other.key !== group.key && other.courseName === group.courseName && other.tee === group.tee && other.holes === group.holes && other.cr === group.cr && other.slope === group.slope) ? ` · banversion ${i + 1}` : ''}</option>`).join('');
+  renderCourseInsights();
+}
+
+function renderCourseInsights() {
+  const el = document.getElementById('courseInsightsContent');
+  const player = playersLoad()[Number(document.getElementById('insightsPlayer').value)];
+  const group = GolfCourseInsights.groups(roundsLoad(), player)[Number(document.getElementById('insightsCourse').value)];
+  if (!group) { el.innerHTML = '<p>Inga individuella scorekort med håldata hittades. Spara en runda för att se baninsikter.</p>'; return; }
+  const from = document.getElementById('insightsFrom').value, to = document.getElementById('insightsTo').value;
+  if (from && to && from > to) { el.innerHTML = '<p>Från datum måste vara före till datum.</p>'; return; }
+  const incomplete = document.getElementById('insightsCompletion').value === 'incomplete';
+  const data = GolfCourseInsights.summarize(roundsLoad(), player, {key:group.key, kind:document.getElementById('insightsKind').value, completion:incomplete ? 'incomplete' : 'complete', from, to});
+  if (!data.count) { el.innerHTML = '<p>Inga rundor matchar filtren. Prova annan bana, rundtyp, datum eller ofullständiga scorekort.</p>'; return; }
+  const delta = value => value == null ? '–' : `${value > 0 ? '+' : ''}${value.toFixed(1)}`;
+  const sample = item => `${delta(item.average)} slag/hål · ${item.count} hålresultat`;
+  const holeNames = items => items.map(item => item.hole).join(', ');
+  el.innerHTML = `<p><strong>${data.count} rundor · ${data.scoredHoles} hålresultat</strong></p>
+    <p style="color:var(--muted)">${incomplete ? 'Endast registrerade slag visas. Upplockade och obesvarade hål saknar slagresultat; totalsiffrorna är inte fullständiga rundresultat.' : 'Alla hål har registrerade slag. Upplockade och obesvarade scorekort visas separat under ofullständiga scorekort.'} Snitt avser bruttoslag minus par. Små underlag kan ge osäkra jämförelser.</p>
+    <p><strong>Starkast:</strong> hål ${holeNames(data.strongest)} (${delta(data.strongest[0]?.average)})<br><strong>Tuffast:</strong> hål ${holeNames(data.toughest)} (${delta(data.toughest[0]?.average)})</p>
+    <h3>Niohålsjämförelse</h3><p>${data.splits.map(item => `${item.label}: ${sample(item)}`).join('<br>')}</p>
+    <h3>Par 3/4/5</h3><p>${data.pars.map(item => `Par ${item.par}: ${sample(item)}`).join('<br>')}</p>
+    <h3>Hål för hål</h3><table style="width:100%;text-align:left"><thead><tr><th scope="col">Hål</th><th scope="col">Snitt mot par</th><th scope="col">Resultat</th></tr></thead><tbody>${data.holes.map(item => `<tr><th scope="row">${item.hole}</th><td>${delta(item.average)}</td><td>${item.count}</td></tr>`).join('')}</tbody></table>
+    <h3>Senaste ${data.recent.length} rundor här</h3>${data.recent.map(item => `<p>${escapeHtml(String(item.date || 'Okänt datum'))} · ${item.gross} slag (${delta(item.toPar)} mot par)${item.complete ? '' : ` · ${item.holes}/${group.holes} registrerade hål`}</p>`).join('')}`;
 }
 
 function closePlayerHistory() {

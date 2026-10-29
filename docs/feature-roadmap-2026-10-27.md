@@ -64,6 +64,8 @@ Effort: medium–large. Validate whether players actually enter the extra fields
 
 ### Personal course insights
 
+Implementation update (29 October): [personal course insights](roadmap-course-insights-2026-10-29.md) now cover per-hole gross averages against par, strongest/toughest holes, nine-hole and par-based comparisons, and the latest five matching rounds. Player, course/tee/version, date, practice and completion filters keep sample sizes explicit.
+
 Use existing hole scores to show average score relative to par, strongest/toughest holes, front/back-nine splits, and performance on par 3/4/5 holes. Add “my last five rounds here” and comparable-round filters. Show sample sizes and separate incomplete rounds, 9/18 holes and team/individual scoring.
 
 This extends existing best-round, scoring-distribution, handicap-input and form charts rather than duplicating them. Richer course insights can ship before additional stat entry because much of the source data already exists.

@@ -8,6 +8,7 @@ const SHELL = [
   './src/vendor/dompurify.min.js?v=3.4.17',
   './src/scoring.js?v=20260809-2',
   './src/storage.js?v=20261027-2',
+  './src/course-insights.js?v=20261029-1',
   './src/live-sync.js?v=20260809-2',
   './src/validation.js?v=20261028-3',
   './src/round-setup.js?v=20261027-1',
