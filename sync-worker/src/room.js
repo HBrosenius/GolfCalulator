@@ -26,7 +26,7 @@ function publicRoom(room) {
     gameMode: room.gameMode, playedDate: room.playedDate || null, roundKind: room.roundKind || 'competitive',
     teams: room.teams,
     players: room.players,
-    seats: room.seats.map(seat => ({ scores: seat.scores, claimed: !!seat.tokenHash })),
+    seats: room.seats.map(seat => ({ scores: seat.scores, ...(seat.holeStats ? { holeStats: seat.holeStats } : {}), claimed: !!seat.tokenHash })),
     markers: room.markers,
     note: room.note,
     weather: room.weather,
@@ -147,6 +147,7 @@ export class GolfRoom extends DurableObject {
       const hostMayFill = isHost && !seat.tokenHash;
       if (!ownsSeat && !hostMayFill) return result(403, { error: 'Not authorized' });
       seat.scores = body.scores;
+      if (body.holeStats !== undefined) seat.holeStats = body.holeStats;
     }
     if (body.markers !== undefined || body.note !== undefined || body.weather !== undefined) {
       if (!isHost) return result(403, { error: 'Not authorized' });

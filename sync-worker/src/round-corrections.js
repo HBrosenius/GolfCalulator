@@ -19,6 +19,7 @@ export function correctRound(round, changes = []) {
       if (targets.has(key) && targets.get(key) !== change.score) throw new Error('Conflicting shared team corrections');
       targets.set(key, change.score);
       const row = player.rows[change.hole - 1];
+      if (row.skipped !== (change.score === null) || (!row.skipped && row.score !== change.score)) delete row.stats;
       row.skipped = change.score === null;
       row.score = row.skipped ? '–' : change.score;
       row.netto = row.skipped ? '–' : row.score - row.strokes;

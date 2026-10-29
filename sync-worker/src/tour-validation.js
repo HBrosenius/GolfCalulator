@@ -115,9 +115,10 @@ export function validateTourUpdate(body, tour) {
 }
 
 function validateResultRow(row, expectedHole) {
-  const allowed = new Set(['h', 'par', 'si', 'strokes', 'score', 'netto', 'pts', 'skipped']);
+  const allowed = new Set(['h', 'par', 'si', 'strokes', 'score', 'netto', 'pts', 'skipped', 'stats']);
   if (!hasOnlyKeys(row, allowed) || row.h !== expectedHole || !isInteger(row.par, 3, 6) ||
     !isInteger(row.si, 1, 18) || !isInteger(row.strokes, -5, 10) || typeof row.skipped !== 'boolean') return false;
+  if (row.stats !== undefined && !globalThis.GolfHoleStats.valid(row.stats, row.par, row.skipped ? undefined : row.score)) return false;
   if (row.skipped) return row.score === '–' && row.netto === '–' && row.pts === 0;
   return isInteger(row.score, 1, 20) && row.netto === row.score - row.strokes &&
     row.pts === Math.max(0, row.par + 2 - row.netto);
@@ -155,6 +156,7 @@ export function validateTourRoundSubmission(body, tour) {
     if (gross !== subject.totalBrutto) return 'Round gross score does not match hole results';
     seen.add(subject.memberId);
   }
+  if (body.gameMode !== 'individual' && body.subjects.some(subject => subject.rows.some(row => row.stats !== undefined))) return 'Hole statistics require individual play';
   try {
     const calculated = calculateTourSubjects(body, tour);
     for (let i = 0; i < calculated.length; i++) {
@@ -203,7 +205,7 @@ export function calculateTourSubjects(body, tour) {
       const strokes = Scoring.strokesOnHole(ph, si, course.holes);
       return { h: h + 1, par, si, strokes, score: row.skipped ? '–' : row.score,
         netto: row.skipped ? '–' : row.score - strokes,
-        pts: row.skipped ? 0 : Scoring.calculateStablefordPoints(row.score, par, strokes), skipped: row.skipped };
+        pts: row.skipped ? 0 : Scoring.calculateStablefordPoints(row.score, par, strokes), skipped: row.skipped, ...(row.stats !== undefined ? { stats: structuredClone(row.stats) } : {}) };
     });
     return { ...subject, rows, totalPoints: rows.reduce((sum, row) => sum + row.pts, 0),
       totalBrutto: rows.reduce((sum, row) => sum + (row.skipped ? 0 : row.score), 0) };

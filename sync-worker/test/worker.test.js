@@ -276,3 +276,12 @@ it('keeps the played date and practice classification consistent for live joiner
   expect(joined.response.status).toBe(200);
   expect(joined.body.room).toMatchObject({ playedDate: '2026-05-15', roundKind: 'practice' });
 });
+
+it('keeps optional individual seat statistics through score-only patches and enforces permissions',async()=>{
+  const created=await createRoom(2),scores=Array(9).fill(4),holeStats=Array(9).fill(null);holeStats[0]={putts:2,gir:false,fairway:'left',penalties:0};
+  const patch=token=>SELF.fetch(`https://worker.test/room/${created.code}`,{method:'PATCH',headers:mutationHeaders(token),body:JSON.stringify({protocolVersion:2,seat:0,scores,holeStats})});
+  expect((await patch('wrong-token')).status).toBe(403);
+  const response=await patch(created.seatToken);expect(response.status).toBe(200);expect((await response.json()).seats[0].holeStats[0]).toEqual(holeStats[0]);
+  const legacy=await SELF.fetch(`https://worker.test/room/${created.code}`,{method:'PATCH',headers:mutationHeaders(created.seatToken),body:JSON.stringify({protocolVersion:2,seat:0,scores})});expect((await legacy.json()).seats[0].holeStats[0]).toEqual(holeStats[0]);
+  holeStats[1]={fairway:'hit'};expect((await patch(created.seatToken)).status).toBe(400);
+});

@@ -1,3 +1,4 @@
+import '../../src/hole-stats.js';
 export const PROTOCOL_VERSION = 2;
 export const MAX_BODY_BYTES = 16 * 1024;
 const GAME_MODES = new Set(['individual', 'scramble', 'fourball', 'foursome', 'match']);
@@ -94,10 +95,11 @@ export function validateScores(scores, holes) {
 
 export function validatePatch(body, room) {
   if (!hasProtocol(body)) return 'Unsupported protocol version';
-  const allowed = new Set(['protocolVersion', 'seat', 'scores', 'markers', 'note', 'weather']);
+  const allowed = new Set(['protocolVersion', 'seat', 'scores', 'holeStats', 'markers', 'note', 'weather']);
   if (Object.keys(body).some(key => !allowed.has(key))) return 'Invalid request';
   if (body.seat !== undefined && (!isInteger(body.seat, 0, room.seats.length - 1) || !validateScores(body.scores, room.holes))) return 'Invalid request';
-  if (body.seat === undefined && body.scores !== undefined) return 'Invalid request';
+  if (body.seat === undefined && (body.scores !== undefined || body.holeStats !== undefined)) return 'Invalid request';
+  if (body.holeStats !== undefined && (room.gameMode !== 'individual' || !Array.isArray(body.holeStats) || body.holeStats.length !== room.holes || !body.holeStats.every((stats, h) => stats === null || globalThis.GolfHoleStats.valid(stats, room.hpar[h], body.scores?.[h])))) return 'Invalid hole statistics';
   if (body.note !== undefined && !isText(body.note, 120, true)) return 'Invalid request';
   if (body.weather !== undefined && !WEATHER.has(body.weather)) return 'Invalid request';
   if (body.markers !== undefined && !validateMarkers(body.markers, room)) return 'Invalid request';

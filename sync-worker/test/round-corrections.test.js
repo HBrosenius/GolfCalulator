@@ -23,3 +23,8 @@ describe('frozen scoring corrections', () => {
     expect(() => correctRound(round('scramble'), [{ memberId: 'ada', hole: 1, score: 4 }, { memberId: 'bo', hole: 1, score: 6 }])).toThrow('Conflicting');
   });
 });
+
+it('invalidates annotations on a changed hole while retaining the original audit evidence',async()=>{
+  const {correctionEvidence}=await import('../src/round-corrections.js');const original=round('individual');original.subjects[0].rows[0].stats={putts:3,penalties:1};original.subjects[0].rows[1].stats={putts:2};
+  const corrected=correctRound(original,[{memberId:'ada',hole:1,score:2}]);expect(corrected.subjects[0].rows[0].stats).toBeUndefined();expect(corrected.subjects[0].rows[1].stats).toEqual({putts:2});expect(correctionEvidence(original,corrected).before.subjects[0].rows[0].stats.putts).toBe(3);
+});

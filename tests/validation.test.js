@@ -132,3 +132,9 @@ test('scorecards retain the rules revision used for a shared tour', () => {
   const payload=validBackup();payload.rounds[0].tourRef={code:'ABCD2345',rulesRevision:2};assert.equal(validation.isBackupPayload(payload),true);
   payload.rounds[0].tourRef.rulesRevision=0;assert.equal(validation.isBackupPayload(payload),false);
 });
+
+test('portable backup keeps optional hole statistics and validates their nested fields',()=>{
+  const backup=validBackup();backup.rounds[0].subjects[0].rows[0].stats={putts:0,fairway:'left',gir:false,penalties:0};
+  assert.equal(validation.isBackupPayload(backup),true);
+  backup.rounds[0].subjects[0].rows[0].stats.putts=11;assert.equal(validation.isBackupPayload(backup),false);
+});

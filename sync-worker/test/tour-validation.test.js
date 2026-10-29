@@ -179,3 +179,11 @@ it('rejects practice rounds while keeping historical competitive round submissio
   expect(validateTourRoundSubmission({ ...body, roundKind: 'competitive' }, tour)).toBeNull();
   expect(validateTourRoundSubmission({ ...body, roundKind: 'practice' }, tour)).toMatch(/Practice rounds/);
 });
+
+it('retains optional stats in authoritative recalculation and rejects malformed nested fields',async()=>{
+  const {calculateTourSubjects}=await import('../src/tour-validation.js');
+  const config=validTour(),tour={...config,status:'open',members:[{id:'m1',name:'Ada',hi:12}],courses:[{id:'c1',...config.courses[0]}]};
+  const rows=config.courses[0].tees[0].hpar.map((par,h)=>{const si=config.courses[0].tees[0].si[h],strokes=Scoring.strokesOnHole(6,si,9);return{h:h+1,par,si,strokes,score:par+strokes,netto:par,pts:2,skipped:false};});rows[0].stats={putts:2,fairway:'hit',gir:true,penalties:0};
+  const body={protocolVersion:2,schemaVersion:1,clientRoundId:'stats',playedDate:'2026-07-01',courseId:'c1',gameMode:'individual',subjects:[{memberId:'m1',teeName:'Gul',totalPoints:18,totalBrutto:rows.reduce((s,r)=>s+r.score,0),rows}]};
+  expect(validateTourRoundSubmission(body,tour)).toBeNull();expect(calculateTourSubjects(body,tour)[0].rows[0].stats).toEqual(rows[0].stats);rows[0].stats.gir='yes';expect(validateTourRoundSubmission(body,tour)).toMatch(/subjects/i);
+});

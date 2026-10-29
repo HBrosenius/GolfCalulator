@@ -1,3 +1,4 @@
+import '../../src/hole-stats.js';
 import '../../src/validation.js';
 import '../../src/account-sync.js';
 import { bearerToken, generateToken, hashToken } from './auth.js';

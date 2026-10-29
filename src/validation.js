@@ -1,8 +1,8 @@
 (function (root, factory) {
-  const api = factory();
+  const api = factory(typeof module === 'object' && module.exports ? require('./hole-stats.js') : null);
   if (typeof module === 'object' && module.exports) module.exports = api;
   root.GolfValidation = api;
-}(typeof globalThis !== 'undefined' ? globalThis : this, function () {
+}(typeof globalThis !== 'undefined' ? globalThis : this, function (Stats) {
   'use strict';
 
   function isJoinCode(value) {
@@ -86,11 +86,12 @@
   }
 
   function isResultRow(row, holes) {
-    const keys = new Set(['h', 'par', 'si', 'strokes', 'score', 'netto', 'pts', 'skipped', 'teeShotBy', 'countsForTeam']);
+    const keys = new Set(['h', 'par', 'si', 'strokes', 'score', 'netto', 'pts', 'skipped', 'teeShotBy', 'countsForTeam', 'stats']);
     return hasOnlyKeys(row, keys) && isInteger(row.h, 1, holes) && isInteger(row.par, 3, 6) &&
       isInteger(row.si, 1, 18) && isInteger(row.strokes, -20, 20) && typeof row.skipped === 'boolean' &&
       optional(row.teeShotBy, value => isText(value, 50)) &&
       optional(row.countsForTeam, value => typeof value === 'boolean') &&
+      (row.stats === undefined || (Stats || globalThis.GolfHoleStats)?.valid(row.stats, row.par, row.skipped ? undefined : row.score)) &&
       (row.skipped
         ? (row.score === '–' || row.score === null) && (row.netto === '–' || row.netto === null) && row.pts === 0
         : isInteger(row.score, 1, 20) && isInteger(row.netto, -20, 40) && isInteger(row.pts, 0, 8));
