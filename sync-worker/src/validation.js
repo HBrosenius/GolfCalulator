@@ -1,3 +1,4 @@
+import '../../src/course-layout.js';
 import '../../src/hole-stats.js';
 export const PROTOCOL_VERSION = 2;
 export const MAX_BODY_BYTES = 16 * 1024;
@@ -54,15 +55,17 @@ export function validateCreate(body) {
   if (!hasProtocol(body)) return 'Unsupported protocol version';
   const allowed = new Set([
     'protocolVersion', 'courseName', 'teeColor', 'holes', 'slope', 'cr', 'par',
-    'hpar', 'si', 'gameMode', 'teams', 'players', 'seatCount', 'markers', 'tourRef', 'playedDate', 'roundKind',
+    'layout', 'ratingHoles', 'hpar', 'si', 'gameMode', 'teams', 'players', 'seatCount', 'markers', 'tourRef', 'playedDate', 'roundKind',
   ]);
   if (!hasOnlyKeys(body, allowed)) return 'Invalid round configuration';
+  if (body.layout !== undefined && !globalThis.GolfCourseLayout.valid(body.layout,body.holes)) return 'Invalid hole layout';
+  if (body.ratingHoles !== undefined && (body.ratingHoles !== 9 || body.holes !== 9)) return 'Invalid rating holes';
   if (body.roundKind !== undefined && !['competitive', 'practice'].includes(body.roundKind)) return 'Invalid round kind';
   if (body.roundKind === 'practice' && body.tourRef) return 'Practice rounds cannot join a tour';
   if (body.playedDate !== undefined && (typeof body.playedDate !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(body.playedDate) || Number.isNaN(Date.parse(body.playedDate + 'T00:00:00Z')) || new Date(body.playedDate + 'T00:00:00Z').toISOString().slice(0,10) !== body.playedDate)) return 'Invalid played date';
   if (!isText(body.courseName, 80) || !isText(body.teeColor, 20)) return 'Invalid round configuration';
   if (body.holes !== 9 && body.holes !== 18) return 'Invalid round configuration';
-  if (!isNumber(body.slope, 55, 155) || !isNumber(body.cr, 25, 85) || !isInteger(body.par, 27, 90)) return 'Invalid round configuration';
+  if (!isNumber(body.slope, 55, 155) || !isNumber(body.cr, body.ratingHoles === 9 ? 20 : 25, body.ratingHoles === 9 ? 50 : 85) || !isInteger(body.par, 27, 90)) return 'Invalid round configuration';
   if (!GAME_MODES.has(body.gameMode)) return 'Invalid round configuration';
   if (!isInteger(body.seatCount, 1, 12)) return 'Invalid round configuration';
   if (!Array.isArray(body.players) || body.players.length < 1 || body.players.length > 12) return 'Invalid round configuration';
@@ -73,6 +76,7 @@ export function validateCreate(body) {
   if (new Set(body.si).size !== body.si.length) return 'Invalid round configuration';
   const playerKeys = new Set(['name', 'hi', 'ph', 'tee', 'slope', 'cr', 'par', 'playingHandicap']);
   if (!body.players.every(player => hasOnlyKeys(player, playerKeys) && isText(player.name, 50) && isNumber(player.hi, -10, 54) &&
+    (player.slope == null || isNumber(player.slope,55,155)) && (player.cr == null || isNumber(player.cr,20,85)) && (player.par == null || isInteger(player.par,27,90)) &&
     (player.tee == null || isText(player.tee, 20)) &&
     (player.ph == null || isInteger(player.ph, -20, 72)) &&
     (player.playingHandicap == null || isInteger(player.playingHandicap, -20, 72)))) return 'Invalid round configuration';

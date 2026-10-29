@@ -4,6 +4,7 @@
   root.GolfValidation = api;
 }(typeof globalThis !== 'undefined' ? globalThis : this, function (Stats, Merge) {
   'use strict';
+  const Layout = typeof module === 'object' && module.exports ? require('./course-layout.js') : globalThis.GolfCourseLayout;
 
   function isJoinCode(value) {
     return typeof value === 'string' && /^[A-HJ-KM-NP-Z2-9]{20}$/.test(value.toUpperCase());
@@ -48,14 +49,14 @@
 
   function isCourse(course) {
     if (!isObject(course)) return false;
-    const keys = new Set(['id', 'name', 'tee', 'holes', 'slope', 'cr', 'par', 'hpar', 'si',
+    const keys = new Set(['id', 'name', 'tee', 'holes', 'layout', 'ratingHoles', 'slope', 'cr', 'par', 'hpar', 'si',
       'ratingCategory', 'catalogTee', 'catalogId', 'catalogVersion', 'catalogUpdatedAt',
       'catalogSource', 'catalogVerifiedAt', 'catalogVerificationStatus']);
     const sourceOk = optional(course.catalogSource, source => hasOnlyKeys(source, new Set(['url', 'title'])) &&
       isText(source.url, 500) && /^https?:\/\//.test(source.url) && isText(source.title, 120));
-    return optional(course.id, value => isText(value, 80)) && hasOnlyKeys(course, keys) && isText(course.name, 80) && isText(course.tee, 50) &&
+    return optional(course.layout, value => (Layout || globalThis.GolfCourseLayout)?.valid(value,course.holes)) && optional(course.ratingHoles, value => value === 9 && course.holes === 9) && optional(course.id, value => isText(value, 80)) && hasOnlyKeys(course, keys) && isText(course.name, 80) && isText(course.tee, 50) &&
       (course.holes === 9 || course.holes === 18) && isNumber(course.slope, 55, 155) &&
-      isNumber(course.cr, 25, 85) && isInteger(course.par, 27, 90) &&
+      isNumber(course.cr, course.ratingHoles === 9 ? 20 : 25, course.ratingHoles === 9 ? 50 : 85) && isInteger(course.par, 27, 90) &&
       Array.isArray(course.hpar) && course.hpar.length === course.holes && course.hpar.every(value => isInteger(value, 3, 6)) &&
       Array.isArray(course.si) && course.si.length === course.holes && course.si.every(value => isInteger(value, 1, 18)) &&
       new Set(course.si).size === course.si.length &&
@@ -87,8 +88,9 @@
   }
 
   function isResultRow(row, holes) {
-    const keys = new Set(['h', 'par', 'si', 'strokes', 'score', 'netto', 'pts', 'skipped', 'teeShotBy', 'countsForTeam', 'stats']);
-    return hasOnlyKeys(row, keys) && isInteger(row.h, 1, holes) && isInteger(row.par, 3, 6) &&
+    if (!isObject(row)) return false;
+    const keys = new Set(['h', 'courseHole', 'par', 'si', 'strokes', 'score', 'netto', 'pts', 'skipped', 'teeShotBy', 'countsForTeam', 'stats']);
+    return optional(row.courseHole, value => isInteger(value,1,18)) && hasOnlyKeys(row, keys) && isInteger(row.h, 1, holes) && isInteger(row.par, 3, 6) &&
       isInteger(row.si, 1, 18) && isInteger(row.strokes, -20, 20) && typeof row.skipped === 'boolean' &&
       optional(row.teeShotBy, value => isText(value, 50)) &&
       optional(row.countsForTeam, value => typeof value === 'boolean') &&
@@ -107,7 +109,7 @@
       optional(subject.memberId, value => isText(value, 80)) && isText(subject.name, 80) &&
       optional(subject.hi, value => isNumber(value, -10, 54)) && isInteger(subject.ph, -20, 72) &&
       optional(subject.tee, value => isText(value, 50)) && optional(subject.slope, value => isNumber(value, 55, 155)) &&
-      optional(subject.cr, value => isNumber(value, 25, 85)) && optional(subject.par, value => isInteger(value, 27, 90)) &&
+      optional(subject.cr, value => isNumber(value, 20, 85)) && optional(subject.par, value => isInteger(value, 27, 90)) &&
       isInteger(subject.totalPoints, 0, holes * 8) && isInteger(subject.totalBrutto, 0, holes * 20) &&
       optional(subject.members, value => Array.isArray(value) && value.length <= 12 && value.every(name => isText(name, 50))) &&
       optional(subject.memberIds, value => Array.isArray(value) && value.length <= 12 &&
@@ -137,24 +139,24 @@
 
   function isRound(round) {
     const keys = new Set([
-      'schemaVersion', 'id', 'date', 'courseName', 'courseSnapshot', 'tee', 'mixedTees', 'holes', 'slope', 'cr', 'par',
+      'schemaVersion', 'id', 'date', 'courseName', 'courseSnapshot', 'layout', 'ratingHoles', 'tee', 'mixedTees', 'holes', 'slope', 'cr', 'par',
       'gameMode', 'roundKind', 'lifecycle', 'sourceDraftId', 'restoredFrom', 'note', 'weather', 'markers', 'minTeeShots', 'bets', 'liveRoomCode', 'tourRef', 'subjects',
     ]);
-    return isObject(round) && optional(round.courseSnapshot, value => Array.isArray(value) && value.length <= 12 && value.every(isCourse)) && optional(round.roundKind, value => ['competitive', 'practice'].includes(value)) &&
+    return isObject(round) && optional(round.layout, value => (Layout || globalThis.GolfCourseLayout)?.valid(value,round.holes)) && optional(round.ratingHoles, value => value === 9 && round.holes === 9) && optional(round.courseSnapshot, value => Array.isArray(value) && value.length <= 12 && value.every(isCourse)) && optional(round.roundKind, value => ['competitive', 'practice'].includes(value)) &&
       optional(round.lifecycle, value => ['submitted', 'completed'].includes(value)) &&
       optional(round.sourceDraftId, value => isText(value, 80)) && optional(round.restoredFrom, value => isText(value, 80)) &&
       hasOnlyKeys(round, keys) && optional(round.schemaVersion, value => value === 1 || value === 2) &&
       optional(round.minTeeShots, value => isInteger(value, 0, 18)) &&
       (isInteger(round.id, 1, Number.MAX_SAFE_INTEGER) || (typeof round.id === 'string' && /^[A-Za-z0-9_-]{1,80}$/.test(round.id))) && isDate(round.date) && isText(round.courseName, 80) &&
       isText(round.tee, 50) && optional(round.mixedTees, value => typeof value === 'boolean') &&
-      (round.holes === 9 || round.holes === 18) && isNumber(round.slope, 55, 155) && isNumber(round.cr, 25, 85) &&
+      (round.holes === 9 || round.holes === 18) && isNumber(round.slope, 55, 155) && isNumber(round.cr, round.ratingHoles === 9 ? 20 : 25, round.ratingHoles === 9 ? 50 : 85) &&
       isInteger(round.par, 27, 90) && ['individual', 'scramble', 'fourball', 'foursome', 'match'].includes(round.gameMode) &&
       optional(round.note, value => isText(value, 120, true)) && optional(round.weather, value => ['sun', 'cloud', 'rain', 'wind'].includes(value)) &&
       optional(round.markers, value => isMarkers(value, round.holes)) &&
       optional(round.bets, value => Array.isArray(value) && value.length <= round.holes && value.every(bet => isBet(bet, round.holes))) &&
       optional(round.liveRoomCode, value => /^[A-HJ-KM-NP-Z2-9]{4}$/.test(value) || /^[A-HJ-KM-NP-Z2-9]{20}$/.test(value)) && optional(round.tourRef, isTourRef) &&
       Array.isArray(round.subjects) && round.subjects.length >= 1 && round.subjects.length <= 12 &&
-      round.subjects.every(subject => isSubject(subject, round.holes));
+      round.subjects.every(subject => isSubject(subject, round.holes) && (!round.layout || subject.rows.every((row,i) => row.h === i+1 && row.courseHole === round.layout.holeNumbers[i])));
   }
 
   function isLocalTour(tour) {

@@ -34,7 +34,7 @@ function randomCode(length = 20) {
 function corsHeaders(origin) {
   const headers = {
     'Access-Control-Allow-Methods': 'GET,POST,PUT,PATCH,DELETE,OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type,Authorization,X-Golf-Protocol',
+    'Access-Control-Allow-Headers': 'Content-Type,Authorization,X-Golf-Protocol,X-Golf-Layout',
     'Vary': 'Origin',
   };
   if (origin && ALLOWED_ORIGINS.has(origin)) headers['Access-Control-Allow-Origin'] = origin;
@@ -299,6 +299,7 @@ async function route(request, env, ctx = null) {
   if ((request.method === 'GET' || parts[2] === 'claim') &&
       !await env.CREATE_LIMITER.getByName(`room-${operation}:${caller}`).check(operation === 'lookup' ? 120 : 10)) return json({ error: 'Too many attempts' }, 429);
   const room = env.GOLF_ROOMS.getByName(code);
+  if(request.headers.get('X-Golf-Layout')!=='1'){const supported=await room.checkLayoutSupport();if(supported.status===426)return fromRoomResult(supported);}
   if (parts.length === 2 && request.method === 'GET') return fromRoomResult(await room.getPublicState(bearerToken(request)));
   if (!protocolHeaderValid(request)) return json({ error: 'Unsupported protocol version' }, 426);
 

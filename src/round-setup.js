@@ -5,7 +5,7 @@
 }(typeof globalThis !== 'undefined' ? globalThis : this, function () {
   'use strict';
 
-  const copyCourse = course => ({ ...Object.fromEntries(['ratingCategory','catalogTee','catalogId','catalogVersion','catalogUpdatedAt','catalogSource','catalogVerifiedAt','catalogVerificationStatus'].filter(key => course[key] != null).map(key => [key, structuredClone(course[key])])), name: course.name, tee: course.tee, holes: course.holes,
+  const copyCourse = course => ({ ...Object.fromEntries(['layout','ratingHoles','ratingCategory','catalogTee','catalogId','catalogVersion','catalogUpdatedAt','catalogSource','catalogVerifiedAt','catalogVerificationStatus'].filter(key => course[key] != null).map(key => [key, structuredClone(course[key])])), name: course.name, tee: course.tee, holes: course.holes,
     slope: course.slope, cr: course.cr, par: course.par, hpar: [...course.hpar], si: [...course.si] });
 
   function fromRound(round, savedPlayers = []) {
@@ -16,6 +16,7 @@
       const tee = subject.tee || round.tee;
       if (!courses.some(course => course.tee === tee)) courses.push(copyCourse({
         ...(round.courseSnapshot || []).find(course => course.tee === tee),
+        ...(round.layout ? {layout:structuredClone(round.layout)} : {}), ...(round.ratingHoles ? {ratingHoles:round.ratingHoles} : {}),
         name: round.courseName, tee, holes: round.holes,
         slope: subject.slope ?? round.slope, cr: subject.cr ?? round.cr, par: subject.par ?? round.par,
         hpar: subject.rows.map(row => row.par), si: subject.rows.map(row => row.si),
@@ -43,6 +44,7 @@
     // marker winners, wagers, dates or device-specific live credentials transfer.
     return { courseName: course.name, teeColor: course.tee, _originalTee: course.tee, holes: course.holes,
       slope: course.slope, cr: course.cr, par: course.par, hpar: [...course.hpar], si: [...course.si],
+      ...(course.layout ? {layout:structuredClone(course.layout)} : {}), ...(course.ratingHoles ? {ratingHoles:course.ratingHoles} : {}),
       setupCourses: setup.courses.map(copyCourse), gameMode: setup.gameMode,
       numPlayers: players.length, players, playerIds: setup.players.map(player =>
         savedPlayers.some(saved => saved.id === player.playerId) ? player.playerId : null),

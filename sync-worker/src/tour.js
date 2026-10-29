@@ -512,6 +512,7 @@ export class Tour extends DurableObject {
       courseId: course.id,
       courseName: course.name,
       holes: course.holes,
+      ...(course.layout || body.startHole !== undefined ? {layout:{...structuredClone(course.layout || globalThis.GolfCourseLayout.standard(course.holes)),startHole:body.startHole??course.layout.startHole}} : {}),
       gameMode: body.gameMode,
       roundKind: 'competitive',
       approvalStatus: tour.approvalRequired ? 'provisional' : 'confirmed',

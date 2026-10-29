@@ -10,6 +10,7 @@ on:
       - 'src/hole-stats.js'
       - 'src/player-merge.js'
       - 'src/course-catalog.js'
+      - 'src/course-layout.js'
       - 'src/account-sync.js'
       - 'src/scoring.js'
       - 'src/tour-events.js'

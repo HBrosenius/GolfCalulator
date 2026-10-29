@@ -32,17 +32,17 @@ function isDate(value) {
 }
 
 function validateTee(tee, holes) {
-  const allowed = new Set(['name', 'slope', 'cr', 'par', 'hpar', 'si']);
-  return hasOnlyKeys(tee, allowed) && isText(tee.name, 20) &&
-    isNumber(tee.slope, 55, 155) && isNumber(tee.cr, 25, 85) && isInteger(tee.par, 27, 90) &&
+  const allowed = new Set(['name', 'slope', 'cr', 'par', 'hpar', 'si', 'ratingHoles']);
+  return (tee?.ratingHoles === undefined || (tee.ratingHoles === 9 && holes === 9)) && hasOnlyKeys(tee, allowed) && isText(tee.name, 20) &&
+    isNumber(tee.slope, 55, 155) && isNumber(tee.cr, tee.ratingHoles === 9 ? 20 : 25, tee.ratingHoles === 9 ? 50 : 85) && isInteger(tee.par, 27, 90) &&
     Array.isArray(tee.hpar) && tee.hpar.length === holes && tee.hpar.every(value => isInteger(value, 3, 6)) &&
     Array.isArray(tee.si) && tee.si.length === holes && tee.si.every(value => isInteger(value, 1, 18)) &&
     new Set(tee.si).size === tee.si.length;
 }
 
 function validateCourse(course) {
-  const allowed = new Set(['name', 'holes', 'maxRounds', 'tees']);
-  return hasOnlyKeys(course, allowed) && isText(course.name, 80) &&
+  const allowed = new Set(['name', 'holes', 'maxRounds', 'tees', 'layout']);
+  return (course?.layout === undefined || globalThis.GolfCourseLayout.valid(course.layout,course.holes)) && hasOnlyKeys(course, allowed) && isText(course.name, 80) &&
     (course.holes === 9 || course.holes === 18) && isInteger(course.maxRounds, 1, 50) &&
     Array.isArray(course.tees) && course.tees.length >= 1 && course.tees.length <= 12 &&
     course.tees.every(tee => validateTee(tee, course.holes)) &&
@@ -115,7 +115,7 @@ export function validateTourUpdate(body, tour) {
 }
 
 function validateResultRow(row, expectedHole) {
-  const allowed = new Set(['h', 'par', 'si', 'strokes', 'score', 'netto', 'pts', 'skipped', 'stats']);
+  const allowed = new Set(['h', 'courseHole', 'par', 'si', 'strokes', 'score', 'netto', 'pts', 'skipped', 'stats']);
   if (!hasOnlyKeys(row, allowed) || row.h !== expectedHole || !isInteger(row.par, 3, 6) ||
     !isInteger(row.si, 1, 18) || !isInteger(row.strokes, -5, 10) || typeof row.skipped !== 'boolean') return false;
   if (row.stats !== undefined && !globalThis.GolfHoleStats.valid(row.stats, row.par, row.skipped ? undefined : row.score)) return false;
@@ -127,7 +127,7 @@ function validateResultRow(row, expectedHole) {
 export function validateTourRoundSubmission(body, tour) {
   const allowed = new Set([
     'protocolVersion', 'schemaVersion', 'clientRoundId', 'playedDate', 'courseId',
-    'gameMode', 'subjects', 'liveRoomCode', 'roundKind', 'rulesRevision',
+    'gameMode', 'subjects', 'liveRoomCode', 'roundKind', 'rulesRevision', 'startHole',
   ]);
   if (!body || body.protocolVersion !== PROTOCOL_VERSION) return 'Unsupported protocol version';
   if (body.schemaVersion !== TOUR_SCHEMA_VERSION) return 'Unsupported tour schema version';
@@ -140,6 +140,8 @@ export function validateTourRoundSubmission(body, tour) {
   if (body.liveRoomCode !== undefined && !/^([A-HJ-KM-NP-Z2-9]{4}|[A-HJ-KM-NP-Z2-9]{20})$/.test(body.liveRoomCode)) return 'Invalid live room code';
   const course = tour.courses.find(item => item.id === body.courseId);
   if (!course) return 'Round course is not in the tour';
+  if (body.startHole !== undefined && !(course.layout?.holeNumbers || Array.from({length:course.holes},(_,i)=>i+1)).includes(body.startHole)) return 'Invalid starting hole';
+  if(course.layout && Array.isArray(body.subjects) && body.subjects.some(subject=>Array.isArray(subject?.rows)&&subject.rows.some(row=>row && row.courseHole===undefined)))return 'Unsupported course layout; update the app';
   if (!Array.isArray(body.subjects) || body.subjects.length < 1 || body.subjects.length > tour.members.length) return 'Invalid round subjects';
   const memberIds = new Set(tour.members.map(member => member.id));
   const seen = new Set();
@@ -150,7 +152,7 @@ export function validateTourRoundSubmission(body, tour) {
       !isInteger(subject.totalPoints, 0, course.holes * 8) || !isInteger(subject.totalBrutto, 0, course.holes * 20) ||
       (subject.teamId !== null && subject.teamId !== undefined && !isText(subject.teamId, 30)) ||
       !Array.isArray(subject.rows) || subject.rows.length !== course.holes ||
-      !subject.rows.every((row, index) => validateResultRow(row, index + 1))) return 'Invalid round subjects';
+      !subject.rows.every((row, index) => validateResultRow(row, index + 1) && (course.layout ? row.courseHole === course.layout.holeNumbers[index] : row.courseHole === undefined || row.courseHole === index+1))) return 'Invalid round subjects';
 
     const gross = subject.rows.reduce((sum, row) => sum + (row.skipped ? 0 : row.score), 0);
     if (gross !== subject.totalBrutto) return 'Round gross score does not match hole results';
@@ -188,7 +190,7 @@ export function calculateTourSubjects(body, tour) {
   if (teamMode && [...groups.values()].some(group => group.length !== 2)) throw new Error('Round teams must contain two distinct members');
   const phFor = subject => {
     const tee = course.tees.find(tee => tee.name === subject.teeName);
-    return Scoring.calculatePlayingHandicap(members.get(subject.memberId).hi, tee.slope, tee.cr, tee.par, course.holes);
+    return Scoring.calculatePlayingHandicap(members.get(subject.memberId).hi, tee.slope, tee.cr, tee.par, course.holes, tee.ratingHoles);
   };
   const calculated = body.subjects.map(subject => {
     const tee = course.tees.find(tee => tee.name === subject.teeName);
@@ -197,13 +199,13 @@ export function calculateTourSubjects(body, tour) {
     if (shared) {
       if (team.some(mate => mate.teeName !== subject.teeName || JSON.stringify(mate.rows) !== JSON.stringify(subject.rows))) throw new Error('Shared team rows and tees must match');
       ph = body.gameMode === 'scramble'
-        ? Scoring.calculateScrambleHandicap(...team.map(mate => members.get(mate.memberId).hi))
+        ? Scoring.calculateScrambleHandicap(...team.map(mate => tee.ratingHoles===9 ? phFor(mate) : members.get(mate.memberId).hi))
         : Scoring.calculateFoursomeHandicap(...team.map(phFor));
     }
     const rows = subject.rows.map((row, h) => {
       const par = tee.hpar[h], si = tee.si[h];
       const strokes = Scoring.strokesOnHole(ph, si, course.holes);
-      return { h: h + 1, par, si, strokes, score: row.skipped ? '–' : row.score,
+      return { h: h + 1, ...(course.layout || body.startHole !== undefined || row.courseHole !== undefined ? {courseHole:course.layout?.holeNumbers[h] || h+1} : {}), par, si, strokes, score: row.skipped ? '–' : row.score,
         netto: row.skipped ? '–' : row.score - strokes,
         pts: row.skipped ? 0 : Scoring.calculateStablefordPoints(row.score, par, strokes), skipped: row.skipped, ...(row.stats !== undefined ? { stats: structuredClone(row.stats) } : {}) };
     });

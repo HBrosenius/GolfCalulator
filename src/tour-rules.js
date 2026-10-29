@@ -65,10 +65,12 @@
       const holes = course.holes || tees[0].holes;
       return {
         name: course.name,
+        ...(tees[0].layout ? {layout:JSON.parse(JSON.stringify(tees[0].layout))} : {}),
         holes,
         maxRounds: course.maxRounds > 0 ? course.maxRounds : 1,
         tees: tees.map(entry => ({
           name: entry.tee,
+          ...(entry.ratingHoles ? {ratingHoles:entry.ratingHoles} : {}),
           slope: entry.slope,
           cr: entry.cr,
           par: entry.par,
@@ -96,6 +98,7 @@
     if (round.roundKind === 'practice') throw new Error('Träningsrundor kan inte skickas till en tour.');
     const course = sharedRecord.tour.courses.find(item => item.name === round.courseName && item.holes === round.holes);
     if (!course) throw new Error('Round course is not in the shared tour');
+    if (JSON.stringify(course.layout?.holeNumbers || Array.from({length:course.holes},(_,i)=>i+1)) !== JSON.stringify(round.layout?.holeNumbers || Array.from({length:round.holes},(_,i)=>i+1))) throw new Error('Tourens hålval stämmer inte med scorekortet.');
     const links = sharedRecord.memberLinks || {};
     const subjects = (round.subjects || []).flatMap(subject => {
       if (['scramble', 'foursome'].includes(round.gameMode)) {
@@ -108,7 +111,7 @@
           totalBrutto: subject.totalBrutto,
           teamId: subject.name || null,
           rows: subject.rows.map(row => ({
-            h: row.h, par: row.par, si: row.si, strokes: row.strokes,
+            h: row.h, ...(row.courseHole !== undefined ? {courseHole:row.courseHole} : {}), par: row.par, si: row.si, strokes: row.strokes,
             score: row.score, netto: row.netto, pts: row.pts, skipped: !!row.skipped,
           ...(row.stats !== undefined ? { stats: JSON.parse(JSON.stringify(row.stats)) } : {}),
           })),
@@ -125,7 +128,7 @@
         totalBrutto: subject.totalBrutto,
         teamId: subject.teamId || null,
         rows: subject.rows.map(row => ({
-          h: row.h, par: row.par, si: row.si, strokes: row.strokes,
+          h: row.h, ...(row.courseHole !== undefined ? {courseHole:row.courseHole} : {}), par: row.par, si: row.si, strokes: row.strokes,
           score: row.score, netto: row.netto, pts: row.pts, skipped: !!row.skipped,
           ...(row.stats !== undefined ? { stats: JSON.parse(JSON.stringify(row.stats)) } : {}),
         })),
@@ -140,6 +143,7 @@
       playedDate: round.date,
       courseId: course.id,
       gameMode: round.gameMode,
+      ...(round.layout ? {startHole:round.layout.startHole} : {}),
       ...(round.roundKind ? { roundKind: round.roundKind } : {}),
       subjects,
       ...(round.liveRoomCode ? { liveRoomCode: round.liveRoomCode } : {}),

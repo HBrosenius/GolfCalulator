@@ -15,13 +15,17 @@
     if (holes !== 9 && holes !== 18) throw new RangeError('holes must be 9 or 18');
   }
 
-  function calculatePlayingHandicap(hi, slope, courseRating, par, holes) {
+  function calculatePlayingHandicap(hi, slope, courseRating, par, holes, ratingHoles = 18) {
     [
       [hi, 'hi'], [slope, 'slope'], [courseRating, 'courseRating'], [par, 'par'],
     ].forEach(([value, name]) => assertFiniteNumber(value, name));
     assertHoleCount(holes);
     if (slope <= 0) throw new RangeError('slope must be positive');
 
+    if (ratingHoles === 9) {
+      if (holes !== 9) throw new RangeError('Nine-hole ratings require nine-hole play');
+      return Math.round((Math.round(hi / 2 * 10) / 10) * slope / 113 + courseRating - par);
+    }
     const handicap18 = Math.round(hi * (slope / 113) + (courseRating - par));
     return holes === 9 ? Math.round(handicap18 / 2) : handicap18;
   }

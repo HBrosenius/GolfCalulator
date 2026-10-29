@@ -18,6 +18,7 @@ function publicRoom(room) {
     courseName: room.courseName,
     teeColor: room.teeColor,
     holes: room.holes,
+    ...(room.layout ? {layout:room.layout} : {}), ...(room.ratingHoles ? {ratingHoles:room.ratingHoles} : {}),
     slope: room.slope,
     cr: room.cr,
     par: room.par,
@@ -61,6 +62,7 @@ export class GolfRoom extends DurableObject {
       courseName: config.courseName,
       teeColor: config.teeColor,
       holes: config.holes,
+      ...(config.layout ? {layout:structuredClone(config.layout)} : {}), ...(config.ratingHoles ? {ratingHoles:config.ratingHoles} : {}),
       slope: config.slope,
       cr: config.cr,
       par: config.par,
@@ -72,7 +74,7 @@ export class GolfRoom extends DurableObject {
         playingHandicap: team.playingHandicap,
         members: team.members.map(member => ({ name: member.name })),
       })) : null,
-      players: config.players.map(player => ({ name: player.name, hi: player.hi, ph: player.ph, tee: player.tee || null })),
+      players: config.players.map(player => ({ name: player.name, hi: player.hi, ph: player.ph, tee: player.tee || null, ...(config.layout ? {slope:player.slope??config.slope,cr:player.cr??config.cr,par:player.par??config.par} : {}) })),
       seats,
       hostTokenHash,
       markers: config.markers || { ctp: { hole: null, player: '' }, ld: { hole: null, player: '' } },
@@ -85,6 +87,11 @@ export class GolfRoom extends DurableObject {
     await this.ctx.storage.put(ROOM_KEY, room);
     await this.ctx.storage.setAlarm(room.expiresAt);
     return result(201, { room: publicRoom(room) });
+  }
+
+  async checkLayoutSupport() {
+    const room=await this.ctx.storage.get(ROOM_KEY);
+    return room && (room.ratingHoles===9 || (room.layout && (room.layout.startHole!==1 || room.layout.holeNumbers.some((h,i)=>h!==i+1)))) ? result(426,{error:'Update the app to use this hole layout'}) : result(200);
   }
 
   async getPublicState(token = null) {

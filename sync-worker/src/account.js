@@ -1,3 +1,4 @@
+import '../../src/course-layout.js';
 import '../../src/player-merge.js';
 import '../../src/hole-stats.js';
 import '../../src/validation.js';
