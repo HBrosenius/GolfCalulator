@@ -99,7 +99,9 @@ export function validatePatch(body, room) {
   if (Object.keys(body).some(key => !allowed.has(key))) return 'Invalid request';
   if (body.seat !== undefined && (!isInteger(body.seat, 0, room.seats.length - 1) || !validateScores(body.scores, room.holes))) return 'Invalid request';
   if (body.seat === undefined && (body.scores !== undefined || body.holeStats !== undefined)) return 'Invalid request';
-  if (body.holeStats !== undefined && (room.gameMode !== 'individual' || !Array.isArray(body.holeStats) || body.holeStats.length !== room.holes || !body.holeStats.every((stats, h) => stats === null || globalThis.GolfHoleStats.valid(stats, room.hpar[h], body.scores?.[h])))) return 'Invalid hole statistics';
+  // Live rooms only freeze the base tee's hole pars; individual tees may differ.
+  // Final result/tour validation applies the player's recorded hole par.
+  if (body.holeStats !== undefined && (room.gameMode !== 'individual' || !Array.isArray(body.holeStats) || body.holeStats.length !== room.holes || !body.holeStats.every((stats, h) => stats === null || globalThis.GolfHoleStats.valid(stats, undefined, body.scores?.[h])))) return 'Invalid hole statistics';
   if (body.note !== undefined && !isText(body.note, 120, true)) return 'Invalid request';
   if (body.weather !== undefined && !WEATHER.has(body.weather)) return 'Invalid request';
   if (body.markers !== undefined && !validateMarkers(body.markers, room)) return 'Invalid request';

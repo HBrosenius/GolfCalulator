@@ -283,5 +283,7 @@ it('keeps optional individual seat statistics through score-only patches and enf
   expect((await patch('wrong-token')).status).toBe(403);
   const response=await patch(created.seatToken);expect(response.status).toBe(200);expect((await response.json()).seats[0].holeStats[0]).toEqual(holeStats[0]);
   const legacy=await SELF.fetch(`https://worker.test/room/${created.code}`,{method:'PATCH',headers:mutationHeaders(created.seatToken),body:JSON.stringify({protocolVersion:2,seat:0,scores})});expect((await legacy.json()).seats[0].holeStats[0]).toEqual(holeStats[0]);
-  holeStats[1]={fairway:'hit'};expect((await patch(created.seatToken)).status).toBe(400);
+  // A different player tee may have par 4 where the base tee has par 3.
+  holeStats[1]={fairway:'hit'};expect((await patch(created.seatToken)).status).toBe(200);
+  holeStats[1]={putts:-1};expect((await patch(created.seatToken)).status).toBe(400);
 });
