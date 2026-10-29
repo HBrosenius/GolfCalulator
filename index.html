@@ -13,12 +13,13 @@
 <meta name="apple-mobile-web-app-title" content="Poängbogey">
 <script src="src/vendor/dompurify.min.js?v=3.4.17"></script>
 <script src="src/scoring.js?v=20260809-2"></script>
-<script src="src/storage.js?v=20261029-1"></script>
+<script src="src/storage.js?v=20261029-2"></script>
+<script src="src/player-merge.js?v=20261029-1"></script>
 <script src="src/hole-stats.js?v=20261029-1"></script>
 <script src="src/course-insights.js?v=20261029-3"></script>
 <script src="src/personal-goals.js?v=20261029-1"></script>
 <script src="src/live-sync.js?v=20261029-2"></script>
-<script src="src/validation.js?v=20261029-2"></script>
+<script src="src/validation.js?v=20261029-3"></script>
 <script src="src/score-explanations.js?v=20261027-1"></script>
 <script src="src/round-recovery.js?v=20261027-1"></script>
 <script src="src/round-setup.js?v=20261027-1"></script>
@@ -30,7 +31,7 @@
 <script src="src/tour-rules.js?v=20261029-2"></script>
 <script src="src/tour-events.js?v=20261028-1"></script>
 <script src="src/tour-sync.js?v=20261028-5"></script>
-<script src="src/account-sync.js?v=20261029-1"></script>
+<script src="src/account-sync.js?v=20261029-2"></script>
 <script src="src/course-catalog.js?v=20260814-1"></script>
 <script>
 // Apply saved/system theme before first paint to avoid a flash of the wrong theme.
@@ -948,6 +949,10 @@
   .personal-goal progress { width: 100%; accent-color: var(--green); }
   .goal-date-fields { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 12px; }
   .goal-date-fields input { min-width: 0; padding: 10px 6px; min-height: 44px; border: 1px solid var(--border); border-radius: 8px; color: var(--text); background: var(--card); font: inherit; }
+  #confirmPlayerMerge:disabled { opacity: .55; cursor: not-allowed; }
+  #playerMergeView p { margin: 12px 0; line-height: 1.5; }
+  #playerMergeView li { margin: 8px 0 8px 20px; }
+  #playerMergeView .btn, #playerMergeView h3 { margin-top: 16px; }
 </style>
 </head>
 <body>
@@ -1033,7 +1038,7 @@
           <input type="checkbox" id="exportCourses" checked style="width:16px;height:16px;accent-color:var(--green);"> Banor
         </label>
         <label style="display:flex;align-items:center;gap:6px;font-size:0.9rem;cursor:pointer;margin:0;">
-          <input type="checkbox" id="exportPlayers" checked style="width:16px;height:16px;accent-color:var(--green);"> Spelare och personliga mål
+          <input type="checkbox" id="exportPlayers" checked style="width:16px;height:16px;accent-color:var(--green);"> Spelare, mål och sammanslagningar
         </label>
         <label style="display:flex;align-items:center;gap:6px;font-size:0.9rem;cursor:pointer;margin:0;"><input type="checkbox" id="exportTours" checked style="width:16px;height:16px;accent-color:var(--green);"> Lokala tourer (inklusive spelare)</label>
         <label style="display:flex;align-items:center;gap:6px;font-size:.9rem;margin:0;"><input type="checkbox" id="exportSetups" checked style="width:16px;height:16px;"> Sparade spelgrupper (inklusive uppställning)</label>
@@ -1068,7 +1073,7 @@
         <div class="card-title" style="margin:0;"><span class="icon">👤</span> Spelarregister</div>
         <button onclick="closePlayersView()" style="background:none;border:none;font-size:1.4rem;cursor:pointer;color:var(--muted);padding:0 4px;">✕</button>
       </div>
-      <div id="savedPlayersList"></div>
+      <button type="button" class="btn secondary" onclick="openPlayerMerge()">Slå samman dubbletter</button><div id="savedPlayersList"></div>
       <div id="addPlayerForm" style="margin-top:14px;border-top:1px solid var(--border);padding-top:14px;">
         <div class="player-card-title" style="margin-bottom:10px;">Lägg till spelare</div>
         <div style="display:flex;align-items:center;gap:14px;margin-bottom:10px;">
@@ -1153,6 +1158,15 @@
       <div id="personalRecap" aria-live="polite"></div><p>Bilden innehåller spelarens visningsnamn, period, upp till fem bankombinationer och registrerad statistik. Du väljer själv om du delar den.</p><button type="button" id="downloadRecap" class="btn secondary" onclick="downloadRecapImage()">Ladda ner årskort (PNG)</button>
     </div>
   </div>
+
+  <div id="playerMergeView" class="hidden"><div class="card">
+    <button type="button" class="btn secondary" onclick="openPlayersView()">← Spelare</button><h2 style="margin-top:16px">Slå samman dubbletter</h2>
+    <p>Samla en persons historik under en sparad profil. Två olika personer ska behålla varsin profil.</p>
+    <label for="mergeSource">Dubblett som ska arkiveras</label><select id="mergeSource" onchange="clearPlayerMergePreview()" style="width:100%"></select>
+    <label for="mergeTarget">Profil att behålla</label><select id="mergeTarget" onchange="clearPlayerMergePreview()" style="width:100%"></select>
+    <button type="button" class="btn secondary" onclick="previewPlayerMerge()">Förhandsgranska sammanslagning</button><div id="playerMergePreview" role="status"></div><button type="button" class="btn" id="confirmPlayerMerge" disabled onclick="confirmPlayerMerge()">Slå samman profilerna</button>
+    <h3>Tidigare sammanslagningar</h3><div id="playerMergeHistory"></div>
+  </div></div>
 
   <!-- KONTO OCH MOLNSYNK -->
   <div id="accountView" class="hidden">
@@ -1705,7 +1719,7 @@ const DB_KEY = 'golf_courses_db';
 // Guest collections keep their existing keys; signed-in accounts have separate vaults.
 const scopedKeys = new Set(['golf_courses_db', 'golf_rounds_db', 'golf_players_db', 'golf_tours_db',
   'golf_round_deletions', 'golf_tour_deletions', 'golf_player_deletions', 'golf_course_deletions',
-  'golf_account_sync_meta', 'golf_account_baseline', 'golf_shared_tours_db', 'golf_inprogress_round', 'golf_setups_db', 'golf_setup_deletions', 'golf_round_recovery', 'golf_personal_goals', 'golf_goal_deletions']);
+  'golf_account_sync_meta', 'golf_account_baseline', 'golf_shared_tours_db', 'golf_inprogress_round', 'golf_setups_db', 'golf_setup_deletions', 'golf_round_recovery', 'golf_personal_goals', 'golf_goal_deletions', 'golf_player_merges', 'golf_player_merge_links']);
 let _dataOwner = localStorage.getItem('golf_data_owner');
 try {
   const existing = JSON.parse(localStorage.getItem('golf_account_session') || 'null');
@@ -1742,7 +1756,7 @@ const SETUPS_KEY = 'golf_setups_db';
 const SETUP_DELETIONS_KEY = 'golf_setup_deletions';
 function setupsLoad() {
   const data = storageDb.load(SETUPS_KEY, []);
-  return Array.isArray(data) ? data.filter(GolfValidation.isRoundSetup) : [];
+  return mergeCollection("setups",Array.isArray(data)?data.filter(GolfValidation.isRoundSetup):[]).setups;
 }
 function setupsSave(setups) {
   if (!storageDb.save(SETUPS_KEY, setups, true)) return false;
@@ -4299,7 +4313,7 @@ function step4Back() {
 }
 
 const MAIN_VIEW_IDS = [
-  'historyView', 'playersView', 'statisticsView', 'courseInsightsView', 'goalsView', 'seasonView',
+  'historyView', 'playersView', 'playerMergeView', 'statisticsView', 'courseInsightsView', 'goalsView', 'seasonView',
   'hallOfFameView', 'courseRecordsView', 'tourView', 'playerHistoryView',
   'seasonDetailView', 'courseRecordsDetailView', 'accountView'
 ];
@@ -4420,7 +4434,7 @@ function accountSessionSave(session) {
 function markCollectionDeleted(kind, id) {
   const key = `golf_${kind}_deletions`;
   const records = storageDb.load(key, []).filter(item => item.id !== String(id));
-  return storageDb.save(key, [...records, { id: String(id), deletedAt: Date.now() }], true);
+  return storageDb.save(key, [...records, { id: String(id), deletedAt: Math.max(Date.now(),...(kind==='player'?playerMergesLoad().filter(op=>String(op.source.id)===String(id)).map(op=>op.createdAt+1):[])) }], true);
 }
 
 function roundDeletionsLoad() {
@@ -4550,7 +4564,7 @@ function renderAccountView() {
   const players = playersLoad();
   const profile = session.profile || null;
   const playerOptions = players.map(player =>
-    `<option value="${escapeHtml(String(player.id))}"${profile?.localPlayerId != null && String(profile.localPlayerId) === String(player.id) ? ' selected' : ''}>${escapeHtml(player.nick || player.name)} (HCP ${player.hi})</option>`).join('');
+    `<option value="${escapeHtml(String(player.id))}"${profile?.localPlayerId != null && String(GolfPlayerMerge.resolver(playerMergesLoad())(Number(profile.localPlayerId))) === String(player.id) ? ' selected' : ''}>${escapeHtml(player.nick || player.name)} (HCP ${player.hi})</option>`).join('');
   content.innerHTML = `
     <button class="btn secondary" onclick="importGuestData()">Importera gästdata från enheten</button>
     <div style="background:#f0faf5;border-radius:10px;padding:12px;margin-bottom:14px;">
@@ -4820,6 +4834,7 @@ async function exchangeAccountLink(token, apiBase) {
 
 function localAccountSnapshot() {
   return {
+    playerMerges:playerMergesLoad(),
     courseDeletions: storageDb.load('golf_course_deletions', []), playerDeletions: storageDb.load('golf_player_deletions', []),
     goals: goalsLoad(), goalDeletions: storageDb.load(GOAL_DELETIONS_KEY, []),
     setups: setupsLoad(), setupDeletions: storageDb.load(SETUP_DELETIONS_KEY, []),
@@ -4828,8 +4843,13 @@ function localAccountSnapshot() {
   };
 }
 
-function saveAccountSnapshot(data) {
+function saveAccountSnapshot(data, extra = {}) {
+  data=GolfPlayerMerge.normalize({...data,playerMerges:GolfPlayerMerge.combine(playerMergesLoad(),data.playerMerges)});
+  const mergeState=GolfPlayerMerge.state(state,data.playerMerges);
+  for(const op of data.playerMerges || [])if(op.revision===2 && playerMergesLoad().some(old=>old.id===op.id&&old.revision===1) && state.editingId && op.changes?.some(change=>change.collection==='rounds'&&change.id===String(state.editingId)))throw Object.assign(new Error('Stäng det berörda scorekortet med Ny runda innan du synkroniserar ångringen.'),{status:409});
+  const linked=GolfPlayerMerge.links(extra[GolfTourSync.STORE_KEY] || sharedTourStore.load(),data.playerMerges);
   const entries = {
+    ...extra,[PLAYER_MERGES_KEY]:data.playerMerges || [],[GolfTourSync.STORE_KEY]:linked,
     [GOALS_KEY]: data.goals || [], [GOAL_DELETIONS_KEY]: data.goalDeletions || [],
     [SETUPS_KEY]: data.setups || [], [SETUP_DELETIONS_KEY]: data.setupDeletions || [],
     [DB_KEY]: data.courses || [], [ROUNDS_KEY]: data.rounds || [], [PLAYERS_KEY]: data.players || [],
@@ -4841,6 +4861,7 @@ function saveAccountSnapshot(data) {
     window._recoverableAccountSnapshot = data;
     throw new Error('Kunde inte spara molndatan på enheten. Frigör lagringsutrymme och försök igen.');
   }
+  Object.assign(state,mergeState);
   const goalsView=document.getElementById('goalsView');
   if (goalsView && !goalsView.classList.contains('hidden') && goalsView.dataset.scope===recoveryScope()) renderGoalsAndRecap();
 }
@@ -4849,7 +4870,7 @@ function importGuestData() {
   const session = accountSessionLoad();
   if (!session || !confirm('Importera gästdata från den här webbläsaren till ditt konto?')) return;
   const guest = {};
-  for (const [name, key] of Object.entries({ courses: DB_KEY, rounds: ROUNDS_KEY, players: PLAYERS_KEY, tours: TOURS_KEY, setups: SETUPS_KEY, goals: GOALS_KEY, goalDeletions: GOAL_DELETIONS_KEY })) {
+  for (const [name, key] of Object.entries({ courses: DB_KEY, rounds: ROUNDS_KEY, players: PLAYERS_KEY, tours: TOURS_KEY, setups: SETUPS_KEY, playerMerges:PLAYER_MERGES_KEY, goals: GOALS_KEY, goalDeletions: GOAL_DELETIONS_KEY })) {
     try { guest[name] = JSON.parse(localStorage.getItem(key) || '[]'); } catch (_) { guest[name] = []; }
   }
   try { saveAccountSnapshot(GolfAccountSync.mergeSnapshots(localAccountSnapshot(), guest)); scheduleAccountSync('guest-import'); }
@@ -5601,6 +5622,7 @@ function inprogressSave() {
   state.draftId ||= crypto.randomUUID();
   state.playedDate ||= localPlayedToday();
   state.roundKind ||= 'competitive';
+  Object.assign(state,GolfPlayerMerge.state(state,playerMergesLoad()));
   const snapshot = JSON.parse(JSON.stringify(state)), scope = recoveryScope();
   const key = `${scope}|${snapshot.draftId}`;
   if (!_draftVersions.has(key)) _draftVersions.set(key, snapshot.draftRevision || 0);
@@ -5691,7 +5713,7 @@ async function resumeRecoveryDraft(id) {
     const draft = (await recoveryStore.list(scope)).drafts.find(item => item.id === id);
     if (scope !== recoveryScope() || !draft) return;
     if (!usableDraft(draft.state)) { alert('Det äldre utkastet saknar spelar- eller bandata. Det finns kvar sparat, men kan inte öppnas som scorekort.'); return; }
-    liveSyncStop(); state = draft.state; _singleHole = null;
+    liveSyncStop(); state = GolfPlayerMerge.state(draft.state,playerMergesLoad()); _singleHole = null;
     _roundDraftStatus.set(`${scope}|${draft.id}`, { status: 'saved', at: draft.updatedAt });
     draftSaveStatus(`Sparat på enheten · ${new Date(draft.updatedAt).toLocaleTimeString('sv-SE')}`);
     _draftVersions.set(`${scope}|${draft.id}`, draft.revision);
@@ -5703,7 +5725,7 @@ async function resumeRound() {
   if (!await checkpointDrafts()) return;
   const snap = inprogressLoad(); if (!snap) return;
   if (snap.state.draftId) return resumeRecoveryDraft(snap.state.draftId);
-  state = snap.state; buildScoreTable(); restoreScoresToTable(); goToStep(4);
+  state = GolfPlayerMerge.state(snap.state,playerMergesLoad()); buildScoreTable(); restoreScoresToTable(); goToStep(4);
 }
 async function discardInprogress() {
   if (!confirm('Radera det aktiva utkastet permanent?')) return;
@@ -5715,7 +5737,8 @@ async function discardInprogress() {
 async function restoreDeletedRound(id) {
   const scope = recoveryScope();
   try {
-    const restored = await recoveryStore.prepareRestore(scope, id);
+    const rawRestored = await recoveryStore.prepareRestore(scope, id);
+    const restored=GolfPlayerMerge.normalize({rounds:[rawRestored],playerMerges:playerMergesLoad()}).rounds[0];
     if (scope !== recoveryScope()) return;
     const rounds = roundsLoad();
     if (!rounds.some(round => round.id === restored.id) && !roundsSave([restored, ...rounds])) throw new Error('Kunde inte spara den återställda rundan.');
@@ -5788,12 +5811,13 @@ const ROUND_SCHEMA_VERSION = 2;
 function roundsLoad() {
   const stored = storageDb.load(ROUNDS_KEY, []);
   if (!Array.isArray(stored)) return [];
-  const rounds = GolfStorage.migrateRounds(stored, playersLoad());
+  const rounds = GolfStorage.migrateRounds(stored, [...playersLoad(),...playerMergesLoad().map(op=>op.source)]);
   if (JSON.stringify(rounds) !== JSON.stringify(stored)) storageDb.save(ROUNDS_KEY, rounds);
-  return rounds;
+  return mergeCollection("rounds",rounds).rounds;
 }
 
 function roundsSave(rounds) {
+  rounds=mergeCollection("rounds",rounds).rounds;
   if (!_lsOk) return false;
   if (!storageDb.save(ROUNDS_KEY, rounds)) {
     alert('Lagringsutrymmet är fullt — ta bort några rundor eller spelarbilder för att göra plats.');
@@ -5849,6 +5873,7 @@ function _buildDataPayload(inclCourses, inclRounds, inclPlayers, inclTours = fal
     rounds:   inclRounds   ? roundsLoad()    : [],
     players:  (inclPlayers || inclTours) ? playersLoad() : [],
     tours:    inclTours ? toursLoad() : [],
+    playerMerges:(inclPlayers || inclTours) ? playerMergesLoad().map(op=>{if(inclRounds && inclTours && inclSetups && inclPlayers)return op;const {changes,...minimal}=op;return minimal;}) : [],
     goals: inclPlayers ? goalsLoad() : [], goalDeletions: inclPlayers ? storageDb.load(GOAL_DELETIONS_KEY, []) : [],
     setups: inclSetups ? setupsLoad() : [], setupDeletions: inclSetups ? storageDb.load(SETUP_DELETIONS_KEY, []) : [],
     playerDeletions: (inclPlayers || inclTours) ? storageDb.load('golf_player_deletions', []) : [],
@@ -5885,6 +5910,8 @@ function exportData() {
 // Returns counts for added courses, rounds, players and tours. Throws on invalid payload.
 function _applyImportPayload(payload) {
   if (!GolfValidation.isBackupPayload(payload)) throw new Error('Ogiltigt format');
+  const mergedPlayerLog=GolfPlayerMerge.combine(playerMergesLoad(),payload.playerMerges);
+  payload=GolfPlayerMerge.normalize({...payload,playerMerges:mergedPlayerLog});
 
   if (payload.goals || payload.goalDeletions) {
     const merged = GolfAccountSync.mergeSnapshots({goals:goalsLoad(),goalDeletions:storageDb.load(GOAL_DELETIONS_KEY,[])},{goals:payload.goals || [],goalDeletions:payload.goalDeletions || []});
@@ -5954,6 +5981,7 @@ function _applyImportPayload(payload) {
     if (!storageDb.saveMany({ [SETUPS_KEY]: merged.setups, [SETUP_DELETIONS_KEY]: merged.setupDeletions })) throw new Error('Spelgrupperna kunde inte importeras.');
     scheduleAccountSync('setup-import'); renderSavedSetups();
   }
+  if(mergedPlayerLog.length)saveAccountSnapshot({...localAccountSnapshot(),playerMerges:mergedPlayerLog});
   return { addedCourses, addedRounds, addedPlayers, addedTours };
 }
 
@@ -6320,12 +6348,103 @@ async function saveCurrentRound(playerResults) {
 // ============================================================
 const PLAYERS_KEY = 'golf_players_db';
 
+const PLAYER_MERGES_KEY='golf_player_merges';
+const PLAYER_MERGE_LINKS_KEY='golf_player_merge_links';
+let _playerMergePreview=null;
+let _playerMergeBusy=false;
+let _playerMergePreviewSeq=0;
+function playerMergeName(player){return [player.name,player.lastName].filter(Boolean).join(' ')+(player.nick?` (${player.nick})`:'');}
+function playerMergesLoad(){const value=storageDb.load(PLAYER_MERGES_KEY,[]);return Array.isArray(value)?value:[];}
+function mergeCollection(collection,items){const logs=playerMergesLoad();return logs.length?GolfPlayerMerge.normalize({[collection]:items,playerMerges:logs,playerDeletions:storageDb.load('golf_player_deletions',[])}):{[collection]:items};}
+function mergeDraftUses(state,id,player){return(state.playerIds||[]).includes(id)||(state.players||[]).some(item=>item.playerId===id||(item.playerId==null&&[player.name,player.nick].filter(Boolean).includes(item.name)))||(state.teams||[]).some(team=>(team.members||[]).some(item=>item.playerId===id));}
+function mergeRecoveryConflicts(vault,snapshot,nextOps,sourceId,source) {
+  const drafts=vault.drafts.filter(item=>mergeDraftUses(GolfPlayerMerge.state(item.state,snapshot.playerMerges || []),sourceId,source));
+  const trash=vault.trash.filter(item=>{const before=GolfPlayerMerge.normalize({rounds:[item.round],players:snapshot.players,playerMerges:snapshot.playerMerges || []}).rounds[0];const after=GolfPlayerMerge.normalize({rounds:[before],players:snapshot.players,playerMerges:nextOps}).rounds[0];return !GolfPlayerMerge.same(before,after);});
+  return {drafts,trash};
+}
+async function openPlayerMerge(){
+  if(!await checkpointDrafts())return;
+  const view=document.getElementById('playerMergeView');view.dataset.scope=recoveryScope();
+  const options=playersLoad().map(player=>`<option value="${player.id}">${escapeHtml([player.name,player.lastName].filter(Boolean).join(' '))}${player.nick?' · '+escapeHtml(player.nick):''} · HCP ${player.hi}</option>`).join('');
+  document.getElementById('mergeSource').innerHTML=options;document.getElementById('mergeTarget').innerHTML=options;
+  if(playersLoad().length>1)document.getElementById('mergeTarget').selectedIndex=1;
+  _playerMergePreview=null;document.getElementById('playerMergePreview').textContent='Välj profilen som ska tas bort och profilen du vill behålla.';document.getElementById('confirmPlayerMerge').disabled=true;
+  renderPlayerMergeHistory();showPrimaryView('players','playerMergeView');
+}
+function clearPlayerMergePreview(){++_playerMergePreviewSeq;_playerMergePreview=null;document.getElementById('confirmPlayerMerge').disabled=true;document.getElementById('playerMergePreview').textContent='Förhandsgranska de nya valen före sammanslagning.';}
+async function previewPlayerMerge(){
+  const sequence=++_playerMergePreviewSeq,scope=recoveryScope(),out=document.getElementById('playerMergePreview');if(document.getElementById('playerMergeView').dataset.scope!==scope)return;
+  _playerMergePreview=null;document.getElementById('confirmPlayerMerge').disabled=true;
+  try{
+    if(!await checkpointDrafts())return;
+    const sourceId=Number(document.getElementById('mergeSource').value),targetId=Number(document.getElementById('mergeTarget').value),snapshot=localAccountSnapshot();
+    const result=GolfPlayerMerge.prepare(snapshot,sourceId,targetId,crypto.randomUUID());
+    if(!GolfValidation.isPlayerMerge(result.operation))throw new Error('Berörda uppgifter har ett äldre eller ogiltigt format. Granska dem först.');
+    if(state.editingId&&result.operation.changes.some(change=>change.collection==='rounds'&&change.id===String(state.editingId)))throw new Error('Stäng det berörda scorekortet med Ny runda före sammanslagning.');
+    GolfPlayerMerge.state(state,result.snapshot.playerMerges);
+    const vault=await recoveryStore.list(scope);if(scope!==recoveryScope()||sequence!==_playerMergePreviewSeq)return;
+    const {drafts,trash}=mergeRecoveryConflicts(vault,snapshot,result.snapshot.playerMerges,sourceId,result.operation.source);
+    if(drafts.length||trash.length)throw new Error(`Profilen finns i ${drafts.length} utkast och ${trash.length} raderade rundor. Slutför/radera utkasten och återställ eller radera rundorna före sammanslagning.`);
+    const records=sharedTourStore.load(),linked=GolfPlayerMerge.links(records,result.snapshot.playerMerges);
+    const linkChanges=records.flatMap((record,i)=>GolfPlayerMerge.same(record.memberLinks,linked[i].memberLinks)?[]:[{code:record.code,before:record.memberLinks||{},after:linked[i].memberLinks}]);
+    if(accountSessionLoad()&&new TextEncoder().encode(JSON.stringify(result.snapshot)).length>1_400_000)throw new Error('Ångerdata blir för stor för kontosynk. Inga uppgifter har ändrats.');
+    const kept=snapshot.players.find(player=>player.id===targetId);
+    const affected=result.operation.changes.filter(change=>change.collection==='rounds');
+    const overlaps=snapshot.rounds.filter(round=>affected.some(change=>change.before.date===round.date&&change.before.courseName===round.courseName&&change.before.holes===round.holes)&&(round.subjects||[]).some(subject=>subject.playerId===targetId||subject.memberIds?.includes(targetId)));
+    const roundDetails=affected.length?`<details><summary>Granska berörda scorekort</summary>${affected.map(change=>`<p>${escapeHtml(change.before.courseName)} · ${change.before.date} · ${change.before.holes} hål</p>`).join('')}</details>`:'';
+    out.innerHTML=`<p><strong>Behåll ${escapeHtml(playerMergeName(kept))}</strong> · HCP ${kept.hi}. Den profilens namn, foto och aktuella handicap behålls.</p><p>${escapeHtml(playerMergeName(result.operation.source))} arkiveras som dubblett.</p><ul><li>${result.counts.rounds} scorekort</li><li>${result.counts.tours} lokala tourer</li><li>${result.counts.setups} sparade spelgrupper</li><li>${result.counts.goals} personliga mål</li><li>${linkChanges.length} lokala tourkopplingar</li></ul>${roundDetails}${overlaps.length?`<p><strong>Samma dag och bana:</strong> ${overlaps.length} scorekort finns även för profilen som behålls. Båda historikerna behålls; granska scorekorten före sammanslagning.</p>`:""}<p>Endast spelarkopplingar ändras. Historiska namn, handicaps, hålresultat och serverns tourspelare behålls. Ångring finns så länge berörda poster inte ändras efteråt. Nya rundor efter sammanslagningen stannar hos den behållna profilen.</p>`;
+    _playerMergePreview={scope,snapshot:JSON.stringify(snapshot),records:JSON.stringify(records),result,linkChanges};document.getElementById('confirmPlayerMerge').disabled=false;
+  }catch(error){out.textContent=error.message;}
+}
+async function confirmPlayerMerge(){
+  const preview=_playerMergePreview;if(_playerMergeBusy||!preview||preview.scope!==recoveryScope())return;
+  _playerMergeBusy=true;document.getElementById('confirmPlayerMerge').disabled=true;
+  try{
+    if(!await checkpointDrafts())return;
+    if(preview.snapshot!==JSON.stringify(localAccountSnapshot())||preview.records!==JSON.stringify(sharedTourStore.load()))throw new Error('Uppgifter har ändrats. Förhandsgranska igen.');
+    // Recheck recovery data after the preview, before the atomic local write.
+    const vault=await recoveryStore.list(preview.scope);if(preview.scope!==recoveryScope())return;
+    const recovery=mergeRecoveryConflicts(vault,localAccountSnapshot(),preview.result.snapshot.playerMerges,preview.result.operation.source.id,preview.result.operation.source);
+    if(recovery.drafts.length||recovery.trash.length)throw new Error('Återhämtningsdata har ändrats. Förhandsgranska igen.');
+    if(preview.snapshot!==JSON.stringify(localAccountSnapshot())||preview.records!==JSON.stringify(sharedTourStore.load()))throw new Error('Uppgifter har ändrats. Förhandsgranska igen.');
+    const local=storageDb.load(PLAYER_MERGE_LINKS_KEY,[]);local.push({id:preview.result.operation.id,links:preview.linkChanges});
+    const normalizedState=GolfPlayerMerge.state(state,preview.result.snapshot.playerMerges);
+    saveAccountSnapshot(preview.result.snapshot,{[PLAYER_MERGE_LINKS_KEY]:local});
+    Object.assign(state,normalizedState);
+    _playerMergePreview=null;scheduleAccountSync('player-merge');renderSavedPlayersList();renderPlayerMergeHistory();document.getElementById('confirmPlayerMerge').disabled=true;document.getElementById('playerMergePreview').textContent='Profilerna är sammanslagna på enheten. För kontosynk behöver alla enheter använda aktuell app.';
+  }catch(error){document.getElementById('playerMergePreview').textContent=error.message;}
+  finally{_playerMergeBusy=false;document.getElementById('confirmPlayerMerge').disabled=!_playerMergePreview;}
+}
+function renderPlayerMergeHistory(){
+  const el=document.getElementById('playerMergeHistory');el.replaceChildren();
+  for(const op of playerMergesLoad().slice().reverse()){
+    const row=document.createElement('div');row.className='personal-goal';const title=document.createElement('p');const kept=playersLoad().find(player=>player.id===GolfPlayerMerge.resolver(playerMergesLoad())(op.targetId));title.textContent=`${playerMergeName(op.source)} → ${kept?playerMergeName(kept):'borttagen profil'} · ${new Date(op.createdAt).toLocaleString('sv-SE')} · ${op.revision===2?'Ångrad':'Sammanslagen'}`;row.append(title);
+    if(op.revision===1&&op.changes){const button=document.createElement('button');button.className='btn secondary';button.textContent='Ångra sammanslagning';button.onclick=()=>undoPlayerMerge(op.id);row.append(button);}else if(op.revision===1){const note=document.createElement('p');note.textContent='Fullständig ångerdata saknas i denna delbackup.';row.append(note);}el.append(row);
+  }
+  if(!el.childNodes.length)el.textContent='Inga sammanslagningar sparade.';
+}
+async function undoPlayerMerge(id){
+  const scope=recoveryScope();if(document.getElementById('playerMergeView').dataset.scope!==scope)return;
+  try{
+    if(!await checkpointDrafts())return;
+    const snapshot=localAccountSnapshot(),op=snapshot.playerMerges.find(item=>item.id===id),data=GolfPlayerMerge.undo(snapshot,id),records=sharedTourStore.load(),evidence=storageDb.load(PLAYER_MERGE_LINKS_KEY,[]).find(item=>item.id===id);
+    if(state.editingId&&op.changes.some(change=>change.collection==='rounds'&&change.id===String(state.editingId)))throw new Error('Stäng det berörda scorekortet med Ny runda innan du ångrar.');
+    if(!evidence&&records.some(record=>record.memberLinks?.[op.targetId]))throw new Error('Tourkopplingarnas ångerdata finns på enheten där sammanslagningen gjordes. Ångra där.');
+    if(accountSessionLoad()&&new TextEncoder().encode(JSON.stringify(data)).length>1_400_000)throw new Error('Ångringen ryms inte i kontosynken. Frigör utrymme först.');
+    const restored=records.map(record=>{const change=evidence?.links.find(item=>item.code===record.code);if(!change)return record;if(!GolfPlayerMerge.same(record.memberLinks||{},change.after))throw new Error('En tourkoppling har ändrats efter sammanslagningen.');return{...record,memberLinks:change.before};});
+    if(evidence?.links.some(change=>!records.some(record=>record.code===change.code)))throw new Error('En berörd tourkoppling finns inte längre på enheten.');
+    if(scope!==recoveryScope())return;
+    saveAccountSnapshot(data,{[GolfTourSync.STORE_KEY]:restored});scheduleAccountSync('player-merge-undo');renderSavedPlayersList();renderPlayerMergeHistory();clearPlayerMergePreview();document.getElementById('playerMergePreview').textContent='Sammanslagningen är ångrad. Ursprungliga poster och kopplingar har återställts.';
+  }catch(error){document.getElementById('playerMergePreview').textContent=error.message;}
+}
+
 function playersLoad() {
   const players = storageDb.load(PLAYERS_KEY, []);
-  return Array.isArray(players) ? players : [];
+  return mergeCollection("players",Array.isArray(players)?players:[]).players;
 }
 
 function playersSave(list) {
+  list=mergeCollection("players",list).players;
   if (!_lsOk) return;
   if (!storageDb.save(PLAYERS_KEY, list)) {
     alert('Lagringsutrymmet är fullt — ta bort några rundor eller spelarbilder för att göra plats.');
@@ -6368,7 +6487,7 @@ function roundIncludesPlayer(round, player) {
 const TOURS_KEY = 'golf_tours_db';
 
 function toursLoad() {
-  return GolfStorage.migrateTours(storageDb.load(TOURS_KEY, []));
+  return mergeCollection("tours",GolfStorage.migrateTours(storageDb.load(TOURS_KEY, []))).tours;
 }
 
 function toursSave(list) {
@@ -6865,7 +6984,7 @@ const GOALS_KEY = 'golf_personal_goals';
 const GOAL_DELETIONS_KEY = 'golf_goal_deletions';
 let _goalCourseOptions = [];
 let _goalEditBaseline = null;
-function goalsLoad() { const data = storageDb.load(GOALS_KEY, []); return Array.isArray(data) ? data.filter(GolfValidation.isPersonalGoal) : []; }
+function goalsLoad() { const data = storageDb.load(GOALS_KEY, []); return mergeCollection("goals",Array.isArray(data)?data.filter(GolfValidation.isPersonalGoal):[]).goals; }
 function selectedGoalsPlayer() { try { const id=JSON.parse(document.getElementById('goalsPlayer').value);return playersLoad().find(player=>player.id===id); } catch (_) { return null; } }
 function openGoalsView(playerId) {
   const players = playersLoad(), today = localPlayedToday();
