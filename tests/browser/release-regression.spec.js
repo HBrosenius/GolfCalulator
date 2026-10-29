@@ -522,12 +522,14 @@ test('a shared tour invitation lets the contributor select any tour player', asy
   const context = await page.evaluate(() => ({
     tourCode: state.tourContext?.code,
     savedCourse: dbFind('Delad bana', 'Gul', 9),
+    frozenCourse: state.setupCourses.find(course => course.tee === 'Gul'),
     selectedMemberId: state.playerMemberIds[0],
     selectedName: document.getElementById('pname_0').value,
     selectedHi: document.getElementById('phi_0').value,
   }));
   expect(context.tourCode).toBe(code);
-  expect(context.savedCourse).toMatchObject({ name: 'Delad bana', tee: 'Gul', holes: 9 });
+  expect(context.savedCourse).toBeNull();
+  expect(context.frozenCourse).toMatchObject({ name: 'Delad bana', tee: 'Gul', holes: 9 });
   expect(context).toMatchObject({ selectedMemberId: 'member-bo', selectedName: 'Bo', selectedHi: '12' });
 });
 

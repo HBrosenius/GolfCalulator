@@ -19,10 +19,10 @@
 <script src="src/course-insights.js?v=20261029-3"></script>
 <script src="src/personal-goals.js?v=20261029-1"></script>
 <script src="src/live-sync.js?v=20261029-2"></script>
-<script src="src/validation.js?v=20261029-3"></script>
+<script src="src/validation.js?v=20261029-4"></script>
 <script src="src/score-explanations.js?v=20261027-1"></script>
 <script src="src/round-recovery.js?v=20261027-1"></script>
-<script src="src/round-setup.js?v=20261027-1"></script>
+<script src="src/round-setup.js?v=20261029-1"></script>
 <script src="src/live-invitation.js?v=20261027-1"></script>
 <script src="src/vendor/qrcode.js?v=2.0.4"></script>
 <script src="src/round-extras.js?v=20260809-2"></script>
@@ -32,7 +32,7 @@
 <script src="src/tour-events.js?v=20261028-1"></script>
 <script src="src/tour-sync.js?v=20261028-5"></script>
 <script src="src/account-sync.js?v=20261029-2"></script>
-<script src="src/course-catalog.js?v=20260814-1"></script>
+<script src="src/course-catalog.js?v=20261029-1"></script>
 <script>
 // Apply saved/system theme before first paint to avoid a flash of the wrong theme.
 (function() {
@@ -220,6 +220,13 @@
 
   #tourRoundDialog h2 { font-size:1.2rem;margin-bottom:12px; }
   #tourRoundDialog input[type="time"], #tourRoundDialog input[type="date"], #tourRoundDialog textarea { display:block;width:100%;margin-top:5px;padding:10px;border:1px solid var(--border);border-radius:8px;background:var(--input-bg);color:var(--text);font:inherit; }
+  #courseReviewDialog a { color:var(--text);text-decoration:underline;overflow-wrap:anywhere; }
+  #courseReviewDialog p { margin:10px 0;line-height:1.45; }
+  #courseReviewDialog label { display:block;margin:12px 0; }
+  #courseReviewDialog input, #courseReviewDialog select, #courseReviewDialog textarea { display:block;width:100%;margin-top:5px;padding:10px;border:1px solid var(--border);border-radius:8px;background:var(--input-bg);color:var(--text);font:inherit;box-sizing:border-box; }
+  #courseReviewDialog th, #courseReviewDialog td { text-align:left;padding:7px 5px;border-bottom:1px solid var(--border); }
+  #courseReviewDialog button { margin-top:10px; }
+  #courseReviewDialog::backdrop { background:rgba(0,0,0,.45); }
   #tourRoundDialog textarea { min-height:85px;resize:vertical; }
   #tourRoundDialog [role="status"] { margin:12px 0; }
   #tourRoundDialog section { padding:12px 0;border-bottom:1px solid var(--border); }
@@ -1970,7 +1977,9 @@ function buildCourseGroups(courses) {
 }
 
 function renderGroups(groups) {
-  return groups.map(g => `
+  return groups.map(g => {
+    const catalogue = g.tees.find(t => t.entry.catalogId);
+    return `
     <div class="course-group">
       <div class="cg-header">
         <div style="min-width:0;">
@@ -1979,15 +1988,17 @@ function renderGroups(groups) {
         </div>
       </div>
       <div class="cg-tees">
+        ${catalogue ? `<button class="cg-tee-btn" data-review="${catalogue.i}">Granska banversion</button><button class="cg-tee-btn" data-report="${catalogue.i}">Rapportera fel</button>` : ''}
         ${g.tees.map(t => `
           <button class="cg-tee-btn" data-i="${t.i}">
             ${teeIconFor(t.entry.tee)} ${escapeHtml(t.entry.tee)}
-            <span class="cg-tee-meta">· S${t.entry.slope} CR${t.entry.cr}</span>
+            <span class="cg-tee-meta">· S${t.entry.slope} CR${t.entry.cr}${t.entry.catalogVersion ? ` · v${t.entry.catalogVersion}` : ''}</span>
           </button>
           <button class="cg-delete" data-del="${t.i}" title="Ta bort">🗑</button>
         `).join('')}
       </div>
-    </div>`).join('');
+    </div>`;
+  }).join('');
 }
 
 function filterCourses(query) {
@@ -2104,27 +2115,107 @@ async function searchCourseCatalog() {
       const source = course.source
         ? `<div class="cg-holes"><a href="${escapeHtml(course.source.url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(course.source.title)}</a>${verification}</div>`
         : '';
-      return `<div class="course-group"><div class="cg-header"><div><div class="cg-name">${escapeHtml(course.name)}</div><div class="cg-holes">${course.holes} hål · ${escapeHtml(course.region || course.country || '')}</div>${source}</div></div><div class="cg-tees">${options.map((option, optionIndex) => `<button class="cg-tee-btn" onclick="importCatalogCourse(${courseIndex},${optionIndex})">${teeIconFor(option.teeName)} ${escapeHtml(option.label)} <span class="cg-tee-meta">· S${option.slope} CR${option.cr}${saved.has(option.label) ? ' · sparad' : ''}</span></button>`).join('')}</div></div>`;
+      return `<div class="course-group"><div class="cg-header"><div><div class="cg-name">${escapeHtml(course.name)}</div><div class="cg-holes">${course.holes} hål · ${escapeHtml(course.region || course.country || '')}</div>${source}</div></div><div class="cg-tees"><button class="cg-tee-btn" onclick="reportCourseCorrection('${course.id}')">Rapportera fel / mina rapporter</button>${options.map((option, optionIndex) => `<button class="cg-tee-btn" onclick="importCatalogCourse(${courseIndex},${optionIndex})">${teeIconFor(option.teeName)} ${escapeHtml(option.label)} <span class="cg-tee-meta">· S${option.slope} CR${option.cr}${saved.has(option.label) ? ' · sparad' : ''}</span></button>`).join('')}</div></div>`;
     }).join('');
   } catch (error) {
     status.textContent = error.message || 'Bankatalogen kunde inte hämtas. Försök igen.';
   }
 }
 
+function courseReviewDialog(title) {
+  document.getElementById('courseReviewDialog')?.remove();
+  const dialog = document.createElement('dialog'); dialog.id = 'courseReviewDialog';
+  dialog.style.cssText = 'width:min(92vw,560px);max-height:85vh;overflow:auto;background:var(--card);color:var(--text);border:1px solid var(--border);border-radius:14px;padding:20px;margin:auto;';
+  dialog.innerHTML = `<h2 id="courseReviewTitle">${escapeHtml(title)}</h2><div id="courseReviewContent"></div><p id="courseReviewStatus" role="status"></p><button class="btn secondary" type="button">Stäng</button>`;
+  dialog.setAttribute('aria-labelledby','courseReviewTitle'); dialog.querySelector('button').onclick=()=>dialog.close();
+  dialog.addEventListener('close',()=>dialog.remove()); document.body.append(dialog); dialog.showModal();
+  return {dialog,content:dialog.querySelector('#courseReviewContent'),status:dialog.querySelector('#courseReviewStatus'),scope:recoveryScope()};
+}
+function reviewStillCurrent(view) { return view.dialog.isConnected && view.scope === recoveryScope(); }
+function courseDiffLabel(field) {
+  const [key,hole]=field.split(':');
+  return ({name:'Bana',tee:'Tee',holes:'Hål',slope:'Slope',cr:'CR',par:'Par',catalogVersion:'Version',catalogVerificationStatus:'Granskning',catalogSource:'Källa',hpar:'Par hål',si:'Index hål'}[key]||key)+(hole?` ${hole}`:'');
+}
+async function previewCourseUpdate(saved, startOption = null) {
+  const view=courseReviewDialog('Granska banversion');
+  view.status.textContent='Hämtar aktuell katalogversion…';
+  try {
+    const course=await courseCatalogClient.get(saved.catalogId);
+    if(!reviewStillCurrent(view))return;
+    const entries=GolfCourseCatalog.localEntries(course), baseline=JSON.stringify(dbLoad());
+    const old=dbLoad().filter(entry=>entry.catalogId===course.id || entries.some(next=>next.name===entry.name&&next.tee===entry.tee&&next.holes===entry.holes));
+    if(old.some(entry=>entry.catalogId&&entry.catalogId!==course.id))throw new Error('En sparad tee tillhör en annan katalogbana. Byt namn på eller ta bort den först.');
+    if(course.verificationStatus!=='verified')throw new Error('Banan måste vara verifierad innan sparade uppgifter kan ersättas.');
+    if(!entries.every(GolfValidation.isCourse))throw new Error('Banversionen stöds inte av appen.');
+    if(old.some(entry=>entry.catalogVersion>course.version))throw new Error('Din sparade version är nyare. Ingen nedgradering görs.');
+    const matches = entry => { const next=GolfCourseCatalog.candidate(entry,course);return next&&entry.name===next.name&&entry.holes===next.holes&&entry.tee===next.tee; };
+    const retained=old.filter(entry=>!matches(entry));
+    if(retained.some(entry=>entries.some(next=>next.name===entry.name&&next.tee===entry.tee&&next.holes===entry.holes)))throw new Error('Ett tee-namn används med en annan ratingkategori. Byt namn på den äldre sparade teen först.');
+    const diffs=old.filter(matches).flatMap(entry=>GolfCourseCatalog.changes(entry,GolfCourseCatalog.candidate(entry,course)).map(row=>({...row,tee:entry.tee})));
+    const additions=entries.filter(next=>!old.some(entry=>entry.name===next.name&&entry.tee===next.tee&&entry.holes===next.holes));
+    view.status.textContent='';
+    view.content.innerHTML=`<p>${escapeHtml(course.name)} · version ${course.version}</p><p>Uppdateringen gäller framtida spel. Historik, utkast och sparade uppställningar behåller sina bandata. Egna ändringar i sparade tees ersätts enligt tabellen.</p>${course.source?`<p><a href="${escapeHtml(course.source.url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(course.source.title)}</a> · verifierad ${new Date(course.verifiedAt).toLocaleDateString('sv-SE')}</p>`:''}${diffs.length?`<div style="overflow-x:auto"><table style="width:100%;font-size:.85rem"><thead><tr><th>Tee / fält</th><th>Sparat</th><th>Granskat</th></tr></thead><tbody>${diffs.map(row=>`<tr><td>${escapeHtml(row.tee)} · ${escapeHtml(courseDiffLabel(row.field))}</td><td>${escapeHtml(typeof row.before==='object'?JSON.stringify(row.before):String(row.before??'–'))}</td><td>${escapeHtml(typeof row.after==='object'?JSON.stringify(row.after):String(row.after??'–'))}</td></tr>`).join('')}</tbody></table></div>`:'<p>Inga ändringar i sparade tees.</p>'}${retained.length?`<p>Äldre banor/tees behålls separat med sina tidigare uppgifter: ${retained.map(entry=>`${escapeHtml(entry.name)} · ${escapeHtml(entry.tee)} · ${entry.holes} hål`).join(', ')}.</p>`:''}${additions.length?`<p>Nya tees: ${additions.map(entry=>escapeHtml(entry.tee)).join(', ')}</p>`:''}`;
+    if(!diffs.length&&!additions.length)return;
+    const apply=document.createElement('button');apply.className='btn';apply.textContent='Använd granskad version för framtida spel';view.content.append(apply);
+    apply.onclick=async()=>{
+      apply.disabled=true;view.status.textContent='Kontrollerar version och utkast…';
+      try {
+        const latest=await courseCatalogClient.get(course.id);
+        await ensureRecoveryVault(view.scope);await _draftSaveTail;
+        const recovery=await recoveryStore.list(view.scope);
+        if(!reviewStillCurrent(view))return;
+        if(JSON.stringify(latest)!==JSON.stringify(course)||JSON.stringify(dbLoad())!==baseline)throw new Error('Uppgifterna har ändrats sedan förhandsvisningen. Stäng och granska igen.');
+        const legacy=recovery.drafts.some(draft=>draft.state?.courseName===course.name&&!draft.state.setupCourses&&!roundsLoad().some(round=>round.sourceDraftId===draft.id));
+        if(legacy || (inprogressLoad()?.state.courseName===course.name&&!inprogressLoad().state.setupCourses))throw new Error('Avsluta eller radera äldre utkast för den här banan innan du uppdaterar.');
+        const next=dbLoad();for(const entry of entries){const i=next.findIndex(item=>item.name===entry.name&&item.tee===entry.tee&&item.holes===entry.holes);if(i<0)next.push(entry);else next[i]={...next[i],...entry};}
+        if(!dbSave(next))throw new Error('Banan kunde inte sparas på enheten.');
+        renderSavedCourses();view.status.textContent='Den granskade versionen är sparad. Tidigare scorekort är oförändrade.';apply.remove();
+        if(startOption!=null){view.dialog.close();closeCourseCatalog();loadSavedCourseAndAdvance(entries[startOption]);}
+      }catch(error){if(reviewStillCurrent(view)){view.status.textContent=error.message;apply.disabled=false;}}
+    };
+  }catch(error){if(reviewStillCurrent(view))view.status.textContent=error.message;}
+}
+async function reportCourseCorrection(courseId) {
+  const view=courseReviewDialog('Rapportera fel i bandata'), session=accountSessionLoad();
+  if(!session){view.status.textContent='Logga in under Konto för att skicka en rapport och följa granskningen.';return;}
+  const client=GolfCourseCatalog.createClient(session.apiBase || undefined);
+  const current=()=>reviewStillCurrent(view)&&accountSessionLoad()?.token===session.token;
+  view.status.textContent='Hämtar bana och dina rapporter…';
+  try {
+    const [course,reports]=await Promise.all([client.get(courseId),client.reports(courseId,session.token)]);
+    if(!current())return;
+    const options=GolfCourseCatalog.catalogueOptions(course), labels={open:'Väntar på granskning',accepted:'Godkänd',rejected:'Avslagen'};
+    view.content.innerHTML=`<p>${escapeHtml(course.name)} · version ${course.version}. Rapporten granskas mot en officiell källa innan katalogen kan ändras.</p><form><fieldset style="border:0;padding:0"><label>Tee / rating<select name="tee">${options.map((option,i)=>`<option value="${i}">${escapeHtml(option.label)}</option>`).join('')}</select></label><label>Felaktigt fält<select name="field"><option value="rating">Slope / CR</option><option value="par">Par</option><option value="si">Hålindex</option><option value="other">Annat</option></select></label><label>Hål (valfritt)<input name="hole" type="number" min="1" max="${course.holes}"></label><label>Beskriv felet<textarea name="description" required maxlength="1000" rows="3"></textarea></label><label>Länk till officiell källa (valfritt)<input name="sourceUrl" type="url" maxlength="500"></label></fieldset><button type="submit" class="btn">Skicka för granskning</button></form><h3>Mina rapporter</h3>${reports.length?reports.map(report=>`<p>${escapeHtml(labels[report.status]||report.status)} · version ${report.observedVersion}${report.appliedVersion?` → ${report.appliedVersion}`:''}<br>${escapeHtml(report.request.description)}${report.reviewNote?`<br>${escapeHtml(report.reviewNote)}`:''}</p>`).join(''):'<p>Inga tidigare rapporter för banan.</p>'}`;
+    view.status.textContent='';let payload=null;
+    const form=view.content.querySelector('form'),button=form.querySelector('button');
+    form.onsubmit=async event=>{
+      event.preventDefault();if(!current())return;
+      if(!payload){const values=new FormData(form),option=options[Number(values.get('tee'))];payload={clientId:crypto.randomUUID(),observedVersion:course.version,teeName:option.teeName,ratingCategory:option.category,field:values.get('field'),description:String(values.get('description')).trim(),...(values.get('hole')?{hole:Number(values.get('hole'))}:{}),...(values.get('sourceUrl')?{sourceUrl:String(values.get('sourceUrl')).trim()}:{})};}
+      if(!GolfCourseCatalog.reportValid(payload,course)){view.status.textContent='Kontrollera rapportens fält och länk.';payload=null;return;}
+      form.querySelector('fieldset').disabled=true;button.disabled=true;view.status.textContent='Skickar…';
+      try{const result=await client.report(course.id,payload,session.token);if(!current())return;view.status.textContent=`Rapport mottagen · ${result.report.id}. Status: ${labels[result.report.status]||result.report.status}.`;form.remove();}
+      catch(error){if(current()){view.status.textContent=error.message;button.disabled=false;button.textContent='Försök skicka samma rapport igen';}}
+    };
+  }catch(error){if(current())view.status.textContent=error.message;}
+}
+
 function importCatalogCourse(courseIndex, optionIndex) {
-  const course = _catalogCourses[courseIndex];
-  const entries = GolfCourseCatalog.localEntries(course);
-  const selected = entries[optionIndex];
-  if (!selected || !entries.every(entry => dbUpsert(entry))) {
-    document.getElementById('courseCatalogStatus').textContent = 'Banan kunde inte sparas på enheten.';
-    return;
+  const course = _catalogCourses[courseIndex], entries = GolfCourseCatalog.localEntries(course), selected = entries[optionIndex];
+  if (!selected) return;
+  const existing=dbLoad();
+  if(existing.some(entry=>entry.catalogId===course.id || entries.some(next=>next.name===entry.name&&next.tee===entry.tee&&next.holes===entry.holes))){
+    const old=existing.filter(entry=>entry.catalogId===course.id || entries.some(next=>next.name===entry.name&&next.tee===entry.tee&&next.holes===entry.holes));
+    if(old.length!==entries.length || old.some(entry=>!GolfCourseCatalog.candidate(entry,course)||GolfCourseCatalog.changes(entry,GolfCourseCatalog.candidate(entry,course)).length)){previewCourseUpdate({catalogId:course.id},optionIndex);return;}
+    closeCourseCatalog();loadSavedCourseAndAdvance(selected);return;
   }
-  renderSavedCourses();
-  closeCourseCatalog();
-  loadSavedCourseAndAdvance(selected);
+  if(!entries.every(GolfValidation.isCourse)||!dbSave(existing.concat(entries))){document.getElementById('courseCatalogStatus').textContent='Banan kunde inte sparas på enheten.';return;}
+  renderSavedCourses();closeCourseCatalog();loadSavedCourseAndAdvance(selected);
 }
 
 document.getElementById('savedCoursesList').addEventListener('click', function(e) {
+  const review=e.target.closest('[data-review]'), report=e.target.closest('[data-report]');
+  if(review){previewCourseUpdate(_savedCourses[+review.dataset.review]);return;}
+  if(report){reportCourseCorrection(_savedCourses[+report.dataset.report].catalogId);return;}
   const delBtn = e.target.closest('[data-del]');
   if (delBtn) {
     const entry = _savedCourses[+delBtn.dataset.del];
@@ -2139,10 +2230,10 @@ document.getElementById('savedCoursesList').addEventListener('click', function(e
   }
 });
 
-async function loadSavedCourseAndAdvance(entry) {
+async function loadSavedCourseAndAdvance(entry, frozenCourses = null) {
   if (!await checkpointDrafts()) return;
   state.draftId = null; state.draftRevision = 0;
-  state.setupCourses = null;
+  state.setupCourses = structuredClone((frozenCourses || dbLoad()).filter(course => course.name === entry.name && course.holes === entry.holes && course.tee !== entry.tee).concat(entry));
   document.getElementById('setupReviewNotice')?.classList.add('hidden');
   clearStep1Error();
   state.courseName    = entry.name;
@@ -2284,7 +2375,15 @@ function saveCurrentCourseData(patch) {
     return false;
   }
   if (!state.courseName || !state.teeColor) return false;
+  const frozen = state.setupCourses?.find(course => course.name === state.courseName && course.tee === state.teeColor && course.holes === state.holes);
+  const current = dbFind(state.courseName, state.teeColor, state.holes);
+  // A draft or historical scorecard must not overwrite a subsequently updated library.
+  if (frozen && (!current || GolfCourseCatalog.changes(frozen, current).length || state.editingId)) {
+    Object.assign(frozen, structuredClone(patch));
+    return true;
+  }
   const ok = dbUpsert({ name: state.courseName, tee: state.teeColor, holes: state.holes, ...patch });
+  if (ok && frozen) Object.assign(frozen, structuredClone(patch));
   if (ok) { showSaveToast(); renderSavedCourses(); }
   else showStep1Error('⚠ Kunde inte spara — localStorage-fel.');
   return ok;
@@ -2292,7 +2391,7 @@ function saveCurrentCourseData(patch) {
 
 function loadCurrentCourseData() {
   if (!state.courseName || !state.teeColor) return null;
-  return dbFind(state.courseName, state.teeColor, state.holes);
+  return (state.setupCourses || []).find(course => course.name === state.courseName && course.tee === state.teeColor && course.holes === state.holes) || dbFind(state.courseName, state.teeColor, state.holes);
 }
 
 let _toastTimer;
@@ -2582,7 +2681,7 @@ function calcPlayingHandicap(hi, slope, cr, par, holes) {
 // All tees available for the current course + hole count.
 function availableTees() {
   if (!state.courseName) return [];
-  const tees = dbLoad()
+  const tees = (state.setupCourses || dbLoad())
     .filter(e => e.name === state.courseName && e.holes === state.holes)
     .map(e => e.tee);
   if (state.teeColor && !tees.includes(state.teeColor)) tees.unshift(state.teeColor);
@@ -2594,7 +2693,7 @@ function availableTees() {
 function teeData(teeColor) {
   // The selected tee follows edits made in step 2, including a replayed setup.
   if (teeColor === state.teeColor) return { tee: state.teeColor, slope: state.slope, cr: state.cr, par: state.par, hpar: state.hpar, si: state.si };
-  const entry = (state.setupCourses || []).find(course => course.name === state.courseName && course.holes === state.holes && course.tee === teeColor) || (teeColor ? dbFind(state.courseName, teeColor, state.holes) : null);
+  const entry = (state.setupCourses || []).find(course => course.name === state.courseName && course.holes === state.holes && course.tee === teeColor) || (!state.setupCourses && teeColor ? dbFind(state.courseName, teeColor, state.holes) : null);
   if (entry) return { tee: teeColor, slope: entry.slope, cr: entry.cr, par: entry.par, hpar: entry.hpar, si: entry.si };
   return { tee: state.teeColor, slope: state.slope, cr: state.cr, par: state.par, hpar: state.hpar, si: state.si };
 }
@@ -4396,6 +4495,7 @@ function accountSessionLoad() {
 function accountSessionSave(session) {
   const previous = accountSessionLoad();
   if (previous?.user?.id !== session?.user?.id) {
+    document.getElementById('courseReviewDialog')?.close();
     clearTimeout(_accountSyncTimer);
     _accountPendingConflict = null;
     window._recoverableAccountSnapshot = null;
@@ -6312,6 +6412,10 @@ async function saveCurrentRound(playerResults) {
     courseName: state.courseName,
     tee: state.teeColor,
     mixedTees,
+    courseSnapshot: [...new Set([state.teeColor, ...subjects.map(subject => subject.tee).filter(Boolean)])].map(tee => ({
+      ...(state.setupCourses || []).find(course => course.name === state.courseName && course.holes === state.holes && course.tee === tee),
+      name: state.courseName, holes: state.holes, ...teeData(tee),
+    })).filter(GolfValidation.isCourse).slice(0,12),
     holes: state.holes,
     slope: state.slope,
     cr: state.cr,
@@ -8357,8 +8461,8 @@ async function confirmTournamentRoundSetup(kind, id) {
   if (!checked.length || checked.length > 4) { alert('Välj mellan 1 och 4 spelare.'); return; }
   const course = source.tour.courses[Number(document.getElementById('tournamentSetupCourse').value)];
   if (!course) return;
-  if (kind === 'shared') (course.tees || []).forEach(tee => dbUpsert({ name: course.name, tee: tee.name, holes: course.holes, slope: tee.slope, cr: tee.cr, par: tee.par, hpar: tee.hpar, si: tee.si }));
-  const entry = dbLoad().find(item => item.name === course.name && (!course.holes || item.holes === course.holes));
+  const frozenCourses = kind === 'shared' ? (course.tees || []).map(tee => ({ name: course.name, tee: tee.name, holes: course.holes, slope: tee.slope, cr: tee.cr, par: tee.par, hpar: tee.hpar, si: tee.si })) : null;
+  const entry = (frozenCourses || dbLoad()).find(item => item.name === course.name && (!course.holes || item.holes === course.holes));
   if (!entry) { alert('Banans tee-data saknas på enheten. Öppna eller lägg till banan först.'); return; }
   const baseline = Object.fromEntries(source.standings.map((row, index) => [String(row.player.id), { position: row.position, total: row.total }]));
   document.getElementById('tournamentSetup')?.remove();
@@ -8373,7 +8477,7 @@ async function confirmTournamentRoundSetup(kind, id) {
   };
   if (scheduled) state.playedDate = scheduled.date;
   _pendingTourPlayHoles = course.holes || null;
-  if (!await loadSavedCourseAndAdvance(entry)) return;
+  if (!await loadSavedCourseAndAdvance(entry, frozenCourses)) return;
   goToStep3Players();
   if (kind === 'shared') {
     sharedTourClient.startRound(source.record.code, source.record.token, course.id, checked.map(member => member.memberId || member.id), state.tourContext.rulesRevision)
@@ -9295,13 +9399,19 @@ function editRound(id) {
   if (!r) return;
   if (r.tourRef?.code) { showShareToast('Tourresultat korrigeras av en organisatör i den delade touren.'); openTourView(); openSharedTourDetail(r.tourRef.code); return; }
   const base = r.subjects[0].rows;
-  const hpar = base.map(row => row.par);
-  const si   = base.map(row => row.si);
+  const originalTee = r.courseSnapshot?.find(course => course.tee === r.tee);
+  const hpar = originalTee?.hpar.slice() || base.map(row => row.par);
+  const si   = originalTee?.si.slice() || base.map(row => row.si);
   const shared = isSharedScoreMode(r.gameMode);
   state = {
     courseName: r.courseName, teeColor: r.tee, holes: r.holes,
     slope: r.slope, cr: r.cr, par: r.par,
     hpar, si,
+    setupCourses: structuredClone(r.courseSnapshot?.length ? r.courseSnapshot : r.subjects.map(subject => ({
+      name: r.courseName, holes: r.holes, tee: subject.tee || r.tee,
+      slope: subject.slope ?? r.slope, cr: subject.cr ?? r.cr, par: subject.par ?? r.par,
+      hpar: subject.rows.map(row => row.par), si: subject.rows.map(row => row.si),
+    }))),
     gameMode: r.gameMode,
     numPlayers: shared ? r.subjects.reduce((n, s) => n + (s.members ? s.members.length : 1), 0) : r.subjects.length,
     players: [], playerIds: shared ? [] : r.subjects.map(s => s.playerId || null),

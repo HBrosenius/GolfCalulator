@@ -5,7 +5,7 @@
 }(typeof globalThis !== 'undefined' ? globalThis : this, function () {
   'use strict';
 
-  const copyCourse = course => ({ name: course.name, tee: course.tee, holes: course.holes,
+  const copyCourse = course => ({ ...Object.fromEntries(['ratingCategory','catalogTee','catalogId','catalogVersion','catalogUpdatedAt','catalogSource','catalogVerifiedAt','catalogVerificationStatus'].filter(key => course[key] != null).map(key => [key, structuredClone(course[key])])), name: course.name, tee: course.tee, holes: course.holes,
     slope: course.slope, cr: course.cr, par: course.par, hpar: [...course.hpar], si: [...course.si] });
 
   function fromRound(round, savedPlayers = []) {
@@ -15,6 +15,7 @@
     for (const [index, subject] of round.subjects.entries()) {
       const tee = subject.tee || round.tee;
       if (!courses.some(course => course.tee === tee)) courses.push(copyCourse({
+        ...(round.courseSnapshot || []).find(course => course.tee === tee),
         name: round.courseName, tee, holes: round.holes,
         slope: subject.slope ?? round.slope, cr: subject.cr ?? round.cr, par: subject.par ?? round.par,
         hpar: subject.rows.map(row => row.par), si: subject.rows.map(row => row.si),
