@@ -74,8 +74,10 @@ export function validateCreate(body) {
   if (!Array.isArray(body.hpar) || body.hpar.length !== body.holes || !body.hpar.every(value => isInteger(value, 3, 6))) return 'Invalid round configuration';
   if (!Array.isArray(body.si) || body.si.length !== body.holes || !body.si.every(value => isInteger(value, 1, 18))) return 'Invalid round configuration';
   if (new Set(body.si).size !== body.si.length) return 'Invalid round configuration';
-  const playerKeys = new Set(['name', 'hi', 'ph', 'tee', 'slope', 'cr', 'par', 'playingHandicap']);
+  const playerKeys = new Set(['name', 'hi', 'ph', 'tee', 'slope', 'cr', 'par', 'playingHandicap', 'hpar', 'si']);
   if (!body.players.every(player => hasOnlyKeys(player, playerKeys) && isText(player.name, 50) && isNumber(player.hi, -10, 54) &&
+    (player.hpar === undefined || (Array.isArray(player.hpar) && player.hpar.length===body.holes && player.hpar.every(value=>isInteger(value,3,6)))) &&
+    (player.si === undefined || (Array.isArray(player.si) && player.si.length===body.holes && player.si.every(value=>isInteger(value,1,18)) && new Set(player.si).size===body.holes)) &&
     (player.slope == null || isNumber(player.slope,55,155)) && (player.cr == null || isNumber(player.cr,20,85)) && (player.par == null || isInteger(player.par,27,90)) &&
     (player.tee == null || isText(player.tee, 20)) &&
     (player.ph == null || isInteger(player.ph, -20, 72)) &&

@@ -5,10 +5,10 @@ const layout={sourceHoles:18,holeNumbers:[10,11,12,13,14,15,16,17,18],startHole:
 const tee={name:'Gul',slope:130,cr:37.4,par:36,hpar:Array(9).fill(4),si:[1,3,5,7,9,11,13,15,17],ratingHoles:9};
 const headers=token=>({'Content-Type':'application/json','X-Golf-Protocol':'2','X-Golf-Layout':'1','CF-Connecting-IP':crypto.randomUUID(),...(token?{Authorization:`Bearer ${token}`}:{})});
 it('live rooms retain nine-hole ratings, physical holes, start and mixed-tee ratings',async()=>{
- const body={protocolVersion:2,courseName:'Test back nine',teeColor:'Gul',holes:9,layout:{...layout,startHole:12},ratingHoles:9,slope:130,cr:37.4,par:36,hpar:tee.hpar,si:tee.si,gameMode:'individual',players:[{name:'Ada',hi:18,ph:12,tee:'Gul',slope:130,cr:37.4,par:36},{name:'Bo',hi:10,ph:4,tee:'Röd',slope:110,cr:35,par:36}],seatCount:2};
+ const body={protocolVersion:2,courseName:'Test back nine',teeColor:'Gul',holes:9,layout:{...layout,startHole:12},ratingHoles:9,slope:130,cr:37.4,par:36,hpar:tee.hpar,si:tee.si,gameMode:'individual',players:[{name:'Ada',hi:18,ph:12,tee:'Gul',slope:130,cr:37.4,par:36},{name:'Bo',hi:10,ph:4,tee:'Röd',slope:110,cr:35,par:36,hpar:tee.hpar,si:tee.si.slice().reverse()}],seatCount:2};
  const response=await SELF.fetch('https://worker.test/room',{method:'POST',headers:headers(),body:JSON.stringify(body)});expect(response.status).toBe(201);const created=await response.json();
  expect((await SELF.fetch(`https://worker.test/room/${created.code}`,{headers:{Authorization:`Bearer ${created.seatToken}`}})).status).toBe(426);
- const room=await (await SELF.fetch(`https://worker.test/room/${created.code}`,{headers:headers(created.seatToken)})).json();expect(room.layout).toEqual(body.layout);expect(room.ratingHoles).toBe(9);expect(room.players[1]).toMatchObject({slope:110,cr:35,par:36});
+ const room=await (await SELF.fetch(`https://worker.test/room/${created.code}`,{headers:headers(created.seatToken)})).json();expect(room.layout).toEqual(body.layout);expect(room.ratingHoles).toBe(9);expect(room.players[1]).toMatchObject({slope:110,cr:35,par:36,si:tee.si.slice().reverse()});
  const invalid=await SELF.fetch('https://worker.test/room',{method:'POST',headers:headers(),body:JSON.stringify({...body,layout:{...layout,startHole:1}})});expect(invalid.status).toBe(400);
 });
 it('tour submissions enforce frozen physical-hole mapping and true nine-hole ratings',async()=>{

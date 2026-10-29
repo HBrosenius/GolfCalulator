@@ -74,7 +74,7 @@ export class GolfRoom extends DurableObject {
         playingHandicap: team.playingHandicap,
         members: team.members.map(member => ({ name: member.name })),
       })) : null,
-      players: config.players.map(player => ({ name: player.name, hi: player.hi, ph: player.ph, tee: player.tee || null, ...(config.layout ? {slope:player.slope??config.slope,cr:player.cr??config.cr,par:player.par??config.par} : {}) })),
+      players: config.players.map(player => ({ name: player.name, hi: player.hi, ph: player.ph, tee: player.tee || null, ...(config.layout ? {slope:player.slope??config.slope,cr:player.cr??config.cr,par:player.par??config.par,hpar:player.hpar||config.hpar,si:player.si||config.si} : {}) })),
       seats,
       hostTokenHash,
       markers: config.markers || { ctp: { hole: null, player: '' }, ld: { hole: null, player: '' } },
