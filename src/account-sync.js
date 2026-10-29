@@ -68,12 +68,17 @@
   function mergeSnapshots(remote, local, baseline) {
     const output = {};
     const conflicts = [];
-    for (const collection of ['courses', 'rounds', 'players', 'tours', 'setups']) {
+    for (const collection of ['courses', 'rounds', 'players', 'tours', 'setups', 'goals']) {
       const keyOf = item => collection === 'courses' ? courseId(item) : String(item.id);
       const deletionKey = `${collection.slice(0, -1)}Deletions`;
       const deletions = mergeDeletions(remote?.[deletionKey], local?.[deletionKey]);
       const deleted = new Set(deletions.map(item => item.id));
       const map = data => new Map((data?.[collection] || []).map(item => [keyOf(item), collection === 'courses' ? { ...item, id: keyOf(item) } : item]));
+      // Older clients do not save the goals collection locally. Never interpret that as deletion.
+      if (collection === 'goals' && !Array.isArray(local?.goals)) {
+        output.goals = (remote?.goals || []).filter(item => !deleted.has(String(item.id)));
+        output.goalDeletions = deletions; continue;
+      }
       const r = map(remote), l = map(local), base = map(baseline);
       const canonical = value => value && typeof value === 'object'
         ? (Array.isArray(value) ? value.map(canonical) : Object.fromEntries(Object.keys(value).sort().map(key => [key, canonical(value[key])]))) : value;

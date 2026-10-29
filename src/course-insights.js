@@ -45,5 +45,5 @@
       recent: selected.slice(0, 5).map(entry => ({ id: entry.round.id, date: entry.round.date, complete: entry.complete, holes: entry.rows.length, gross: entry.rows.reduce((sum, row) => sum + row.score, 0), toPar: entry.rows.reduce((sum, row) => sum + row.score - row.par, 0) })),
     };
   }
-  return { groups, summarize };
+  return { groups, summarize, entries };
 }));

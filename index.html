@@ -13,11 +13,12 @@
 <meta name="apple-mobile-web-app-title" content="Poängbogey">
 <script src="src/vendor/dompurify.min.js?v=3.4.17"></script>
 <script src="src/scoring.js?v=20260809-2"></script>
-<script src="src/storage.js?v=20261027-2"></script>
+<script src="src/storage.js?v=20261029-1"></script>
 <script src="src/hole-stats.js?v=20261029-1"></script>
-<script src="src/course-insights.js?v=20261029-2"></script>
+<script src="src/course-insights.js?v=20261029-3"></script>
+<script src="src/personal-goals.js?v=20261029-1"></script>
 <script src="src/live-sync.js?v=20261029-2"></script>
-<script src="src/validation.js?v=20261029-1"></script>
+<script src="src/validation.js?v=20261029-2"></script>
 <script src="src/score-explanations.js?v=20261027-1"></script>
 <script src="src/round-recovery.js?v=20261027-1"></script>
 <script src="src/round-setup.js?v=20261027-1"></script>
@@ -29,7 +30,7 @@
 <script src="src/tour-rules.js?v=20261029-2"></script>
 <script src="src/tour-events.js?v=20261028-1"></script>
 <script src="src/tour-sync.js?v=20261028-5"></script>
-<script src="src/account-sync.js?v=20261027-2"></script>
+<script src="src/account-sync.js?v=20261029-1"></script>
 <script src="src/course-catalog.js?v=20260814-1"></script>
 <script>
 // Apply saved/system theme before first paint to avoid a flash of the wrong theme.
@@ -938,6 +939,15 @@
   .hole-stats-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin-top: 12px; }
   .hole-stats-fields input { width: 100%; }
   .hole-stats-summary p { margin: 8px 0; line-height: 1.5; }
+  #goalsView p { margin: 10px 0; line-height: 1.5; }
+  #goalsView h3, #goalsView details { margin: 18px 0 10px; }
+  #goalsView select, #goalsView input { width: 100%; }
+  #goalsView .btn { margin-top: 10px; }
+  #goalsView li { margin: 10px 0 10px 18px; line-height: 1.5; }
+  .personal-goal { border: 1px solid var(--border); border-radius: 10px; padding: 12px; margin: 12px 0; }
+  .personal-goal progress { width: 100%; accent-color: var(--green); }
+  .goal-date-fields { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 12px; }
+  .goal-date-fields input { min-width: 0; padding: 10px 6px; min-height: 44px; border: 1px solid var(--border); border-radius: 8px; color: var(--text); background: var(--card); font: inherit; }
 </style>
 </head>
 <body>
@@ -1023,7 +1033,7 @@
           <input type="checkbox" id="exportCourses" checked style="width:16px;height:16px;accent-color:var(--green);"> Banor
         </label>
         <label style="display:flex;align-items:center;gap:6px;font-size:0.9rem;cursor:pointer;margin:0;">
-          <input type="checkbox" id="exportPlayers" checked style="width:16px;height:16px;accent-color:var(--green);"> Spelare
+          <input type="checkbox" id="exportPlayers" checked style="width:16px;height:16px;accent-color:var(--green);"> Spelare och personliga mål
         </label>
         <label style="display:flex;align-items:center;gap:6px;font-size:0.9rem;cursor:pointer;margin:0;"><input type="checkbox" id="exportTours" checked style="width:16px;height:16px;accent-color:var(--green);"> Lokala tourer (inklusive spelare)</label>
         <label style="display:flex;align-items:center;gap:6px;font-size:.9rem;margin:0;"><input type="checkbox" id="exportSetups" checked style="width:16px;height:16px;"> Sparade spelgrupper (inklusive uppställning)</label>
@@ -1100,6 +1110,7 @@
       <div class="card-title"><span class="icon">📊</span> Statistik</div>
       <div class="statistics-menu">
         <button type="button" onclick="openCourseInsights()"><span>⛳</span><span><strong>Mina baninsikter</strong><small>Hål, niohålssnitt och senaste rundor</small></span></button>
+        <button type="button" onclick="openGoalsView()"><span>🎯</span><span><strong>Mina mål och årskort</strong><small>Personliga mål och din säsong i en bild</small></span></button>
         <button type="button" onclick="openSeasonView()"><span>📅</span><span><strong>Säsong</strong><small>Order of Merit för valt datumintervall</small></span></button>
         <button type="button" onclick="openHallOfFame()"><span>🏆</span><span><strong>Hall of Fame</strong><small>Topplistor och personliga rekord</small></span></button>
         <button type="button" onclick="openCourseRecordsView()"><span>🏟️</span><span><strong>Banrekord</strong><small>Bästa resultat per bana</small></span></button>
@@ -1118,6 +1129,28 @@
       <label for="insightsCompletion">Underlag</label><select id="insightsCompletion" onchange="renderCourseInsights()" style="width:100%;margin-bottom:12px"><option value="complete">Fullständiga scorekort</option><option value="incomplete">Ofullständiga scorekort – registrerade hål</option></select>
       <div style="display:flex;gap:12px;flex-wrap:wrap"><div style="flex:1;min-width:120px"><label for="insightsFrom">Från datum</label><input type="date" id="insightsFrom" onchange="renderCourseInsights()" style="width:100%;box-sizing:border-box"></div><div style="flex:1;min-width:120px"><label for="insightsTo">Till datum</label><input type="date" id="insightsTo" onchange="renderCourseInsights()" style="width:100%;box-sizing:border-box"></div></div>
       <div id="courseInsightsContent" aria-live="polite" style="margin-top:16px"></div>
+    </div>
+  </div>
+
+  <div id="goalsView" class="hidden">
+    <div class="card">
+      <button type="button" class="btn secondary" onclick="openStatisticsView()">← Statistik</button><h2 style="margin-top:16px">Mina mål och årskort</h2>
+      <p>Fullständiga individuella rundor. Tävlingsrundor och träning visas separat. Mål sparas privat med ditt konto eller lokalt som gäst.</p>
+      <label for="goalsPlayer">Spelare</label><select id="goalsPlayer" onchange="resetGoalForm();renderGoalsAndRecap()"></select>
+      <h3>Mina mål</h3><div id="personalGoalsList" aria-live="polite"></div>
+      <details id="goalEditor"><summary>Lägg till eller ändra mål</summary><form id="goalForm" onsubmit="savePersonalGoal(event)">
+        <input id="goalId" type="hidden"><label for="goalType">Måltyp</label><select id="goalType" onchange="updateGoalType()"><option value="rounds">Antal fullständiga rundor</option><option value="score">Målscore på bana och tee</option></select>
+        <div id="goalCourseFields" class="hidden"><label for="goalCourse">Bana, tee och version</label><select id="goalCourse" onchange="updateGoalType()"></select></div>
+        <div id="goalHolesFields"><label for="goalHoles">Hål per runda</label><select id="goalHoles"><option value="0">9 och 18 hål (en runda per scorekort)</option><option value="9">Endast 9 hål</option><option value="18">Endast 18 hål</option></select></div>
+        <label for="goalTarget" id="goalTargetLabel">Antal fullständiga rundor</label><input id="goalTarget" type="number" min="1" max="5000" step="1" required inputmode="numeric">
+        <label for="goalKind">Rundtyp för målet</label><select id="goalKind"><option value="competitive">Tävlingsrundor</option><option value="practice">Träning</option></select>
+        <div class="goal-date-fields"><div><label for="goalFrom">Målet börjar</label><input type="date" id="goalFrom" required></div><div><label for="goalTo">Målet slutar</label><input type="date" id="goalTo" required></div></div>
+        <button type="submit" class="btn">Spara mål</button><button type="button" id="cancelGoalEdit" class="btn secondary hidden" onclick="resetGoalForm()">Avbryt redigering</button><p id="goalFormStatus" role="status"></p>
+      </form></details>
+    </div>
+    <div class="card"><h2>Mitt årskort</h2><div class="goal-date-fields"><div><label for="recapFrom">Från datum</label><input type="date" id="recapFrom" onchange="renderGoalsAndRecap()"></div><div><label for="recapTo">Till datum</label><input type="date" id="recapTo" onchange="renderGoalsAndRecap()"></div></div>
+      <label for="recapKind">Rundtyp i årskortet</label><select id="recapKind" onchange="renderGoalsAndRecap()"><option value="competitive">Tävlingsrundor</option><option value="practice">Träning</option></select>
+      <div id="personalRecap" aria-live="polite"></div><p>Bilden innehåller spelarens visningsnamn, period, upp till fem bankombinationer och registrerad statistik. Du väljer själv om du delar den.</p><button type="button" id="downloadRecap" class="btn secondary" onclick="downloadRecapImage()">Ladda ner årskort (PNG)</button>
     </div>
   </div>
 
@@ -1672,7 +1705,7 @@ const DB_KEY = 'golf_courses_db';
 // Guest collections keep their existing keys; signed-in accounts have separate vaults.
 const scopedKeys = new Set(['golf_courses_db', 'golf_rounds_db', 'golf_players_db', 'golf_tours_db',
   'golf_round_deletions', 'golf_tour_deletions', 'golf_player_deletions', 'golf_course_deletions',
-  'golf_account_sync_meta', 'golf_account_baseline', 'golf_shared_tours_db', 'golf_inprogress_round', 'golf_setups_db', 'golf_setup_deletions', 'golf_round_recovery']);
+  'golf_account_sync_meta', 'golf_account_baseline', 'golf_shared_tours_db', 'golf_inprogress_round', 'golf_setups_db', 'golf_setup_deletions', 'golf_round_recovery', 'golf_personal_goals', 'golf_goal_deletions']);
 let _dataOwner = localStorage.getItem('golf_data_owner');
 try {
   const existing = JSON.parse(localStorage.getItem('golf_account_session') || 'null');
@@ -4266,7 +4299,7 @@ function step4Back() {
 }
 
 const MAIN_VIEW_IDS = [
-  'historyView', 'playersView', 'statisticsView', 'courseInsightsView', 'seasonView',
+  'historyView', 'playersView', 'statisticsView', 'courseInsightsView', 'goalsView', 'seasonView',
   'hallOfFameView', 'courseRecordsView', 'tourView', 'playerHistoryView',
   'seasonDetailView', 'courseRecordsDetailView', 'accountView'
 ];
@@ -4788,6 +4821,7 @@ async function exchangeAccountLink(token, apiBase) {
 function localAccountSnapshot() {
   return {
     courseDeletions: storageDb.load('golf_course_deletions', []), playerDeletions: storageDb.load('golf_player_deletions', []),
+    goals: goalsLoad(), goalDeletions: storageDb.load(GOAL_DELETIONS_KEY, []),
     setups: setupsLoad(), setupDeletions: storageDb.load(SETUP_DELETIONS_KEY, []),
     courses: dbLoad(), rounds: roundsLoad(), roundDeletions: roundDeletionsLoad(),
     players: playersLoad(), tours: toursLoad(), tourDeletions: tourDeletionsLoad()
@@ -4796,6 +4830,7 @@ function localAccountSnapshot() {
 
 function saveAccountSnapshot(data) {
   const entries = {
+    [GOALS_KEY]: data.goals || [], [GOAL_DELETIONS_KEY]: data.goalDeletions || [],
     [SETUPS_KEY]: data.setups || [], [SETUP_DELETIONS_KEY]: data.setupDeletions || [],
     [DB_KEY]: data.courses || [], [ROUNDS_KEY]: data.rounds || [], [PLAYERS_KEY]: data.players || [],
     [TOURS_KEY]: data.tours || [], [ROUND_DELETIONS_KEY]: data.roundDeletions || [],
@@ -4806,13 +4841,15 @@ function saveAccountSnapshot(data) {
     window._recoverableAccountSnapshot = data;
     throw new Error('Kunde inte spara molndatan på enheten. Frigör lagringsutrymme och försök igen.');
   }
+  const goalsView=document.getElementById('goalsView');
+  if (goalsView && !goalsView.classList.contains('hidden') && goalsView.dataset.scope===recoveryScope()) renderGoalsAndRecap();
 }
 
 function importGuestData() {
   const session = accountSessionLoad();
   if (!session || !confirm('Importera gästdata från den här webbläsaren till ditt konto?')) return;
   const guest = {};
-  for (const [name, key] of Object.entries({ courses: DB_KEY, rounds: ROUNDS_KEY, players: PLAYERS_KEY, tours: TOURS_KEY, setups: SETUPS_KEY })) {
+  for (const [name, key] of Object.entries({ courses: DB_KEY, rounds: ROUNDS_KEY, players: PLAYERS_KEY, tours: TOURS_KEY, setups: SETUPS_KEY, goals: GOALS_KEY, goalDeletions: GOAL_DELETIONS_KEY })) {
     try { guest[name] = JSON.parse(localStorage.getItem(key) || '[]'); } catch (_) { guest[name] = []; }
   }
   try { saveAccountSnapshot(GolfAccountSync.mergeSnapshots(localAccountSnapshot(), guest)); scheduleAccountSync('guest-import'); }
@@ -5812,6 +5849,7 @@ function _buildDataPayload(inclCourses, inclRounds, inclPlayers, inclTours = fal
     rounds:   inclRounds   ? roundsLoad()    : [],
     players:  (inclPlayers || inclTours) ? playersLoad() : [],
     tours:    inclTours ? toursLoad() : [],
+    goals: inclPlayers ? goalsLoad() : [], goalDeletions: inclPlayers ? storageDb.load(GOAL_DELETIONS_KEY, []) : [],
     setups: inclSetups ? setupsLoad() : [], setupDeletions: inclSetups ? storageDb.load(SETUP_DELETIONS_KEY, []) : [],
     playerDeletions: (inclPlayers || inclTours) ? storageDb.load('golf_player_deletions', []) : [],
     courseDeletions: inclCourses ? storageDb.load('golf_course_deletions', []) : []
@@ -5848,6 +5886,11 @@ function exportData() {
 function _applyImportPayload(payload) {
   if (!GolfValidation.isBackupPayload(payload)) throw new Error('Ogiltigt format');
 
+  if (payload.goals || payload.goalDeletions) {
+    const merged = GolfAccountSync.mergeSnapshots({goals:goalsLoad(),goalDeletions:storageDb.load(GOAL_DELETIONS_KEY,[])},{goals:payload.goals || [],goalDeletions:payload.goalDeletions || []});
+    if (!storageDb.saveMany({[GOALS_KEY]:merged.goals,[GOAL_DELETIONS_KEY]:merged.goalDeletions})) throw new Error('Målen kunde inte importeras.');
+    scheduleAccountSync('goal-import');
+  }
   let addedCourses = 0, addedRounds = 0, addedPlayers = 0, addedTours = 0;
 
   if (Array.isArray(payload.courses)) {
@@ -6818,6 +6861,116 @@ function closeHallOfFame() {
 // ============================================================
 // SÄSONG / ORDER OF MERIT
 // ============================================================
+const GOALS_KEY = 'golf_personal_goals';
+const GOAL_DELETIONS_KEY = 'golf_goal_deletions';
+let _goalCourseOptions = [];
+let _goalEditBaseline = null;
+function goalsLoad() { const data = storageDb.load(GOALS_KEY, []); return Array.isArray(data) ? data.filter(GolfValidation.isPersonalGoal) : []; }
+function selectedGoalsPlayer() { try { const id=JSON.parse(document.getElementById('goalsPlayer').value);return playersLoad().find(player=>player.id===id); } catch (_) { return null; } }
+function openGoalsView(playerId) {
+  const players = playersLoad(), today = localPlayedToday();
+  const view = document.getElementById('goalsView'); view.dataset.scope = recoveryScope();
+  document.getElementById('goalsPlayer').innerHTML = players.map((p,i) => `<option value="${escapeHtml(JSON.stringify(p.id))}">${escapeHtml(p.nick || p.name)}</option>`).join('');
+  document.getElementById('goalsPlayer').value = players.length ? JSON.stringify((players.find(p=>p.id===playerId) || players[0]).id) : '';
+  document.getElementById('recapFrom').value = `${today.slice(0,4)}-01-01`;
+  document.getElementById('recapTo').value = today;
+  document.getElementById('recapKind').value = 'competitive';
+  resetGoalForm(); renderGoalsAndRecap(); showPrimaryView('statistics','goalsView');
+}
+function resetGoalForm() {
+  _goalEditBaseline = null;
+  const player = selectedGoalsPlayer(), today = localPlayedToday();
+  document.getElementById('goalForm').reset();
+  document.getElementById('goalId').value = '';
+  document.getElementById('goalFrom').value = `${today.slice(0,4)}-01-01`;
+  document.getElementById('goalTo').value = `${today.slice(0,4)}-12-31`;
+  const saved = player ? dbLoad().map((course,i) => ({id:`goal-course-${i}`,courseName:course.name,tee:course.tee,holes:course.holes,slope:course.slope,cr:course.cr,gameMode:'individual',subjects:[{playerId:player.id,name:player.name,rows:(course.hpar || []).map((par,h)=>({h:h+1,par,score:''}))}]})) : [];
+  _goalCourseOptions = player ? GolfCourseInsights.groups([...roundsLoad(),...saved],player) : [];
+  const versions=new Map();_goalCourseOptions.forEach(group=>{const base=JSON.stringify([group.courseName,group.tee,group.holes]);group.version=(versions.get(base)||0)+1;versions.set(base,group.version);});
+  document.getElementById('goalCourse').innerHTML = _goalCourseOptions.map((group,i) => `<option value="${i}">${escapeHtml(group.courseName)} · ${escapeHtml(group.tee)} · ${group.holes} hål · CR ${escapeHtml(String(group.cr ?? '–'))}/Slope ${escapeHtml(String(group.slope ?? '–'))} · version ${group.version}</option>`).join('');
+  document.getElementById('cancelGoalEdit').classList.add('hidden');
+  document.getElementById('goalFormStatus').textContent = '';
+  updateGoalType();
+}
+function updateGoalType() {
+  const score = document.getElementById('goalType').value === 'score';
+  document.getElementById('goalCourseFields').classList.toggle('hidden',!score);
+  document.getElementById('goalHolesFields').classList.toggle('hidden',score);
+  document.getElementById('goalCourse').disabled = !score;
+  document.getElementById('goalCourse').required = score;
+  const input = document.getElementById('goalTarget'), group = _goalCourseOptions[Number(document.getElementById('goalCourse').value)];
+  input.min = score ? group?.holes || 9 : 1; input.max = score ? (group?.holes || 18)*20 : 5000;
+  document.getElementById('goalTargetLabel').textContent = score ? 'Målscore – bruttoslag, högst' : 'Antal fullständiga rundor';
+}
+function savePersonalGoal(event) {
+  event.preventDefault(); if (document.getElementById('goalsView').dataset.scope !== recoveryScope()) return;
+  const player = selectedGoalsPlayer(); if (!player) return;
+  const goals = goalsLoad(), existingId = document.getElementById('goalId').value, score = document.getElementById('goalType').value === 'score';
+  if (existingId && JSON.stringify(goals.find(goal => goal.id === existingId)) !== _goalEditBaseline) { document.getElementById('goalFormStatus').textContent = 'Målet ändrades på en annan enhet. Öppna den senaste versionen och försök igen.'; return; }
+  const course = score ? _goalCourseOptions[Number(document.getElementById('goalCourse').value)] : null;
+  const goal = {id:existingId || crypto.randomUUID(),playerId:player.id,type:score?'score':'rounds',startDate:document.getElementById('goalFrom').value,endDate:document.getElementById('goalTo').value,target:Number(document.getElementById('goalTarget').value),holes:score?course?.holes:Number(document.getElementById('goalHoles').value),roundKind:document.getElementById('goalKind').value,courseKey:course?.key || null,courseLabel:course ? course.courseLabel || `${course.courseName} · ${course.tee} · ${course.holes} hål · CR ${course.cr ?? "–"}/Slope ${course.slope ?? "–"}` : null};
+  if (!GolfValidation.isPersonalGoal(goal)) { document.getElementById('goalFormStatus').textContent = 'Kontrollera datum, mål och banval. Startdatum måste vara före slutdatum.'; return; }
+  if (!existingId && goals.length >= 500) { document.getElementById('goalFormStatus').textContent = 'Högst 500 mål kan sparas. Radera ett äldre mål först.'; return; }
+  if (!storageDb.save(GOALS_KEY,[...goals.filter(item=>item.id!==goal.id),goal],true)) { document.getElementById('goalFormStatus').textContent = 'Målet kunde inte sparas på enheten.'; return; }
+  scheduleAccountSync('personal-goal');resetGoalForm();renderGoalsAndRecap();document.getElementById('goalFormStatus').textContent = 'Målet är sparat på enheten.';
+}
+function editPersonalGoal(id) {
+  const goal = goalsLoad().find(item => item.id === id), player = selectedGoalsPlayer();
+  if (!goal || goal.playerId !== player?.id || document.getElementById('goalsView').dataset.scope !== recoveryScope()) return;
+  resetGoalForm();_goalEditBaseline = JSON.stringify(goal);
+  if (goal.type === 'score' && !_goalCourseOptions.some(group=>group.key===goal.courseKey)) {
+    _goalCourseOptions.push({key:goal.courseKey,courseName:goal.courseLabel,courseLabel:goal.courseLabel,tee:'Sparad målversion',holes:goal.holes});
+    const option=document.createElement('option');option.value=_goalCourseOptions.length-1;option.textContent=`${goal.courseLabel} · sparad målversion`;document.getElementById('goalCourse').append(option);
+  }
+  document.getElementById('goalId').value=goal.id;document.getElementById('goalType').value=goal.type;document.getElementById('goalTarget').value=goal.target;document.getElementById('goalFrom').value=goal.startDate;document.getElementById('goalTo').value=goal.endDate;document.getElementById('goalKind').value=goal.roundKind;document.getElementById('goalHoles').value=goal.holes;
+  document.getElementById('goalCourse').value=String(Math.max(0,_goalCourseOptions.findIndex(group=>group.key===goal.courseKey)));
+  updateGoalType();document.getElementById('goalEditor').open=true;document.getElementById('cancelGoalEdit').classList.remove('hidden');document.getElementById('goalTarget').focus();
+}
+function deletePersonalGoal(id) {
+  if (document.getElementById('goalsView').dataset.scope !== recoveryScope() || !confirm('Radera målet? Rundorna finns kvar.')) return;
+  const goal=goalsLoad().find(item=>item.id===id);if(goal?.playerId!==selectedGoalsPlayer()?.id)return;
+  const deletions=[...storageDb.load(GOAL_DELETIONS_KEY,[]).filter(item=>item.id!==id),{id,deletedAt:Date.now()}];
+  if (!storageDb.saveMany({[GOALS_KEY]:goalsLoad().filter(item=>item.id!==id),[GOAL_DELETIONS_KEY]:deletions})) { alert('Målet kunde inte raderas.'); return; }
+  scheduleAccountSync('goal-deleted');resetGoalForm();renderGoalsAndRecap();
+}
+function renderGoalsAndRecap() {
+  const player=selectedGoalsPlayer(), list=document.getElementById('personalGoalsList'), recap=document.getElementById('personalRecap');
+  const form=document.getElementById('goalEditor');form.classList.toggle('hidden',!player);document.getElementById('downloadRecap').disabled=!player;
+  if (!player) {list.textContent='Lägg till en sparad spelare för att sätta mål och se årskort.';recap.textContent='';return;}
+  const goals=goalsLoad().filter(goal=>goal.playerId===player.id),rounds=roundsLoad(),today=localPlayedToday();
+  list.innerHTML=goals.map(goal=>{
+    const data=GolfPersonalGoals.progress(goal,rounds,player,today),status={future:'Börjar senare',achieved:'Uppnått',ended:'Perioden avslutad',active:'Pågår'}[data.status];
+    return `<article class="personal-goal"><strong>${goal.type==='rounds'?`${goal.target} fullständiga rundor`:`Högst ${goal.target} bruttoslag`}</strong><p>${escapeHtml(goal.courseLabel || (goal.holes ? `${goal.holes} hål` : '9 och 18 hål, en runda per scorekort'))} · ${goal.roundKind==='practice'?'Träning':'Tävlingsrundor'}</p><p>${goal.startDate} – ${goal.endDate}</p><p><strong>${status}</strong> · ${goal.type==='rounds'?`${data.current}/${goal.target} rundor`:(data.current==null?'Inga matchande fullständiga rundor':`Bästa score ${data.current} slag · ${data.matches} rundor`)}</p>${goal.type==='rounds'?`<progress max="${goal.target}" value="${Math.min(data.current,goal.target)}" aria-label="${data.current} av ${goal.target} rundor"></progress>`:''}<div style="display:flex;gap:8px"><button type="button" class="btn secondary" data-goal-edit="${escapeHtml(goal.id)}">Ändra mål</button><button type="button" class="btn secondary" data-goal-delete="${escapeHtml(goal.id)}">Radera mål</button></div></article>`;
+  }).join('') || '<p>Inga mål sparade för spelaren. Lägg till ett mål nedan.</p>';
+  list.querySelectorAll('[data-goal-edit]').forEach(button=>button.onclick=()=>editPersonalGoal(button.dataset.goalEdit));list.querySelectorAll('[data-goal-delete]').forEach(button=>button.onclick=()=>deletePersonalGoal(button.dataset.goalDelete));
+  const from=document.getElementById('recapFrom').value,to=document.getElementById('recapTo').value;
+  document.getElementById('downloadRecap').disabled=!from || !to || from>to;
+  if(!from || !to || from>to){recap.textContent='Välj ett giltigt datumintervall.';return;}
+  const data=GolfPersonalGoals.recap(rounds,player,from,to,document.getElementById('recapKind').value,today);
+  recap.innerHTML=`<h3>${escapeHtml(player.nick || player.name)} · Mitt årskort</h3><p><strong>${data.count} fullständiga rundor på ${data.courses} banor</strong></p><p>${data.nine} niohålsrundor · ${data.eighteen} artonhålsrundor</p><p>${data.incomplete} ofullständiga scorekort visas inte i totalsiffrorna. Lagspel, framtida speldatum, preliminära och uteslutna tourresultat ingår inte.</p><h3>Bästa score per bana, tee och version</h3>${data.bests.length?`<ul>${data.bests.slice(0,10).map((item,i)=>`<li>${escapeHtml(item.courseName)} · ${escapeHtml(item.tee)} · ${item.holes} hål · version ${item.version}: <strong>${item.gross} slag</strong> (${item.date})</li>`).join('')}</ul>${data.bests.length>10?'<p>De första 10 bankombinationerna visas.</p>':''}`:'<p>Inga fullständiga individuella rundor i perioden.</p>'}<h3>Registrerad hålstatistik</h3>${holeStatsSummaryHtml(data.stats)}`;
+}
+async function buildRecapImage() {
+  const player=selectedGoalsPlayer(),from=document.getElementById('recapFrom').value,to=document.getElementById('recapTo').value;
+  if(!player || !from || !to || from>to)throw new Error('Välj spelare och giltig period.');
+  const kind=document.getElementById('recapKind').value,data=GolfPersonalGoals.recap(roundsLoad(),player,from,to,kind,localPlayedToday());
+  const canvas=document.createElement('canvas');canvas.width=800;canvas.height=1100;const ctx=canvas.getContext('2d');
+  ctx.fillStyle='#fff';ctx.fillRect(0,0,800,1100);ctx.fillStyle='#1b4332';ctx.fillRect(0,0,800,205);ctx.fillStyle='#fff';ctx.font='bold 34px sans-serif';ctx.fillText('Poängbogey · Mitt årskort',40,58);
+  const fit=(text,max)=>{text=String(text);if(ctx.measureText(text).width<=max)return text;while(text.length&&ctx.measureText(text+'…').width>max)text=text.slice(0,-1);return text+'…';};
+  ctx.font='bold 28px sans-serif';ctx.fillText(fit(player.nick || player.name,720),40,110);ctx.font='22px sans-serif';ctx.fillText(`${from} – ${to}`,40,152);ctx.fillText(kind==='practice'?'Träningsrundor':'Tävlingsrundor',40,185);
+  let y=255;const line=(text,bold=false)=>{ctx.fillStyle='#1a1a2e';ctx.font=`${bold?'bold ':''}23px sans-serif`;ctx.fillText(fit(text,720),40,y);y+=38;};
+  line(`${data.count} fullständiga rundor · ${data.courses} banor`,true);line(`${data.nine} niohålsrundor · ${data.eighteen} artonhålsrundor`);line(`${data.incomplete} ofullständiga scorekort utelämnade`);y+=18;line('Bästa score · upp till fem ban-/tee-versioner',true);
+  data.bests.slice(0,5).forEach((item,i)=>{line(`${item.courseName} · ${item.tee} · ${item.holes} hål · v${item.version}`);line(`${item.gross} bruttoslag · ${item.date}`);});if(!data.bests.length)line('Inga matchande fullständiga rundor.');
+  y=Math.max(y+18,820);line('Registrerad hålstatistik',true);const stats=data.stats;line(stats.putts.count?`Puttar: ${(stats.putts.total/stats.putts.count).toFixed(1)}/hål · ${stats.putts.count} hål · treputtar+ ${stats.putts.threePutts}`:'Puttar: inte registrerat');
+  const pct=(name,item)=>item.count?`${name}: ${Math.round(item.hits/item.count*100)}% · ${item.hits}/${item.count} registrerade hål`:`${name}: inte registrerat`;
+  line(pct('Fairway',stats.fairway));line(pct('GIR',stats.gir));line(stats.penalties.count?`Pliktslag: ${stats.penalties.total} · ${stats.penalties.count} registrerade hål`:'Pliktslag: inte registrerat');
+  ctx.fillStyle='#1b4332';ctx.fillRect(0,1060,800,40);ctx.fillStyle='#fff';ctx.font='16px sans-serif';ctx.fillText('Egna individuella resultat · Varje statistikmått har eget underlag',40,1086);
+  return canvas;
+}
+async function downloadRecapImage() {
+  try { const canvas=await buildRecapImage(),blob=await new Promise(resolve=>canvas.toBlob(resolve,'image/png'));if(!blob)throw new Error('Bilden kunde inte skapas.');const url=URL.createObjectURL(blob),link=document.createElement('a');link.href=url;link.download='poangbogey-arskort.png';link.click();setTimeout(()=>URL.revokeObjectURL(url),1000); }
+  catch(error){showShareToast(error.message);}
+}
+
 function openSeasonView() {
   const fromEl = document.getElementById('seasonFrom');
   const toEl   = document.getElementById('seasonTo');

@@ -76,6 +76,8 @@ Effort: medium. Success: after a few rounds, a player can identify a specific re
 
 ### Goals and recaps
 
+Implementation update (29 October): [personal goals and season recap](roadmap-personal-goals-2026-10-29.md) now cover round-count and course/tee/version target-score goals, date/type filters, recorded-stat summaries and manually downloadable recap PNGs. Goal definitions sync with accounts and accompany player backups. Putting-specific goals remain later work.
+
 Allow optional personal goals and create a season recap using existing history and share-card rendering. Examples: number of rounds played, a target score on a chosen course, or fewer three-putts once putts are recorded. Avoid automatic public posting.
 
 Effort: small–medium after the underlying statistics are consistent.

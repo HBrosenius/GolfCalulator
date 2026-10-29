@@ -1,0 +1,15 @@
+# Personal goals and season recap — 29 October 2026
+
+Available under **Statistik → Mina mål och årskort**.
+
+Personal goals cover a number of complete rounds or a maximum gross score on a specific course/tee/version. Each goal has its own date range, player and competitive/practice selection. Round-count goals can count 9-hole rounds, 18-hole rounds, or either (one scorecard counts as one round). Target-score goals use the same frozen comparison key as course insights, including hole count, rating and hole-par layout. Saved courses can be selected before the player has a recorded round there.
+
+Progress is calculated from matching complete individual scorecards and positive recorded hole scores, not a potentially partial stored gross total. Team/match formats, future played dates, provisional tour scores, withdrawn/disqualified tour results and incomplete cards do not count. Goals show upcoming, active, achieved or ended status. Missing history is explicit. A target score is a gross score, without handicap adjustment.
+
+The recap uses a chosen date range and round type. It shows full round/course counts, separate 9/18-hole counts, incomplete-card exclusions, best gross results per course/tee/version, and recorded-stat summaries with per-metric sample sizes. It does not rank raw 9-hole totals against 18-hole totals or claim a single best score across different courses. The app lists up to ten course combinations; the downloadable 800×1100 PNG includes up to five, in course order, with player display name and period. Downloading the card never posts it publicly or invokes an external messaging service.
+
+Goals have their own account-scoped collection with stable identities, deletion tombstones and three-way conflict handling. The editor refuses to overwrite a goal changed while the form was open. Stable player identity, rather than selector position, protects against player reordering during sync. Guest data remains separate. Goal definitions and deletions accompany players in JSON/Drive backups and account snapshots; old backups without goals remain accepted. Older clients that omit goals cannot erase them on the server. Recap output is derived from history and is not stored as another synchronized record.
+
+Deleting a goal leaves round history intact. Deleted goals cannot return through a stale backup or sync upload. Existing goal references remain tied to their original player identity and course snapshot, even when current course ratings change. Current apps are required to restore backups containing the optional goal fields.
+
+Verification includes deterministic goal eligibility/progress, course-version matching, missing-stat samples, backup validation, old-client preservation, conflicting edits and tombstones. Browser checks cover creation/editing, achievement, target scores, PNG download, reload, backup restore, account isolation and stale editor input. Server tests exercise goal validation, old-client uploads and deletion preservation. The application shell caches the new helper and versioned dependencies for offline use.
