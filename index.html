@@ -14,18 +14,19 @@
 <script src="src/vendor/dompurify.min.js?v=3.4.17"></script>
 <script src="src/scoring.js?v=20260809-2"></script>
 <script src="src/storage.js?v=20261027-2"></script>
-<script src="src/course-insights.js?v=20261029-1"></script>
-<script src="src/live-sync.js?v=20260809-2"></script>
-<script src="src/validation.js?v=20261028-3"></script>
+<script src="src/hole-stats.js?v=20261029-1"></script>
+<script src="src/course-insights.js?v=20261029-2"></script>
+<script src="src/live-sync.js?v=20261029-2"></script>
+<script src="src/validation.js?v=20261029-1"></script>
 <script src="src/score-explanations.js?v=20261027-1"></script>
 <script src="src/round-recovery.js?v=20261027-1"></script>
 <script src="src/round-setup.js?v=20261027-1"></script>
 <script src="src/live-invitation.js?v=20261027-1"></script>
 <script src="src/vendor/qrcode.js?v=2.0.4"></script>
 <script src="src/round-extras.js?v=20260809-2"></script>
-<script src="src/live-round.js?v=20261027-1"></script>
+<script src="src/live-round.js?v=20261029-2"></script>
 <script src="src/competition.js?v=20261028-1"></script>
-<script src="src/tour-rules.js?v=20261028-3"></script>
+<script src="src/tour-rules.js?v=20261029-2"></script>
 <script src="src/tour-events.js?v=20261028-1"></script>
 <script src="src/tour-sync.js?v=20261028-5"></script>
 <script src="src/account-sync.js?v=20261027-2"></script>
@@ -932,6 +933,11 @@
   .round-readiness { margin: 12px 0; padding: 12px; border: 1px solid var(--border); border-radius: 10px; font-size: .82rem; line-height: 1.5; }
   .round-readiness p { margin: 6px 0; }
   .round-readiness .btn { margin-top: 8px; font-size: .82rem; padding: 9px; }
+  #holeStatsEditor select { width: 100%; }
+  #holeStatsEditor summary { cursor: pointer; font-weight: 700; color: var(--heading); }
+  .hole-stats-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin-top: 12px; }
+  .hole-stats-fields input { width: 100%; }
+  .hole-stats-summary p { margin: 8px 0; line-height: 1.5; }
 </style>
 </head>
 <body>
@@ -2867,7 +2873,8 @@ function buildStep4State() {
   });
   const previousScores = state._scoreSetupKey === scoreSetupKey ? state.scores : null;
   const hasScores = (state.scores || []).some(row => row.some(score => score !== '' && score != null));
-  if (!previousScores && hasScores && !confirm('Ändrad bana eller spelaruppställning nollställer inmatade scorer. Fortsätta?')) return false;
+  const hasStats = (state.holeStats || []).some(row => row.some(stats => Object.keys(GolfHoleStats.clean(stats)).length));
+  if (!previousScores && (hasScores || hasStats) && !confirm('Ändrad bana eller spelaruppställning nollställer inmatade scorer och hålstatistik. Fortsätta?')) return false;
   state._scoreSetupKey = scoreSetupKey;
   state.players = players;
 
@@ -2904,6 +2911,8 @@ function buildStep4State() {
   }
 
   if (previousScores) state.scores = previousScores;
+  else state.holeStats = [];
+  if (state.gameMode === 'individual') state.holeStats = Array.from({length:players.length}, (_, p) => state.holeStats?.[p] || new Array(state.holes).fill(null));
 
   if (state.gameMode === 'scramble') {
     if (!previousScores || !Array.isArray(state.teeShots) || state.teeShots.length !== state.teams.length) {
@@ -2963,8 +2972,65 @@ function setTeeShotPlayer(teamIdx, holeIdx, val) {
   inprogressSave();
 }
 
+function holeStatsSummaryHtml(data) {
+  if (!data.recorded) return '<p>Ingen hålstatistik registrerad för dessa rundor. Registrera valfritt på scorekortet.</p>';
+  const percentage = item => item.count ? `${Math.round(item.hits / item.count * 100)}% (${item.hits}/${item.count} registrerade hål)` : 'Inte registrerat';
+  return `<div class="hole-stats-summary"><p><strong>Statistik från ${data.recorded} hål med noteringar</strong></p>
+    <p>Puttar: ${data.putts.count ? `${data.putts.total} på ${data.putts.count} hål · ${(data.putts.total / data.putts.count).toFixed(1)} per registrerat hål · ${data.putts.threePutts} treputtar eller fler` : 'Inte registrerat'}</p>
+    <p>Fairway: ${percentage(data.fairway)}${data.fairway.count ? ` · miss vänster ${data.fairway.left}, höger ${data.fairway.right}, övrigt ${data.fairway.other}` : ''}</p>
+    <p>GIR: ${percentage(data.gir)}</p><p>Pliktslag: ${data.penalties.count ? `${data.penalties.total} på ${data.penalties.count} registrerade hål` : 'Inte registrerat'}</p>
+    <p style="color:var(--muted)">Endast hål med registrerade slag ingår. Tomma fält räknas inte som noll eller miss. Fairway på par 3 ingår inte.</p></div>`;
+}
+function renderHoleStatsEditor() {
+  const old = document.getElementById('holeStatsEditor');
+  const open = old?.open || false, player = document.getElementById('statsPlayer')?.value || '0', hole = document.getElementById('statsHole')?.value || '0';
+  old?.remove(); if (state.gameMode !== 'individual') return;
+  const editor = document.createElement('details'); editor.id = 'holeStatsEditor'; editor.open = open; editor.className = 'round-readiness';
+  editor.innerHTML = `<summary>Valfri hålstatistik</summary><p>Puttar, fairway, green in regulation (GIR) och pliktslag. Lämna tomt om du inte registrerar. Puttar och pliktslag ingår redan i slagscoren. I live- och tourrundor delas noteringarna med scorekortet.</p>
+    <label for="statsPlayer">Spelare</label><select id="statsPlayer" onchange="renderHoleStatsEditorValues()">${state.players.map((p,i) => `<option value="${i}">${escapeHtml(p.name)}</option>`).join('')}</select>
+    <label for="statsHole">Hål</label><select id="statsHole" onchange="renderHoleStatsEditorValues()">${Array.from({length:state.holes},(_,i)=>`<option value="${i}">Hål ${i+1} · par ${state.hpar[i]}</option>`).join('')}</select>
+    <div class="hole-stats-fields"><div><label for="statsPutts">Puttar</label><input type="number" id="statsPutts" min="0" max="10" inputmode="numeric" placeholder="Inte registrerat" onchange="updateHoleStat('putts',this)"></div>
+    <div><label for="statsPenalties">Pliktslag</label><input type="number" id="statsPenalties" min="0" max="20" inputmode="numeric" placeholder="Inte registrerat" onchange="updateHoleStat('penalties',this)"></div>
+    <div><label for="statsFairway">Fairway</label><select id="statsFairway" onchange="updateHoleStat('fairway',this)"><option value="">Inte registrerat</option><option value="hit">Träff</option><option value="left">Miss vänster</option><option value="right">Miss höger</option><option value="miss">Övrig miss</option><option value="na">Ej tillämpligt</option></select></div>
+    <div><label for="statsGir">GIR</label><select id="statsGir" onchange="updateHoleStat('gir',this)"><option value="">Inte registrerat</option><option value="yes">Ja</option><option value="no">Nej</option></select></div></div>
+    <p>GIR: green nådd senast på slaget par minus två.</p><button type="button" class="btn secondary" id="clearHoleStats" onclick="clearHoleStats()">Rensa hålstatistik</button><p id="holeStatsStatus" role="status"></p>`;
+  document.querySelector('.score-table').parentElement.before(editor);
+  document.getElementById('statsPlayer').value = Number(player) < state.players.length ? player : '0';document.getElementById('statsHole').value = Number(hole) < state.holes ? hole : '0';
+  renderHoleStatsEditorValues();
+}
+function renderHoleStatsEditorValues() {
+  if (!document.getElementById('statsPlayer')) return;
+  const p = Number(document.getElementById('statsPlayer').value), h = Number(document.getElementById('statsHole').value);
+  const par = teeData(state.players[p]?.tee).hpar[h] || state.hpar[h];
+  [...document.getElementById('statsHole').options].forEach((option,i) => { option.textContent = `Hål ${i+1} · par ${teeData(state.players[p]?.tee).hpar[i] || state.hpar[i]}`; });
+  const stats = state.holeStats?.[p]?.[h] || {}, editable = !state.liveRoomCode || isSeatEditableByMe(p);
+  const values = { statsPutts:stats.putts ?? '', statsPenalties:stats.penalties ?? '', statsFairway:par === 3 ? 'na' : stats.fairway ?? '', statsGir:stats.gir == null ? '' : stats.gir ? 'yes' : 'no' };
+  Object.entries(values).forEach(([id,value]) => { const input = document.getElementById(id); if (document.activeElement !== input) input.value = value; input.disabled = !editable || (id === 'statsFairway' && par === 3); });
+  document.getElementById('clearHoleStats').disabled = !editable;
+  document.getElementById('holeStatsStatus').textContent = editable ? 'Valfritt. Statistik ändrar inte score eller poäng.' : 'Endast spelaren på denna liveplats får ändra.';
+}
+function updateHoleStat(field, input) {
+  const p = Number(document.getElementById('statsPlayer').value), h = Number(document.getElementById('statsHole').value);
+  if (state.gameMode !== 'individual' || (state.liveRoomCode && !isSeatEditableByMe(p))) return;
+  if (!input.checkValidity()) { input.reportValidity(); return; }
+  const stats = {...state.holeStats?.[p]?.[h]};
+  if (input.value === '') delete stats[field];
+  else stats[field] = field === 'gir' ? input.value === 'yes' : ['putts','penalties'].includes(field) ? Number(input.value) : input.value;
+  if (!GolfHoleStats.valid(stats, teeData(state.players[p]?.tee).hpar[h] || state.hpar[h])) return;
+  state.holeStats ||= []; state.holeStats[p] ||= new Array(state.holes).fill(null);state.holeStats[p][h] = Object.keys(stats).length ? stats : null;
+  inprogressSave();liveSyncPush(p);
+  document.getElementById('holeStatsStatus').textContent = 'Noteringen ingår i scorekortet. Slagscoren ändras inte.';
+}
+function clearHoleStats() {
+  const p = Number(document.getElementById('statsPlayer').value), h = Number(document.getElementById('statsHole').value);
+  if (state.liveRoomCode && !isSeatEditableByMe(p)) return;
+  if (state.holeStats?.[p]) state.holeStats[p][h] = null;
+  renderHoleStatsEditorValues();inprogressSave();liveSyncPush(p);
+}
+
 function buildScoreTable() {
   renderRoundDetails();
+  renderHoleStatsEditor();
   const thead = document.getElementById('scoreTableHead');
   const tbody = document.getElementById('scoreTableBody');
   const isSharedScore = isSharedScoreMode(state.gameMode);
@@ -3784,6 +3850,7 @@ async function calculateAll() {
   _finalizingRound = true;
   try {
   if (!roundDetailsValid()) return;
+  for (const input of document.querySelectorAll('#holeStatsEditor input')) { if (!input.checkValidity()) { document.getElementById('holeStatsEditor').open = true; input.reportValidity(); return; } }
   const n = numColumns();
   for (let p = 0; p < n; p++) {
     if (!state.scores[p]) state.scores[p] = new Array(state.holes).fill('');
@@ -3835,6 +3902,14 @@ async function calculateAll() {
     }
     return { subj, ph, totalPoints, totalBrutto, rows, isScramble, isFourball, isFoursome, isMatch, minTeeShots: isScramble ? (state.minTeeShots || null) : null };
   });
+
+  if (state.gameMode === 'individual') {
+    for (let p = 0; p < results.length; p++) for (let h = 0; h < state.holes; h++) {
+      const stats = state.holeStats?.[p]?.[h], row = results[p].rows[h];
+      if (stats && !GolfHoleStats.valid(stats, row.par, row.skipped ? undefined : row.score)) { alert(`Kontrollera hålstatistiken för ${state.players[p].name}, hål ${h + 1}. Puttar och pliktslag får inte överstiga hålets slag.`); return; }
+      const clean = GolfHoleStats.clean(stats); if (Object.keys(clean).length) row.stats = clean;
+    }
+  }
 
   if (isFourball) applyFourballTeamScoring(results);
 
@@ -4120,6 +4195,7 @@ function renderResults(playerResults, rankContainerId = 'rankingContainer', prCo
         </div>
         <div style="font-size:0.8rem;color:var(--muted);margin-bottom:10px;">${subLabel}</div>
         ${teeShotSummary}
+        ${!isScramble && !isFoursome && !isFourball && !isMatch && GolfHoleStats.summarize(r.rows).recorded ? holeStatsSummaryHtml(GolfHoleStats.summarize(r.rows)) : ''}
         <div style="overflow-x:auto;">
           <table class="result-table">
             <thead><tr><th>Hål</th><th>Par</th><th>Hcp</th><th>Slag</th><th>Score</th><th>Netto</th><th>Poäng</th></tr></thead>
@@ -4947,13 +5023,14 @@ const liveScorePushController = GolfLiveSync.createScorePushController({
     seatToken: state.liveSeatToken,
     hostToken: state.liveHostToken,
     scores: state.scores,
+    ...(state.gameMode === 'individual' ? { holeStats: state.holeStats } : {}),
   }),
-  send: async ({ code, seat, token, scores }) => {
+  send: async ({ code, seat, token, scores, holeStats }) => {
     const key = `${recoveryScope()}|live|${code}`;
     try {
       const response = await liveSyncClient.request(`/room/${code}`, {
         method: 'PATCH', headers: liveMutationHeaders(token),
-        body: JSON.stringify({ protocolVersion: LIVE_PROTOCOL_VERSION, seat, scores }),
+        body: JSON.stringify({ protocolVersion: LIVE_PROTOCOL_VERSION, seat, scores, ...(holeStats ? { holeStats } : {}) }),
       });
       _roundUploadStatus.set(key, response.ok ? { at: Date.now() } : { ..._roundUploadStatus.get(key), error: 'Livescore kunde inte laddas upp' });
       return response.ok;
@@ -4976,12 +5053,15 @@ window.addEventListener('online', () => {
 
 function liveSyncApplyRoom(room) {
   const merged = GolfLiveRound.mergeRoomSnapshot(state, room);
+  const statsChanged = JSON.stringify(state.holeStats) !== JSON.stringify(merged.state.holeStats);
   state = merged.state;
+  renderHoleStatsEditorValues();
   if (merged.claimsChanged) { buildScoreTable(); restoreScoresToTable(); }
   if (typeof renderLiveSeatCells === 'function') renderLiveSeatCells(room);
   if (merged.markersChanged) renderLiveMarkerSelects();
   if (state.liveSeat !== 0 && (merged.metaChanged || room?.note !== undefined || room?.weather !== undefined)) syncRoundMeta();
   if (merged.betsChanged && typeof renderBetRows === 'function') renderBetRows();
+  if (statsChanged) inprogressSave();
 }
 function liveSyncPushMarkers() {
   if (!state.liveRoomCode || !state.liveHostToken) return;
@@ -5111,6 +5191,7 @@ function startLiveRound() {
       state.liveSeatToken = data.seatToken;
       buildScoreTable(); // rebuild now that liveRoomCode/liveSeat are set, so other seats render read-only
       inprogressSave();
+      liveSyncPush(0);
       showLiveCodeModal(data.code);
     })
     .catch(() => {
@@ -6578,6 +6659,7 @@ function renderCourseInsights() {
     <p><strong>Starkast:</strong> hål ${holeNames(data.strongest)} (${delta(data.strongest[0]?.average)})<br><strong>Tuffast:</strong> hål ${holeNames(data.toughest)} (${delta(data.toughest[0]?.average)})</p>
     <h3>Niohålsjämförelse</h3><p>${data.splits.map(item => `${item.label}: ${sample(item)}`).join('<br>')}</p>
     <h3>Par 3/4/5</h3><p>${data.pars.map(item => `Par ${item.par}: ${sample(item)}`).join('<br>')}</p>
+    <h3>Valfri hålstatistik</h3>${holeStatsSummaryHtml(data.stats)}
     <h3>Hål för hål</h3><table style="width:100%;text-align:left"><thead><tr><th scope="col">Hål</th><th scope="col">Snitt mot par</th><th scope="col">Resultat</th></tr></thead><tbody>${data.holes.map(item => `<tr><th scope="row">${item.hole}</th><td>${delta(item.average)}</td><td>${item.count}</td></tr>`).join('')}</tbody></table>
     <h3>Senaste ${data.recent.length} rundor här</h3>${data.recent.map(item => `<p>${escapeHtml(String(item.date || 'Okänt datum'))} · ${item.gross} slag (${delta(item.toPar)} mot par)${item.complete ? '' : ` · ${item.holes}/${group.holes} registrerade hål`}</p>`).join('')}`;
 }
@@ -7285,6 +7367,7 @@ function correctSharedTourRound(code, roundId) {
   if (!round || !['organizer', 'administrator'].includes(record.role) || ['withdrawn', 'disqualified'].includes(round.resultStatus)) return;
   const scope = recoveryScope();
   const { dialog, close } = tourRoundDialog('Korrigera tourrunda');
+  const statsNotice = document.createElement('p'); statsNotice.textContent = 'Ändrad hålscore rensar hålets valfria statistik. Originalet finns kvar i ändringshistoriken.'; dialog.insertBefore(statsNotice, close);
   const form = document.createElement('form');
   const field = (label, input) => { const wrap = document.createElement('label'); wrap.style.cssText = 'display:block;margin:12px 0;'; wrap.append(document.createTextNode(label + ' '), input); form.append(wrap); return input; };
   const date = field('Speldatum', document.createElement('input')); date.type = 'date'; date.value = round.playedDate; date.min = record.tour.startDate; date.max = record.tour.endDate; date.required = true;
@@ -8953,6 +9036,7 @@ function editRound(id) {
     playerMemberIds: shared ? [] : r.subjects.map(s => s.memberId || null), teams: null,
     teamAssign: ['A','A','B','B'],
     playerTees: [],
+    holeStats: r.subjects.map(s => s.rows.map(row => row.stats ? structuredClone(row.stats) : null)),
     scores: r.subjects.map(s => s.rows.map(row =>
       (row.skipped || row.score === '–' || row.score == null) ? '' : row.score)),
     note: r.note || '', weather: r.weather || null,

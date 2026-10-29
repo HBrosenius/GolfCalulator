@@ -79,6 +79,7 @@
       const seatData = room.seats && room.seats[index];
       return seatData && Array.isArray(seatData.scores) ? [...seatData.scores] : new Array(room.holes).fill('');
     });
+    if (room.gameMode === 'individual') next.holeStats = Array.from({ length: seatCount }, (_, index) => room.seats?.[index]?.holeStats ? JSON.parse(JSON.stringify(room.seats[index].holeStats)) : new Array(room.holes).fill(null));
     return next;
   }
 
@@ -91,6 +92,10 @@
       const seatData = room.seats[seatKey];
       if (seat === current.liveSeat || !seatData || !Array.isArray(seatData.scores)) return;
       if (!next.scores[seat]) next.scores[seat] = new Array(current.holes).fill('');
+      if (room.gameMode === 'individual' && Array.isArray(seatData.holeStats)) {
+        next.holeStats = [...(next.holeStats || [])];
+        next.holeStats[seat] = JSON.parse(JSON.stringify(seatData.holeStats));
+      }
       seatData.scores.forEach((value, hole) => {
         if (next.scores[seat][hole] !== value) scoresChanged = true;
         next.scores[seat][hole] = value;

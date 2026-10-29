@@ -35,3 +35,9 @@ test('practice, pickup and missing scores remain separate with absent holes excl
   const data=Insights.summarize(rounds,player,{key,completion:'incomplete'});
   assert.equal(data.scoredHoles,7);assert.equal(data.holes[0].average,null);assert.equal(data.holes[1].count,0);assert.equal(data.recent[0].complete,false);
 });
+
+test('statistics summaries honor the same course and practice filters as the hole comparisons',()=>{
+  const first=round(1),practice=round(2,{roundKind:'practice'});first.subjects[0].rows[0].stats={putts:0,gir:false};practice.subjects[0].rows[0].stats={putts:3,gir:true};
+  const rounds=[first,practice],key=Insights.groups(rounds,player)[0].key;
+  assert.equal(Insights.summarize(rounds,player,{key}).stats.putts.total,0);assert.equal(Insights.summarize(rounds,player,{key}).stats.putts.count,1);assert.equal(Insights.summarize(rounds,player,{key,kind:'practice'}).stats.putts.threePutts,1);
+});

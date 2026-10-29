@@ -81,9 +81,11 @@ try {
   });
 
   const submission = { ...buildSmokeSubmission(created.tour, iso(0)), rulesRevision: created.tour.rulesRevision };
+  submission.subjects[0].rows[0].stats = { putts: 2, fairway: 'hit', gir: true, penalties: 0 };
   const recorded = await json(await fetch(`${api}/tour/${created.code}/rounds`, {
     method: 'POST', headers: headers(created.organizerToken), body: JSON.stringify(submission),
   }));
+  assert.deepEqual(recorded.round.subjects[0].rows[0].stats, submission.subjects[0].rows[0].stats);
   assert.equal(recorded.round.approvalStatus, 'provisional');
   assert.equal(recorded.tour.rulesLocked, true);
   assert.equal(recorded.round.scoringSnapshot.competition.competition.format, 'net');
@@ -98,6 +100,7 @@ try {
     method: 'PATCH', headers: headers(created.organizerToken), body: JSON.stringify(correction),
   }));
   assert.equal(corrected.round.subjects[0].totalPoints, 17);
+  assert.equal(corrected.round.subjects[0].rows[0].stats, undefined);
   const retry = await json(await fetch(correctionUrl, {
     method: 'PATCH', headers: headers(created.organizerToken), body: JSON.stringify(correction),
   }));
@@ -150,7 +153,7 @@ try {
   }));
   assert.equal(cancelledEvent.event.status, 'cancelled'); assert.equal(cancelledEvent.event.groups[0].id, 'smoke-group');
   assert.equal(cancelledEvent.tour.retentionUntil, Date.parse(created.tour.endDate + 'T23:59:59.999Z') + 1 + 365 * 86400000);
-  console.log(JSON.stringify({ ok: true, service: health.service, tour: created.code, realtime: true, correction: true, audit: true, retry: true, approval: true, resultStatus: true, schedule: true, competition: true }));
+  console.log(JSON.stringify({ ok: true, service: health.service, tour: created.code, realtime: true, correction: true, audit: true, retry: true, approval: true, resultStatus: true, schedule: true, competition: true, holeStats: true }));
 } finally {
   if (created) await fetch(`${api}/tour/${created.code}`, { method: 'DELETE', headers: headers(created.organizerToken) }).catch(() => {});
 }

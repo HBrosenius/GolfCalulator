@@ -82,6 +82,7 @@
             code: roomCode, seat,
             token: seat === round.localSeat ? round.seatToken : round.hostToken,
             scores: Array.isArray(round.scores?.[seat]) ? [...round.scores[seat]] : [],
+            ...(Array.isArray(round.holeStats?.[seat]) ? { holeStats: JSON.parse(JSON.stringify(round.holeStats[seat])) } : {}),
           });
           const latest = settings.getRound();
           if (response !== false && latest?.code === roomCode && dirty.get(seat) === queuedVersion) dirty.delete(seat);

@@ -76,3 +76,9 @@ test('switching rooms discards pending work and ignores stale completion', async
   assert.deepEqual(controller.pendingSeats(), [0]);
   controller.stop();
 });
+
+test('stat-only seat changes carry immutable optional stats through the score retry controller',async()=>{
+  const round={code:'ABCD',localSeat:0,seatToken:'token',scores:[[5]],holeStats:[[{putts:2,gir:false}]]};let captured;
+  const controller=liveSync.createScorePushController({getRound:()=>round,send:async body=>{captured=body;return true;}});controller.mark(0);await controller.flush();round.holeStats[0][0].putts=3;
+  assert.equal(captured.holeStats[0].putts,2);assert.deepEqual(controller.pendingSeats(),[]);controller.stop();
+});

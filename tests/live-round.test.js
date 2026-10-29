@@ -108,3 +108,9 @@ test('joiner snapshot mirrors markers, metadata and authoritative bets', () => {
   assert.equal(result.state.note, 'Blåsigt');
   assert.equal(result.state.bets, bets);
 });
+
+test('live snapshots preserve own annotations and merge other seat annotations without aliasing',()=>{
+  const current={liveSeat:0,holes:9,scores:[[5],[4]],holeStats:[[{putts:3}],[null]]};
+  const room={gameMode:'individual',seats:[{scores:[5],holeStats:[{putts:1}]},{scores:[4],holeStats:[{putts:2,gir:false}]}]};
+  const next=liveRound.mergeRoomSnapshot(current,room).state;assert.equal(next.holeStats[0][0].putts,3);assert.equal(next.holeStats[1][0].putts,2);room.seats[1].holeStats[0].putts=0;assert.equal(next.holeStats[1][0].putts,2);assert.equal(current.holeStats[1][0],null);
+});

@@ -56,6 +56,8 @@ Effort: large. Start with the actual rules used by the app's current groups.
 
 ### Optional per-hole statistics
 
+Implementation update (29 October): [optional individual hole statistics](roadmap-hole-statistics-2026-10-29.md) now add opt-in putts, fairway results/direction, GIR and penalty strokes, with recorded-sample summaries in results and course insights. Drafts, backups, account/live sync and tour submissions preserve optional fields.
+
 Add an opt-in expandable section for putts, fairway hit/miss, green in regulation and penalty strokes. Keep score-only entry as the default. Store “not recorded” separately from zero or a miss, and retain these fields in backups and synchronization.
 
 Use the data for useful summaries: three-putts per round, penalties, missed-fairway direction, and trends by course/tee/date. Do not label these as strokes-gained measurements without the necessary shot-level location/distance data.

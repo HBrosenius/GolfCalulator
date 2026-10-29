@@ -1,8 +1,8 @@
 (function (root, factory) {
-  const api = factory(typeof module === 'object' && module.exports ? require('./storage.js') : root.GolfStorage);
+  const api = factory(typeof module === 'object' && module.exports ? require('./storage.js') : root.GolfStorage, typeof module === 'object' && module.exports ? require('./hole-stats.js') : root.GolfHoleStats);
   if (typeof module === 'object' && module.exports) module.exports = api;
   root.GolfCourseInsights = api;
-}(typeof globalThis !== 'undefined' ? globalThis : this, function (Storage) {
+}(typeof globalThis !== 'undefined' ? globalThis : this, function (Storage, Stats) {
   'use strict';
   const scored = row => row && !row.skipped && Number.isInteger(row.score) && row.score > 0 && Number.isInteger(row.par) && row.par >= 3 && row.par <= 6;
   function entries(rounds, player) {
@@ -36,6 +36,7 @@
     const holes = Array.from({ length: holeCount }, (_, i) => ({ hole: i + 1, ...aggregate(selected.flatMap(entry => { const row = entry.subject.rows[i]; return scored(row) ? [row] : []; })) }));
     const ranked = holes.filter(hole => hole.count > 0).sort((a, b) => a.average - b.average || a.hole - b.hole);
     return {
+      stats: Stats.summarize(selected.flatMap(entry => entry.subject.rows)),
       count: selected.length, scoredHoles: selected.reduce((sum, entry) => sum + entry.rows.length, 0), holes,
       strongest: ranked.length ? ranked.filter(hole => hole.average === ranked[0].average) : [],
       toughest: ranked.length ? ranked.filter(hole => hole.average === ranked[ranked.length - 1].average) : [],

@@ -110,6 +110,7 @@
           rows: subject.rows.map(row => ({
             h: row.h, par: row.par, si: row.si, strokes: row.strokes,
             score: row.score, netto: row.netto, pts: row.pts, skipped: !!row.skipped,
+          ...(row.stats !== undefined ? { stats: JSON.parse(JSON.stringify(row.stats)) } : {}),
           })),
         }));
       }
@@ -126,6 +127,7 @@
         rows: subject.rows.map(row => ({
           h: row.h, par: row.par, si: row.si, strokes: row.strokes,
           score: row.score, netto: row.netto, pts: row.pts, skipped: !!row.skipped,
+          ...(row.stats !== undefined ? { stats: JSON.parse(JSON.stringify(row.stats)) } : {}),
         })),
       }];
     });
